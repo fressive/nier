@@ -150,6 +150,30 @@ state, and asks the model for the next call until it returns `goal_complete` or
 `goal_failed`. `dry_run=True` previews only the next action; omit it to execute
 the goal loop.
 
+For interactive debugging, use `agent.debug(goal)`. Each explicit `step()` call
+makes one model request, executes at most one action, then returns the current
+Activity, a bounded UI tree, screenshot metadata, and the action result. Inspect
+the returned state before calling `step()` again:
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    debug = phone.agent().debug("打开设置，进入关于本机")
+    step = debug.step()
+    print(step.to_dict())
+    # Inspect the result and device state before advancing again.
+    if not step.finished:
+        next_step = debug.step()
+        print(next_step.to_dict())
+```
+
+The returned `step.state.screenshot.data` contains the captured image bytes;
+`step.to_dict()` includes only its format, dimensions, and SHA-256. Terminal
+statuses include `goal_complete`, `goal_failed`, `action_failed`, `action_error`,
+`planning_error`, and `max_steps`. Failed device actions are never retried.
+
 When `provider`, `ocr_provider`, or `jev_provider` is omitted, the first
 configured entry of that provider type is selected.
 

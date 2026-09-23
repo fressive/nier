@@ -226,16 +226,25 @@ def block(
 
 def _emit(level: str, category: str, message: str, fields: Mapping[str, Any]) -> None:
     safe_fields = _safe_mapping(fields)
-    details = _format_fields(fields)
-    output = f"[nier {level}] {category} {message}"
-    if details:
-        output += f"\n{details}"
-    _LOGGER.info(
-        "%s",
-        output,
-        extra={"nier_verbosity": level, "nier_category": category},
-    )
-    _publish_web_event(level, category, message, safe_fields)
+
+    def publish() -> None:
+        details = _format_fields(fields)
+        output = f"[nier {level}] {category} {message}"
+        if details:
+            output += f"\n{details}"
+        _LOGGER.info(
+            "%s",
+            output,
+            extra={"nier_verbosity": level, "nier_category": category},
+        )
+        _publish_web_event(level, category, message, safe_fields)
+
+    if category == "STEP" and os.environ.get("NIER_WEB_DEBUG") == "1":
+        from .web_debugger import emit_step
+
+        emit_step(message, safe_fields, publish)
+        return
+    publish()
 
 
 def _publish_web_event(

@@ -13,7 +13,7 @@ import subprocess
 import sys
 import threading
 from datetime import datetime, timezone
-from typing import Any
+from typing import Any, Literal
 from urllib.parse import urlsplit
 import uuid
 import webbrowser
@@ -31,6 +31,11 @@ _NIER_TERMINAL_LINE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3} \[nier ")
 class RunRequest(BaseModel):
     script: str = Field(min_length=1, max_length=1024)
     confirmed: bool
+    debug: bool = False
+
+
+class DebugRequest(BaseModel):
+    command: Literal["continue", "step", "step_into", "step_out"]
 
 
 def _timestamp() -> str:
@@ -56,6 +61,9 @@ class _DashboardState:
             "started_at": None,
             "finished_at": None,
             "exit_code": None,
+            "debug": False,
+            "debug_state": "inactive",
+            "debug_location": None,
         }
 
     def list_scripts(self) -> list[dict[str, str]]:
@@ -101,7 +109,7 @@ class _DashboardState:
             raise ValueError("script must be a Python file inside the selected scripts directory")
         return candidate
 
-    def start(self, relative_path: str) -> dict[str, Any]:
+    def start(self, relative_path: str, *, debug: bool = False) -> dict[str, Any]:
         script = self._resolve_script(relative_path)
         with self.lock:
             if self.run_state["status"] in {"starting", "running", "stopping"}:
@@ -117,6 +125,9 @@ class _DashboardState:
                 "started_at": _timestamp(),
                 "finished_at": None,
                 "exit_code": None,
+                "debug": debug,
+                "debug_state": "running" if debug else "inactive",
+                "debug_location": None,
             }
             self._publish_locked(
                 {
@@ -124,19 +135,23 @@ class _DashboardState:
                     "timestamp": self.run_state["started_at"],
                     "run_id": run_id,
                     "script": self.run_state["script"],
+                    "debug": debug,
                 }
             )
         threading.Thread(
             target=self._run_script,
-            args=(script, run_id),
+            args=(script, run_id, debug),
             name=f"nier-web-{run_id[:8]}",
             daemon=True,
         ).start()
         return self.snapshot()
 
-    def _run_script(self, script: Path, run_id: str) -> None:
+    def _run_script(self, script: Path, run_id: str, debug: bool) -> None:
         environment = os.environ.copy()
         environment["NIER_WEB_EVENT_STREAM"] = "1"
+        environment["NIER_WEB_SCRIPT_ROOT"] = str(self.scripts)
+        if debug:
+            environment["NIER_WEB_DEBUG"] = "1"
         source_root = str(Path(__file__).resolve().parent.parent)
         existing_pythonpath = environment.get("PYTHONPATH")
         environment["PYTHONPATH"] = (
@@ -145,8 +160,13 @@ class _DashboardState:
             else os.pathsep.join((source_root, existing_pythonpath))
         )
         try:
+            command = (
+                [sys.executable, "-u", "-m", "nier.web_runner", str(script)]
+                if debug
+                else [sys.executable, str(script)]
+            )
             process = subprocess.Popen(
-                [sys.executable, str(script)],
+                command,
                 cwd=self.cwd,
                 env=environment,
                 stdout=subprocess.PIPE,
@@ -155,6 +175,7 @@ class _DashboardState:
                 encoding="utf-8",
                 errors="replace",
                 bufsize=1,
+                stdin=subprocess.PIPE if debug else None,
             )
         except OSError as exc:
             self._finish(run_id, None, f"could not start script: {exc}")
@@ -205,7 +226,10 @@ class _DashboardState:
                     event = json.loads(line[len(_EVENT_PREFIX) :])
                 except json.JSONDecodeError:
                     continue
-                if isinstance(event, dict) and event.get("type") == "log":
+                if isinstance(event, dict) and (
+                    event.get("type") == "log"
+                    or event.get("type") in {"debug.paused", "debug.resumed"}
+                ):
                     event["run_id"] = run_id
                     self.publish(event)
                 continue
@@ -232,6 +256,8 @@ class _DashboardState:
             if self.run_state["status"] not in {"starting", "running"}:
                 return self.snapshot_locked()
             self.run_state["status"] = "stopping"
+            if self.run_state.get("debug"):
+                self.run_state["debug_state"] = "running"
             process = self.process
             self._publish_locked(
                 {
@@ -242,6 +268,25 @@ class _DashboardState:
             )
         if process is not None:
             self._terminate_process(process)
+        return self.snapshot()
+
+    def debug(self, command: str) -> dict[str, Any]:
+        """Send one execution control command to the paused debug runner."""
+        with self.lock:
+            if self.run_state.get("debug") is not True:
+                raise RuntimeError("the current run was not started in debug mode")
+            if self.run_state.get("status") not in {"starting", "running"}:
+                raise RuntimeError("there is no active debug run")
+            if self.run_state.get("debug_state") != "paused":
+                raise RuntimeError("the debugger is not paused")
+            process = self.process
+            if process is None or process.stdin is None:
+                raise RuntimeError("the debug runner is not ready")
+            try:
+                process.stdin.write(json.dumps({"command": command}) + "\n")
+                process.stdin.flush()
+            except (BrokenPipeError, OSError) as exc:
+                raise RuntimeError("the debug runner is no longer available") from exc
         return self.snapshot()
 
     @classmethod
@@ -279,6 +324,7 @@ class _DashboardState:
                 finished_at=_timestamp(),
                 exit_code=exit_code,
                 error=error,
+                debug_state="finished" if self.run_state.get("debug") else "inactive",
             )
             self.process = None
             self._publish_locked(
@@ -308,6 +354,16 @@ class _DashboardState:
             event["step_id"] = self.sequence
         elif event.get("type") == "log":
             event["step_id"] = self.current_step_id
+        elif event.get("type") in {"debug.paused", "debug.resumed"}:
+            event["step_id"] = self.current_step_id
+        if event.get("type") == "debug.paused":
+            self.run_state["debug_state"] = "paused"
+            self.run_state["debug_location"] = {
+                key: event.get(key)
+                for key in ("step_id", "category", "message", "details", "depth", "file", "line", "function", "stack")
+            }
+        elif event.get("type") == "debug.resumed":
+            self.run_state["debug_state"] = "running"
         self.history.append(event)
         for subscriber in tuple(self.subscribers):
             try:
@@ -414,7 +470,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         if not payload.confirmed:
             raise HTTPException(status_code=400, detail="explicit run confirmation is required")
         try:
-            return state.start(payload.script)
+            return state.start(payload.script, debug=payload.debug)
         except RuntimeError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         except ValueError as exc:
@@ -424,6 +480,14 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
     def stop_script(request: Request) -> dict[str, Any]:
         check_origin(request)
         return state.stop()
+
+    @app.post("/api/debug")
+    def debug_script(payload: DebugRequest, request: Request) -> dict[str, Any]:
+        check_origin(request)
+        try:
+            return state.debug(payload.command)
+        except RuntimeError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
 
     app.mount("/", StaticFiles(directory=asset_root, html=True), name="web")
     app.state.dashboard = state

@@ -1,6 +1,14 @@
 """Nier Android automation runtime."""
 
-from .agent import Agent, AgentPlan, AgentRun, AgentStep
+from .agent import (
+    Agent,
+    AgentDebugSession,
+    AgentDebugState,
+    AgentDebugStep,
+    AgentPlan,
+    AgentRun,
+    AgentStep,
+)
 from .api import Device, connect
 from .jev_goal import JevGoal, JevGoalCandidate
 from .models.base import LlmToolCall
@@ -18,6 +26,9 @@ from .ui import UiDocument, UiNode, parse_uidump
 __version__ = "0.1.0"
 __all__ = [
     "Agent",
+    "AgentDebugSession",
+    "AgentDebugState",
+    "AgentDebugStep",
     "AgentPlan",
     "AgentRun",
     "AgentStep",

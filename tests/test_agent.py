@@ -6,7 +6,7 @@ import pytest
 
 from nier import Device
 from nier.agent import Agent
-from nier.errors import ModelError
+from nier.errors import BackendUnavailable, ModelError
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
 from nier.models.jev import JevAnswer, JevResponse
 from nier.protocol import (
@@ -314,3 +314,80 @@ def test_agent_goal_mode_reobserves_after_each_action() -> None:
     assert "Last action result:" in llm.prompts[1]
     assert len(backend.actions) == 2
     assert any(record.operation == "screenshot" for record in phone.session.recorder.records)
+
+
+def test_agent_debug_advances_one_action_and_returns_fresh_state() -> None:
+    phone, backend = make_device()
+    llm = FakeLlm(
+        [],
+        responses=[
+            [tool("tap", x=20, y=30, reason="打开搜索")],
+            [tool("text", text="关于手机")],
+        ],
+    )
+    debug = phone.agent(llm=llm).debug("打开设置并搜索关于手机")
+
+    first = debug.step()
+
+    assert first.status == "action"
+    assert first.finished is False
+    assert first.action is not None and first.action.action == "tap"
+    assert first.result is not None and first.result.success is True
+    assert first.state.activity is not None
+    assert first.state.activity.package == "com.android.settings"
+    assert first.state.ui is not None
+    assert first.state.screenshot is not None
+    assert first.to_dict()["state"]["screenshot"]["sha256"] == "digest"  # type: ignore[index]
+    assert len(llm.prompts) == 1
+    assert len(backend.actions) == 1
+
+    second = debug.step()
+
+    assert second.status == "action"
+    assert second.action is not None and second.action.action == "text"
+    assert len(llm.prompts) == 2
+    assert len(backend.actions) == 2
+    assert len(debug.steps) == 2
+    assert len(debug.results) == 2
+    assert all(
+        record.operation == "agent_debug_step"
+        for record in phone.session.recorder.records
+        if record.operation.startswith("agent_debug")
+    )
+
+
+def test_agent_debug_stops_after_terminal_model_response() -> None:
+    phone, backend = make_device()
+    debug = phone.agent(
+        llm=FakeLlm([tool("goal_complete", reason="页面已打开")])
+    ).debug("检查设置页面")
+
+    result = debug.step()
+
+    assert result.status == "goal_complete"
+    assert result.finished is True
+    assert result.reason == "页面已打开"
+    assert backend.actions == []
+    with pytest.raises(RuntimeError, match="already finished"):
+        debug.step()
+
+
+def test_agent_debug_returns_state_after_action_exception_without_retry() -> None:
+    class FailingBackend(FakeBackend):
+        def execute(self, action: Action) -> ActionResult:
+            self.actions.append(action)
+            raise BackendUnavailable("text input failed")
+
+    backend = FailingBackend()
+    phone = Device(DeviceSession(backend))
+    llm = FakeLlm([tool("text", text="关于手机")])
+    debug = phone.agent(llm=llm).debug("搜索关于手机")
+
+    result = debug.step()
+
+    assert result.status == "action_error"
+    assert result.finished is True
+    assert result.error == "text input failed"
+    assert result.state.activity is not None
+    assert len(backend.actions) == 1
+    assert len(llm.prompts) == 1
