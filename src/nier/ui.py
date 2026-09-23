@@ -16,6 +16,36 @@ from .protocol import DumpUiRequest, UiDump, UiSource
 _BOUNDS_RE = re.compile(r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]")
 _TRUE_VALUES = {"1", "true", "yes", "y", "on"}
 _FALSE_VALUES = {"0", "false", "no", "n", "off"}
+_TREE_BOOLEAN_ATTRIBUTES = {
+    "aria-atomic",
+    "aria-busy",
+    "aria-checked",
+    "aria-disabled",
+    "aria-expanded",
+    "aria-hidden",
+    "aria-modal",
+    "aria-multiline",
+    "aria-multiselectable",
+    "aria-pressed",
+    "aria-readonly",
+    "aria-required",
+    "aria-selected",
+    "checkable",
+    "checked",
+    "clickable",
+    "context-clickable",
+    "dismissable",
+    "editable",
+    "enabled",
+    "focusable",
+    "focused",
+    "long-clickable",
+    "password",
+    "scrollable",
+    "selected",
+    "visible",
+    "visible-to-user",
+}
 TextMatcher = str | Pattern[str]
 
 
@@ -149,6 +179,59 @@ class UiNode:
         """Return the first matching node or ``None``."""
         matches = self.find_all(**filters)
         return matches[0] if matches else None
+
+
+def _format_tree(root: UiNode, *, color: bool) -> str:
+    """Render a compact tree, showing text and true-valued attributes only."""
+    lines: list[str] = []
+
+    def styled(value: str, code: str) -> str:
+        return f"\x1b[{code}m{value}\x1b[0m" if color else value
+
+    def short(value: str, limit: int = 120) -> str:
+        value = " ".join(value.split())
+        if len(value) > limit:
+            return value[: limit - 1] + "…"
+        return value
+
+    def format_node(node: UiNode) -> str:
+        details: list[str] = []
+        if node.text:
+            details.append(f"text={styled(repr(short(node.text)), '32')}")
+        details.extend(
+            styled(f"{name}=True", "33")
+            for name, value in node.attributes.items()
+            if (
+                name.lower() in _TREE_BOOLEAN_ATTRIBUTES
+                and _boolean_attribute(value) is True
+            )
+        )
+        rendered_tag = styled(node.tag, "1;36")
+        if details:
+            return f"{rendered_tag} [{', '.join(details)}]"
+        return rendered_tag
+
+    def visit(
+        node: UiNode,
+        prefix: str,
+        is_last: bool,
+        *,
+        is_root: bool = False,
+    ) -> None:
+        branch = "" if is_root else styled("└── " if is_last else "├── ", "2")
+        lines.append(f"{prefix}{branch}{format_node(node)}")
+        child_prefix = (
+            prefix if is_root else prefix + ("    " if is_last else styled("│   ", "2"))
+        )
+        for index, child in enumerate(node.children):
+            visit(
+                child,
+                child_prefix,
+                index == len(node.children) - 1,
+            )
+
+    visit(root, "", True, is_root=True)
+    return "\n".join(lines)
 
 
 @dataclass(frozen=True)

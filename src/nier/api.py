@@ -30,7 +30,7 @@ from .protocol import (
 )
 from .results import RunRecorder
 from .session import DeviceSession
-from .ui import UiDocument
+from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
 
 if TYPE_CHECKING:
@@ -378,6 +378,27 @@ class Device:
                 )
             )
         return parse_ui_dump(dump)
+
+    def format_tree(
+        self,
+        root: UiNode | UiDocument,
+        *,
+        color: bool = True,
+    ) -> str:
+        """Render a compact UI tree with true attributes and optional ANSI color.
+
+        ``root`` may be a parsed :class:`UiNode` or its containing
+        :class:`UiDocument`. Text is shortened for readability. Attributes
+        whose values are false or non-boolean are omitted. Set ``color=False``
+        when saving the result to a text file.
+        """
+        if isinstance(root, UiDocument):
+            node = root.root
+        elif isinstance(root, UiNode):
+            node = root
+        else:
+            raise TypeError("root must be a UiNode or UiDocument")
+        return _format_tree(node, color=color)
 
     def jev(
         self,
