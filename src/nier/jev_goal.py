@@ -119,9 +119,11 @@ class JevGoal:
     reliable as a success gate than an explicit Noul predicate.
 
     Decisions are checked against a fresh host observation before an action is
-    dispatched. The loop is bounded by ``max_steps`` and ``max_seconds``;
-    OCR runs only after Jev requests it and at most once per observation.
+    dispatched. Non-action decisions and dry-run previews reuse the initial
+    observation. The loop is bounded by ``max_steps`` and ``max_seconds``; OCR
+    runs only after Jev requests it and at most once per observation.
     Completion returns ``needs_verification`` for the caller to review.
+    Set ``prefer_webview=False`` for native screens to skip the WebView probe.
     """
 
     def __init__(
@@ -140,6 +142,7 @@ class JevGoal:
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
+        prefer_webview: bool = True,
     ) -> None:
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
@@ -202,6 +205,7 @@ class JevGoal:
             _normalize_label(item) for item in denied_controls
         )
         self.use_score = use_score
+        self.prefer_webview = prefer_webview
 
     def run(
         self,
@@ -217,8 +221,9 @@ class JevGoal:
             dry_run=dry_run,
             done_threshold=self.done_threshold,
             action_threshold=self.action_threshold,
-            max_candidates=self.max_candidates,
-            max_seconds=self.max_seconds,
+        max_candidates=self.max_candidates,
+        max_seconds=self.max_seconds,
+        prefer_webview=self.prefer_webview,
             allowed_apps=[
                 {"label": label, "package": package}
                 for label, package in self.allowed_apps
@@ -314,11 +319,26 @@ class JevGoal:
                     observation,
                     instruction,
                 )
-                verify_ocr_target = candidate is not None and candidate.source == "ocr"
-                fresh = self._observe(
-                    instruction,
-                    history,
-                    capture_screenshot=verify_ocr_target,
+                verify_fresh_state = (
+                    not dry_run
+                    and decision == "action"
+                    and candidate is not None
+                    and len(steps) < step_limit
+                    and monotonic() - started_at < self.max_seconds
+                )
+                verify_ocr_target = (
+                    verify_fresh_state
+                    and candidate is not None
+                    and candidate.source == "ocr"
+                )
+                fresh = (
+                    self._observe(
+                        instruction,
+                        history,
+                        capture_screenshot=verify_ocr_target,
+                    )
+                    if verify_fresh_state
+                    else None
                 )
             except Exception as exc:
                 record.error = str(exc)
@@ -337,30 +357,34 @@ class JevGoal:
                     error=f"goal exceeded the {self.max_seconds:g}-second time limit",
                 )
 
-            same_observation = (
-                fresh.freshness_fingerprint == observation.freshness_fingerprint
-            )
-            if verify_ocr_target:
-                same_observation = same_observation and (
-                    fresh.screenshot_digest == observation.screenshot_digest
+            if fresh is None:
+                stale_decisions = 0
+            else:
+                same_observation = (
+                    fresh.freshness_fingerprint
+                    == observation.freshness_fingerprint
                 )
-            if not same_observation:
-                stale_decisions += 1
-                log_step(
-                    "jev-goal-stale-decision",
-                    iteration=iteration,
-                    stale_decisions=stale_decisions,
-                    max_stale_decisions=_MAX_STALE_DECISIONS,
-                )
-                if stale_decisions >= _MAX_STALE_DECISIONS:
-                    return finish(
-                        False,
-                        "stale_state",
-                        error="device state kept changing while Jev was deciding",
+                if verify_ocr_target:
+                    same_observation = same_observation and (
+                        fresh.screenshot_digest == observation.screenshot_digest
                     )
-                pending_observation = fresh
-                continue
-            stale_decisions = 0
+                if not same_observation:
+                    stale_decisions += 1
+                    log_step(
+                        "jev-goal-stale-decision",
+                        iteration=iteration,
+                        stale_decisions=stale_decisions,
+                        max_stale_decisions=_MAX_STALE_DECISIONS,
+                    )
+                    if stale_decisions >= _MAX_STALE_DECISIONS:
+                        return finish(
+                            False,
+                            "stale_state",
+                            error="device state kept changing while Jev was deciding",
+                        )
+                    pending_observation = fresh
+                    continue
+                stale_decisions = 0
 
             if done:
                 jev_data["verification_required"] = True
@@ -486,7 +510,7 @@ class JevGoal:
         if recognize_ocr and self.ocr is None:
             raise ModelError("Jev requested OCR, but no OCR provider is configured")
         try:
-            dump = self.device.dump_ui(prefer_webview=True)
+            dump = self.device.dump_ui(prefer_webview=self.prefer_webview)
         except BackendError as exc:
             dump = None
             dump_error = str(exc)

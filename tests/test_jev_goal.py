@@ -14,6 +14,7 @@ from nier.protocol import (
     ActivityInfo,
     Capabilities,
     Click,
+    DumpUiRequest,
     ImageFormat,
     KeyCode,
     Screenshot,
@@ -27,6 +28,7 @@ from nier.session import DeviceSession
 class FakeBackend:
     actions: list[Action] = field(default_factory=list)
     opened_apps: list[str] = field(default_factory=list)
+    dump_ui_requests: list[DumpUiRequest | None] = field(default_factory=list)
 
     def health(self) -> bool:
         return True
@@ -46,6 +48,7 @@ class FakeBackend:
         return Screenshot(b"image", ImageFormat.PNG, 100, 200, "digest")
 
     def dump_ui(self, request=None) -> UiDump:
+        self.dump_ui_requests.append(request)
         return UiDump(
             '<hierarchy><node text="登录" resource-id="app:id/login" '
             'bounds="[10,20][30,40]" clickable="true" /></hierarchy>',
@@ -137,6 +140,7 @@ def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
     assert "inspect_ocr" not in first_questions["next"].options  # type: ignore[index,operator]
     assert result.plan.jev["done"] == 0.96  # type: ignore[index]
     assert len(backend.actions) == 1
+    assert len(backend.dump_ui_requests) == 3
 
 
 def test_jev_goal_runs_ocr_only_after_jev_requests_it() -> None:
@@ -192,6 +196,22 @@ def test_jev_goal_skips_ocr_when_ui_candidate_is_sufficient() -> None:
     assert initial_state["ocr"] == []
     assert initial_state["ocr_inspected"] is False
     assert "inspect_ocr" in initial_questions["next"].options  # type: ignore[index,operator]
+
+
+def test_jev_goal_preview_uses_one_dump_and_can_skip_webview() -> None:
+    phone, backend = make_device()
+    jev = FakeJev([_response(done=0.10, choice="ui_0")])
+
+    result = phone.run_jev_goal(
+        "点击登录",
+        jev=jev,
+        prefer_webview=False,
+        dry_run=True,
+    )
+
+    assert result.success is True
+    assert result.termination == "next_action_preview"
+    assert backend.dump_ui_requests == [DumpUiRequest(prefer_webview=False)]
 
 
 def test_jev_goal_dispatches_fixed_back_candidate_as_key() -> None:
@@ -258,7 +278,7 @@ def test_jev_goal_rejects_invalid_allowlisted_app_package() -> None:
 
 
 def test_jev_goal_score_is_optional_progress_telemetry() -> None:
-    phone, _ = make_device()
+    phone, backend = make_device()
     jev = FakeJev(
         [
             _response(done=0.96, choice="none", confidence=0.10, progress=3.0),
@@ -270,6 +290,7 @@ def test_jev_goal_score_is_optional_progress_telemetry() -> None:
     assert result.success is True
     assert result.plan.jev["progress"] == 3.0  # type: ignore[index]
     assert set(jev.calls[0][1]) == {"done", "next", "progress"}
+    assert len(backend.dump_ui_requests) == 1
 
 
 def test_jev_goal_does_not_dispatch_low_confidence_or_unknown_choice() -> None:
@@ -281,3 +302,4 @@ def test_jev_goal_does_not_dispatch_low_confidence_or_unknown_choice() -> None:
     assert result.success is False
     assert result.termination == "blocked"
     assert backend.actions == []
+    assert len(backend.dump_ui_requests) == 1

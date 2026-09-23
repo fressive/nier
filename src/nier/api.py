@@ -370,6 +370,7 @@ class Device:
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
+        prefer_webview: bool = True,
     ) -> JevGoal:
         """Create a bounded goal runner driven directly by Jev.
 
@@ -379,6 +380,10 @@ class Device:
         configured Jev and OCR providers are selected when names are omitted.
         A configured OCR provider is called only if Jev selects ``inspect_ocr``;
         OCR is limited to once per observation.
+        Set ``prefer_webview=False`` for native screens to avoid probing WebView
+        DevTools before falling back to UIAutomator.
+        Dry-run previews and non-action decisions do not make a second UI dump;
+        a fresh observation is still required immediately before a real action.
         The action loop is bounded by ``max_steps`` and ``max_seconds``. Jev
         only selects from host-generated candidates; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
@@ -459,6 +464,7 @@ class Device:
             allowed_controls=allowed_controls,
             denied_controls=denied_controls,
             use_score=use_score,
+            prefer_webview=prefer_webview,
         )
 
     def agent(
@@ -606,6 +612,7 @@ class Device:
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
+        prefer_webview: bool = True,
         dry_run: bool = False,
     ) -> AgentRun:
         """Run a bounded Jev goal and return its next-action or handoff status.
@@ -614,6 +621,10 @@ class Device:
         and package name. ``allowed_controls`` and ``denied_controls`` restrict
         UI/OCR/system candidate labels.
         A configured OCR provider runs only after Jev selects ``inspect_ocr``.
+        Set ``prefer_webview=False`` for native screens to avoid probing WebView
+        DevTools before falling back to UIAutomator.
+        Dry-run previews and non-action decisions do not make a second UI dump;
+        a fresh observation is still required immediately before a real action.
         A completion decision returns ``needs_verification`` for the caller to
         check independently.
         """
@@ -631,6 +642,7 @@ class Device:
             allowed_controls=allowed_controls,
             denied_controls=denied_controls,
             use_score=use_score,
+            prefer_webview=prefer_webview,
         ).run(instruction, dry_run=dry_run)
 
     def _configured_llm(self, provider: str) -> LlmProvider:

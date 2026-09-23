@@ -253,6 +253,7 @@ with connect("config/nier.yaml") as phone:
         max_seconds=45,
         allowed_apps={"设置": "com.android.settings"},
         allowed_controls=("关于本机", "返回上一页"),
+        prefer_webview=False,
         dry_run=True,
     )
 ```
@@ -260,6 +261,8 @@ with connect("config/nier.yaml") as phone:
 This example previews one next action. Set `dry_run=False` only when the
 connected device and candidates authorized through `allowed_controls` or
 `allowed_apps` are approved for execution.
+Use `prefer_webview=False` for native screens such as Settings to skip the
+WebView DevTools probe; keep it enabled when the target screen is a WebView.
 
 The host initially creates candidates from the current UI dump. It does not run
 OCR automatically. If Jev cannot choose from the semantic UI and visible

@@ -84,6 +84,7 @@ def main(argv: list[str] | None = None) -> None:
             allowed_controls=allowed_controls,
             denied_controls=args.denied_controls,
             use_score=False,
+            prefer_webview=False,
             dry_run=dry_run,
         )
         _print_run_summary(result)
