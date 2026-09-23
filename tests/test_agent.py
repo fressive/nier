@@ -163,6 +163,9 @@ def test_agent_compiles_natural_language_to_recorded_actions() -> None:
     assert llm.image == b"image"
     assert "登录并输入 rina" in llm.prompt
     assert "Return exactly ONE tool call" in llm.prompt
+    assert "prefer `open_app` for its known package" in llm.prompt
+    assert "never tap unexplained coordinates" in llm.prompt
+    assert "Do not toggle settings" in llm.prompt
     assert "com.android.settings/com.android.settings.Settings" in llm.prompt
     assert {item["function"]["name"] for item in llm.tools} >= {
         "tap",
@@ -276,6 +279,37 @@ def test_explicit_agent_keeps_direct_jev_as_advisory_context() -> None:
 
     assert result.plan.jev == {"ready": 0.96}
     assert len(jev.calls) == 1
+    assert backend.actions == []
+
+
+def test_agent_continues_when_jev_advisory_and_optional_ocr_fail() -> None:
+    phone, backend = make_device()
+    llm = FakeLlm([tool("goal_complete", reason="UI state is sufficient")])
+
+    class UnavailableJev:
+        def ask(self, state, questions):
+            raise ModelError("Jev service unavailable")
+
+    class UnavailableOcr:
+        def recognize(self, image: bytes):
+            raise ModelError("PaddleOCR is not installed")
+
+    result = Agent(
+        phone,
+        llm,
+        jev=UnavailableJev(),
+        ocr=UnavailableOcr(),
+    ).run("检查当前页面", dry_run=True)
+
+    assert result.termination == "goal_complete"
+    assert result.success is True
+    assert result.plan.jev == {
+        "available": False,
+        "error": "ModelError: Jev service unavailable",
+        "ocr_error": "PaddleOCR is not installed",
+    }
+    assert "advisory is unavailable" in llm.prompt
+    assert "OCR status: PaddleOCR is not installed" in llm.prompt
     assert backend.actions == []
 
 

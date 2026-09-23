@@ -288,7 +288,7 @@ def test_device_run_lets_llm_execute_safe_recovery_actions() -> None:
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.success is True
     assert result.termination == "needs_verification"
@@ -325,7 +325,7 @@ def test_jev_goal_removes_call_llm_after_assist_limit() -> None:
     )
     llm = FakeLlm("换一个页面入口继续查找。")
 
-    result = phone.run(
+    result = phone.run_jev_goal(
         "进入登录页面",
         jev=jev,
         llm=llm,
@@ -352,7 +352,7 @@ def test_llm_recovery_action_cannot_select_a_non_allowlisted_control() -> None:
         ],
     )
 
-    result = phone.run(
+    result = phone.run_jev_goal(
         "进入登录页面",
         jev=jev,
         llm=llm,
@@ -376,7 +376,7 @@ def test_failed_llm_recovery_action_is_not_retried() -> None:
         tool_responses=[[tool("recovery_action", candidate_id="back")]],
     )
 
-    result = phone.run(
+    result = phone.run_jev_goal(
         "进入登录页面",
         jev=jev,
         llm=llm,
@@ -407,7 +407,7 @@ def test_jev_goal_default_allows_more_than_two_llm_assists() -> None:
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.success is True
     assert result.termination == "needs_verification"
@@ -425,7 +425,7 @@ def test_repeated_completed_recovery_on_same_screen_stops() -> None:
         tool_responses=[[tool("recovery_complete", reason="完成")] for _ in range(3)],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.termination == "recovery_failed"
     assert len(llm.prompts) == 3
@@ -443,7 +443,7 @@ def test_repeated_failed_recovery_on_same_screen_stops() -> None:
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.termination == "recovery_failed"
     assert len(llm.prompts) == 3
@@ -468,7 +468,7 @@ def test_failed_recovery_subgoal_causes_llm_to_generate_return_subgoal() -> None
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.success is True
     assert len(llm.prompts) == 2
@@ -501,7 +501,7 @@ def test_failed_main_action_is_not_retried_after_recovery() -> None:
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=2)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=2)
 
     assert result.success is True
     assert len(llm.prompts) == 1
@@ -533,7 +533,7 @@ def test_action_exception_uses_recovery_subgoal_before_resuming_main_goal() -> N
         ],
     )
 
-    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=2)
+    result = phone.run_jev_goal("进入登录页面", jev=jev, llm=llm, max_steps=2)
 
     assert result.success is True
     assert len(backend.actions) == 2

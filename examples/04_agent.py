@@ -1,7 +1,8 @@
-"""Run a real UI goal with an LLM and Jev."""
+"""Run a real UI goal with the LLM Agent."""
 
 from __future__ import annotations
 
+import argparse
 from pathlib import Path
 
 from nier import connect
@@ -31,10 +32,24 @@ def _print_run_summary(run) -> None:
             print(f"  {index}. {status}{suffix}")
 
 
-with connect(CONFIG) as phone:
-    result = phone.run(
-        GOAL,
-        max_steps=8,
+def main() -> None:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--execute",
+        action="store_true",
+        help="execute validated LLM-selected actions on the connected device",
     )
-    _print_run_summary(result)
-    phone.save_run("agent-run.json")
+    args = parser.parse_args()
+
+    with connect(CONFIG) as phone:
+        result = phone.run(
+            GOAL,
+            max_steps=8,
+            dry_run=not args.execute,
+        )
+        _print_run_summary(result)
+        phone.save_run("agent-run.json")
+
+
+if __name__ == "__main__":
+    main()

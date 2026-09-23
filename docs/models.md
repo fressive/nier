@@ -228,11 +228,12 @@ call.
 
 ### Letting the Agent call Jev
 
-When Jev is configured, the Agent automatically uses the first configured
-provider; pass `jev_provider` to select a named one explicitly. The Agent
-sends one batched Jev request on each goal observation. Its `state["ui"]` field
-contains the bounded semantic UI tree and `state["ui_summary"]` contains a
-compact text summary. Jev receives no screenshot, screen dimensions, UI bounds,
+Pass `jev=` or `jev_provider=` to enable Jev as advisory context; configured
+Jev providers are not queried implicitly by the LLM Agent. The Agent sends one
+batched Jev request on each goal observation when explicitly enabled. Its
+`state["ui"]` field contains the bounded semantic UI tree, while
+`state["ui_summary"]` contains a compact text summary. Jev receives no screenshot,
+screen dimensions, UI bounds,
 or OCR boxes. OCR entries contain span IDs, text, and confidence. A Noul
 question checks whether the current state is actionable, and when OCR is
 enabled a Choice question picks the most relevant span. The typed result is
@@ -248,10 +249,12 @@ with connect("config/nier.yaml") as phone:
     print(run.plan.jev)
 ```
 
-For LLM-first Agent planning with optional Jev context, use `phone.agent()` and
-pass a custom Jev client with `jev=`. `phone.run()` uses Jev as the primary
-decision-maker when Jev is configured. An explicit Agent can also make a typed
-call from the goal flow:
+`phone.run()` uses LLM-first planning when an LLM is configured. Pass
+`jev=` or `jev_provider=` to add Jev advisory context; Jev does not choose or
+dispatch actions, and a Jev request failure is recorded without blocking the
+LLM. Use `phone.run_jev_goal()` to explicitly request Jev-first candidate
+selection.
+An explicit Agent can also make a typed call from the goal flow:
 
 ```python
 agent = phone.agent()
@@ -262,18 +265,18 @@ answer = agent.ask_jev(
 print(answer.answer("urgent").noul)
 ```
 
-If a configured Jev request fails, goal execution fails rather than silently
-disabling the provider or falling back to an unverified decision.
+Jev advisory failures are recorded in `run.plan.jev`; the LLM still receives
+the current screen observation and remains responsible for each action.
 
 ### Jev-first unified goals
 
-Use `phone.run()` when the task can be expressed as a sequence of visible
-UI/OCR selections and small system keys. With Jev configured, Jev is the primary
-decision-maker:
+Use `phone.run_jev_goal()` when the task can be expressed as a sequence of
+visible UI/OCR selections and small system keys. Jev selects among the finite,
+host-validated candidates:
 
 ```python
 with connect("config/nier.yaml") as phone:
-    result = phone.run(
+    result = phone.run_jev_goal(
         "打开设置，进入关于本机",
         max_steps=8,
         max_seconds=45,
@@ -340,8 +343,8 @@ actions and thirty seconds. Repeated recovery on the same stalled screen
 terminates even without an assist cap. Failed controls are excluded so device
 actions are not retried automatically. The LLM may mark only its recovery subgoal complete
 or failed; Jev remains responsible for the main goal. It cannot provide
-coordinates, text, packages, or arbitrary operations. `phone.run_jev_goal()` remains a
-compatibility wrapper around the same Jev-first flow.
+coordinates, text, packages, or arbitrary operations. `phone.run_jev_goal()`
+is the explicit Jev-first entry point.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android
 package name to offer app-launch candidates, for example
@@ -390,23 +393,22 @@ recovery is unavailable or fails, the run stops with an error (and unexpected
 exceptions remain surfaced to the caller). The caller should inspect a fresh
 screenshot or UI dump when Jev returns `needs_verification`.
 
-This keeps Jev in a mechanical selection role: it cannot type text or invent
-coordinates and operations. Use `phone.agent().run()` for LLM-first tool
-planning when the goal needs text generation, free-form swipes, app discovery,
-or actions outside the finite candidate set. If Jev is not configured,
-`phone.run()` also preserves the LLM Agent flow. Only run the Jev-first flow on
-a connected device and for a goal whose
-candidate actions you authorize; `allowed_controls` and `denied_controls` can
-narrow that set. `DeviceSession` never retries taps or other device actions.
+`phone.run()` uses the LLM-first Agent flow whenever an LLM is available. The
+LLM can use screenshots, UI state, OCR, app discovery, and validated native
+tools to choose each action. If no LLM is configured but Jev is available,
+`phone.run()` can fall back to this Jev-first flow. Use `phone.agent().run()`
+when you want to customize the LLM Agent directly. Only run device actions on
+an authorized device; `DeviceSession` never retries taps or other device actions.
 
 ## TypeSafe Jev
 
 Jev is the typed-decision provider. Its wire API follows the TypeSafe
 [quickstart](https://docs.typesafe.ai/introduction/quickstart) and
 [primitive definitions](https://docs.typesafe.ai/primitives). It is useful when the application needs a
-bounded `choice`, `score`, or `noul` answer. In the Jev-first
-`phone.run(...)` flow, Jev selects each action and can optionally ask an LLM for
-strategic direction; for LLM-first operation planning use `phone.agent()`.
+bounded `choice`, `score`, or `noul` answer. In the explicit Jev-first
+`phone.run_jev_goal(...)` flow, Jev selects each action and can ask an LLM for
+bounded recovery; `phone.run(...)` uses LLM-first operation planning when an
+LLM is available.
 
 Set the key in the environment and add an optional `models.jev` section:
 

@@ -334,20 +334,23 @@ not silently fall back to local OCR.
 `Device.agent()` MUST provide the LLM-first Agent flow: it sends native tool
 definitions with the current screenshot/UI state and natural-language goal,
 then compiles returned tool calls into validated `AgentStep` values before
-executing. `Device.run(instruction)` MUST use the Jev-first goal flow whenever
-a direct Jev client, an explicit Jev provider, a Jev-containing router, or a
-configured Jev provider is available. In that flow, Jev selects from the
-host-validated finite candidate set; an optional LLM can provide and execute
-a bounded recovery subgoal when Jev selects `call_llm` or failure recovery is
-needed. Recovery execution selects only safe host-generated candidate IDs and
-does not return free-form strategy text to the main Jev loop. If Jev is not configured and no Jev-specific option
-is requested, `Device.run()` MUST preserve the LLM-first Agent flow. The model
-context MUST include a bounded foreground Activity object when available, and
-an explicit unavailable warning otherwise. The same Activity object MUST be
-included in Jev state. Neither flow MUST require a free-form JSON
-operation-plan response. The Agent MUST re-observe the device after each action,
-accept exactly one next action or goal-control tool call per iteration, and
-stop only on `goal_complete`, `goal_failed`, an action failure, or the
+executing. `Device.run(instruction)` MUST use that LLM-first flow when an LLM
+is supplied or configured, regardless of whether Jev is also configured.
+Jev MAY provide typed advisory context, but MUST NOT select or dispatch the
+LLM Agent's actions. When Jev is unavailable or its advisory request fails,
+the Agent MUST record the failure and continue using the LLM and device
+observation. If no LLM is available and Jev is configured, `Device.run()` MAY
+fall back to the bounded Jev goal flow. Jev-specific tuning options and the
+explicit `Device.run_jev_goal()` entry point MUST continue to select that flow.
+When an optional OCR provider fails during an Agent observation, the host MUST
+record the error and continue without OCR spans; standalone OCR API calls MUST
+continue to surface provider failures.
+The model context MUST include a bounded foreground Activity object when
+available, and an explicit unavailable warning otherwise. The same Activity
+object MUST be included in Jev state. Neither flow MUST require a free-form
+JSON operation-plan response. The Agent MUST re-observe the device after each
+action, accept exactly one next action or goal-control tool call per iteration,
+and stop only on `goal_complete`, `goal_failed`, an action failure, or the
 `max_steps` limit.
 Only the allowlisted tap, swipe, text, key, back, home, enter, list_apps,
 list_app_activities, open_app, and start_activity operations may be executed.
@@ -358,9 +361,9 @@ validated next-action `AgentPlan` without dispatching actions. The Agent MUST
 write its goal progress and outcome to the same `RunRecorder` used by the
 session.
 
-When a direct `jev` client is supplied, or when `jev_provider` is omitted and a
-configured Jev provider exists, the LLM-first Agent MUST make one typed Jev
-observation call per goal iteration containing the current goal, UI state, and OCR spans.
+When a direct `jev` client is supplied or a Jev provider is selected explicitly
+with `jev_provider`, the LLM-first Agent SHOULD make one typed Jev observation
+call per goal iteration containing the current goal, UI state, and OCR spans.
 The Jev request MUST NOT include screenshots, screen dimensions, or spatial
 coordinates. Its bounded `ui` tree MUST preserve source/completeness metadata,
 hierarchy, semantic source attributes, text/content descriptions, resource
@@ -373,17 +376,17 @@ When parsing fails, `ui` MUST remain a JSON object describing the unavailable
 structured state rather than raw XML/HTML. The request MUST contain a Noul
 readiness question and a Choice target question when OCR spans exist. Jev answers
 MUST be preserved in the current `AgentPlan.jev` and supplied to the LLM as
-advisory context.
+advisory context when the call succeeds. Advisory failures MUST be preserved
+as diagnostics in `AgentPlan.jev` and MUST NOT prevent the LLM request.
 The LLM prompt MUST contain the bounded structured UI tree and MAY include
 geometry and raw XML/HTML as supplementary context. Jev answers MUST NOT bypass
-AgentStep validation or directly dispatch device actions. A Jev request
-failure MUST fail goal execution instead of silently disabling the configured
-provider. If no Jev provider is configured and no direct client is supplied,
-the Agent proceeds without Jev context.
+AgentStep validation or directly dispatch device actions. If no Jev provider
+is configured and no direct client is supplied, the Agent proceeds without
+Jev context.
 
-`Device.jev_goal()` creates the Jev-first goal runner used by
-`Device.run(instruction)`. `Device.run_jev_goal(instruction)` MUST remain a
-backward-compatible wrapper to that same flow. This flow MUST NOT ask Jev to
+`Device.jev_goal()` creates the explicit Jev-first goal runner.
+`Device.run_jev_goal(instruction)` MUST remain a wrapper to that flow. This
+flow MUST NOT ask Jev to
 generate arbitrary device operations. For each observation, the host MUST
 expose the goal, bounded
 foreground Activity, a bounded semantic UI tree, optional OCR text/confidence,
