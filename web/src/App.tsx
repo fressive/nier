@@ -8,7 +8,7 @@ import { RunMetrics } from "./components/run-metrics";
 import { RunStatusBadge } from "./components/status-indicator";
 import { RunToolbar } from "./components/run-toolbar";
 import { fetchJson, postJson } from "./lib/api";
-import { isBusy, isPathEvent, localTime } from "./lib/dashboard";
+import { isBusy, isPathEvent, isResponseOrResultEvent, localTime } from "./lib/dashboard";
 import { cn } from "./lib/utils";
 import { initialRun, type ApiState, type DebugCommand, type RunState, type ScriptInfo, type StepNodeData, type WebEvent } from "./types";
 
@@ -112,14 +112,21 @@ export default function App() {
   }, [mergeEvent]);
 
   const pathEvents = useMemo(() => events.filter(isPathEvent), [events]);
-  const activeStep = [...events].reverse().find((event) => event.type === "log" && event.category === "STEP");
+  const activeStep = [...pathEvents].reverse().find((event) => event.type === "log" && event.category === "STEP");
   const selectedEvent = selectedEventId === null
     ? pathEvents.at(-1)
     : pathEvents.find((event) => event.event_id === selectedEventId) ?? pathEvents.at(-1);
   const selectedScriptInfo = scripts.find((script) => script.path === selectedScript);
   const busy = isBusy(run.status);
-  const successCount = events.filter((event) => event.type === "log" && event.category === "STEP" && event.details?.status === "ok").length;
-  const failureCount = events.filter((event) => event.type === "log" && event.category === "STEP" && event.details?.status === "failed").length;
+  const successCount = pathEvents.filter((event) =>
+    event.type === "log" && event.category === "STEP" && (
+      event.details?.status === "ok"
+      || (event.message === "read" && events.some((candidate) =>
+        candidate.category === "READ RESULT" && candidate.step_id === event.event_id,
+      ))
+    ),
+  ).length;
+  const failureCount = pathEvents.filter((event) => event.type === "log" && event.category === "STEP" && event.details?.status === "failed").length;
 
   const handleStart = (debug: boolean) => {
     setPendingDebug(debug);
@@ -160,18 +167,29 @@ export default function App() {
   };
 
   const onSelectNode = useCallback((id: number) => setSelectedEventId(id), []);
-  const nodes = useMemo<Node<StepNodeData>[]>(() => pathEvents.map((event, index) => ({
-    id: String(event.event_id),
-    type: "step",
-    position: { x: 60, y: index * 146 + 36 },
-    data: {
-      event,
-      index: index + 1,
-      selected: selectedEvent?.event_id === event.event_id,
-      active: activeStep?.event_id === event.event_id && busy,
-      onSelect: onSelectNode,
-    },
-  })), [pathEvents, selectedEvent?.event_id, activeStep?.event_id, busy, onSelectNode]);
+  const nodes = useMemo<Node<StepNodeData>[]>(() => pathEvents.map((event, index) => {
+    const relatedResponses = events.filter((candidate) =>
+      isResponseOrResultEvent(candidate) && candidate.step_id === event.event_id,
+    );
+    const response = isResponseOrResultEvent(event)
+      ? event
+      : relatedResponses.filter((candidate) => candidate.category === "READ RESULT").at(-1)
+        ?? relatedResponses.filter((candidate) => candidate.category?.endsWith("RESULT")).at(-1)
+        ?? relatedResponses.at(-1);
+    return {
+      id: String(event.event_id),
+      type: "step",
+      position: { x: 60, y: index * 146 + 36 },
+      data: {
+        event,
+        response,
+        index: index + 1,
+        selected: selectedEvent?.event_id === event.event_id,
+        active: activeStep?.event_id === event.event_id && busy,
+        onSelect: onSelectNode,
+      },
+    };
+  }), [pathEvents, events, selectedEvent?.event_id, activeStep?.event_id, busy, onSelectNode]);
   const edges = useMemo<Edge[]>(() => pathEvents.slice(1).map((event, index) => ({
     id: `path-${pathEvents[index].event_id}-${event.event_id}`,
     source: String(pathEvents[index].event_id),

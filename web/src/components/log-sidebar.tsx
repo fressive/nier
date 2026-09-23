@@ -6,7 +6,7 @@ import { ScrollArea } from "./ui/scroll-area";
 import { DebugControls } from "./debug-controls";
 import { DetailEvent } from "./detail-event";
 import { RunStatusBadge } from "./status-indicator";
-import { eventSubtitle, eventTitle, localTime, stringify } from "../lib/dashboard";
+import { eventSubtitle, eventTitle, isPathEvent, isResponseOrResultEvent, localTime, stringify } from "../lib/dashboard";
 import { cn } from "../lib/utils";
 import type { DebugCommand, RunState, WebEvent } from "../types";
 
@@ -20,12 +20,12 @@ type Props = {
 };
 
 export function LogSidebar({ run, connected, events, selectedEvent, selectedScript, onDebugCommand }: Props) {
-  const activeStep = [...events].reverse().find((event) => event.type === "log" && event.category === "STEP");
+  const activeStep = [...events].reverse().find((event) => isPathEvent(event) && event.category === "STEP");
   const selectedStepId = selectedEvent?.category === "STEP"
     ? selectedEvent.event_id
     : selectedEvent?.step_id ?? activeStep?.event_id;
-  const requestEvents = useMemo(() => events.filter((event) =>
-    event.type === "log" && ["HTTP REQUEST", "HTTP RESPONSE"].includes(event.category ?? "") &&
+  const detailEvents = useMemo(() => events.filter((event) =>
+    event.type === "log" && (event.category?.endsWith("REQUEST") || isResponseOrResultEvent(event)) &&
     (selectedStepId === undefined || selectedStepId === null || event.step_id === selectedStepId),
   ), [events, selectedStepId]);
   const footerEvents = events.filter((event) => event.type === "console" || event.type === "run.finished").slice(-8);
@@ -56,7 +56,7 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
       />
 
       <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
-        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{requestEvents.length} 条通信记录</span></div>
+        <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{detailEvents.length} 条请求 / 响应 / 结果</span></div>
         <span className="max-w-[180px] truncate text-[10px] text-slate-500">{selectedScript || run.script || "未选择脚本"}</span>
       </div>
 
@@ -68,8 +68,8 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
               <pre className="code-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0b0f14] p-3 font-mono text-[10px] leading-relaxed text-slate-300">{stringify(selectedEvent.details ?? {})}</pre>
             </div>
           )}
-          {requestEvents.map((event) => <DetailEvent key={event.event_id} event={event} />)}
-          {requestEvents.length === 0 && (
+          {detailEvents.map((event) => <DetailEvent key={event.event_id} event={event} />)}
+          {detailEvents.length === 0 && (
             <div className="rounded-lg border border-dashed border-border/80 bg-[#0e131a]/70 px-4 py-7 text-center">
               <ArrowDown className="mx-auto h-4 w-4 text-slate-600" />
               <p className="mt-3 text-xs font-medium text-slate-400">当前步骤没有请求 / 响应</p>

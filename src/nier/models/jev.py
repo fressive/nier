@@ -19,6 +19,7 @@ from urllib import request as urllib_request
 from ..errors import ConfigurationError, ModelError
 from ..logging_utils import block as log_block
 from ..logging_utils import request as log_request
+from ..logging_utils import result as log_result
 from ..logging_utils import response as log_response
 from ..logging_utils import step as log_step
 from ..logging_utils import verbosity as log_verbosity
@@ -293,12 +294,17 @@ class JevProvider:
                     getattr(response, "status", None),
                     target=self.base_url,
                     headers=getattr(response, "headers", None),
+                    body=response_bytes,
                     body_bytes=len(response_bytes),
                 )
         except urllib_error.HTTPError as exc:
             detail = _response_error(exc)
             log_response(
-                "http", exc.code, target=self.base_url, error_bytes=len(detail)
+                "http",
+                exc.code,
+                target=self.base_url,
+                body=detail,
+                error_bytes=len(detail),
             )
             raise ModelError(f"Jev API request failed with HTTP {exc.code}: {detail}") from exc
         except (urllib_error.URLError, TimeoutError, OSError) as exc:
@@ -312,6 +318,12 @@ class JevProvider:
             raise ModelError("Jev API response must be a JSON object")
         parsed = _parse_response(decoded)
         if log_verbosity() >= 2:
+            log_result(
+                "jev",
+                _format_jev_result(parsed),
+                model=parsed.model or self.model,
+                answer_count=len(parsed.answers),
+            )
             log_block(
                 2,
                 "JEV RESULT",

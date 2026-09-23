@@ -2,7 +2,7 @@ import { Activity, Bot, Braces, Workflow } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Badge } from "./ui/badge";
 import { cn } from "../lib/utils";
-import { eventSubtitle, eventTitle, localTime } from "../lib/dashboard";
+import { eventSubtitle, eventTitle, localTime, responsePreview } from "../lib/dashboard";
 import type { StepNodeType } from "../types";
 
 function NodeIcon({ category }: { category?: string }) {
@@ -13,10 +13,14 @@ function NodeIcon({ category }: { category?: string }) {
 }
 
 export function StepNode({ data }: NodeProps<StepNodeType>) {
-  const { event, index, selected, active, onSelect } = data;
+  const { event, response, index, selected, active, onSelect } = data;
   const status = String(event.details?.status ?? "");
   const failed = status === "failed";
-  const completed = ["ok", "success", "done"].includes(status);
+  const completed = ["ok", "success", "done"].includes(status)
+    || (!failed && Boolean(response?.category?.endsWith("RESULT")));
+  const subtitle = completed && status === "start"
+    ? eventSubtitle({ ...event, details: { ...event.details, status: "ok" } })
+    : eventSubtitle(event);
   return (
     <div
       onClick={() => onSelect(event.event_id)}
@@ -44,7 +48,13 @@ export function StepNode({ data }: NodeProps<StepNodeType>) {
               {failed ? "失败" : completed ? "完成" : event.category === "STEP" ? "STEP" : "MODEL"}
             </Badge>
           </div>
-          <p className="mt-1 truncate text-xs text-slate-400">{eventSubtitle(event)}</p>
+          <p className="mt-1 truncate text-xs text-slate-400">{subtitle}</p>
+          {response && (
+            <div className="mt-2 border-l border-emerald-400/40 pl-2">
+              <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-300/80">响应</span>
+              <pre className="mt-0.5 max-h-8 overflow-hidden whitespace-pre-wrap break-words font-mono text-[9px] leading-4 text-slate-400">{responsePreview(response)}</pre>
+            </div>
+          )}
           <div className="mt-3 flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-slate-500">
             <span>节点 {String(index).padStart(2, "0")}</span>
             <span className="font-mono normal-case tracking-normal">{localTime(event.timestamp)}</span>

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 from collections.abc import Callable
-from typing import TypeVar
+from typing import Any, TypeVar
 
 from .backend import Backend
 from .errors import BackendError, BackendUnavailable, HookError
@@ -14,6 +14,7 @@ from .protocol import (
     Action,
     ActionResult,
     ActivityInfo,
+    Capabilities,
     DumpUiRequest,
     ImageFormat,
     Screenshot,
@@ -26,6 +27,40 @@ from .results import RunRecorder
 
 
 T = TypeVar("T")
+
+
+def _read_response_details(value: Any) -> Any:
+    """Return a useful representation of a successful read result."""
+    if isinstance(value, Capabilities):
+        return {
+            "protocol_version": value.protocol_version,
+            "model": value.model,
+            "screen_width": value.screen_width,
+            "screen_height": value.screen_height,
+            "is_rooted": value.is_rooted,
+            "supports_uinput": value.supports_uinput,
+            "supports_ui_automator": value.supports_ui_automator,
+            "supports_webview_debugging": value.supports_webview_debugging,
+            "action_names": value.action_names,
+        }
+    if isinstance(value, Screenshot):
+        return {
+            "format": value.format.value,
+            "width": value.width,
+            "height": value.height,
+            "sha256": value.sha256,
+            "data": f"<binary {len(value.data)} bytes>",
+        }
+    if isinstance(value, UiDump):
+        return {
+            "source": value.source.value,
+            "complete": value.complete,
+            "warning": value.warning,
+            "xml": value.xml,
+        }
+    if isinstance(value, ActivityInfo):
+        return value.to_dict()
+    return value
 
 
 class DeviceSession:
@@ -44,7 +79,12 @@ class DeviceSession:
             try:
                 result = callback()
                 record.finish(True, attempts=attempt + 1)
-                step("read", operation=operation, attempt=attempt + 1, status="ok")
+                log_result(
+                    "read",
+                    _read_response_details(result),
+                    operation=operation,
+                    attempt=attempt + 1,
+                )
                 return result
             except (BackendUnavailable, TimeoutError) as exc:
                 last_error = exc

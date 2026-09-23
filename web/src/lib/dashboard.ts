@@ -32,6 +32,7 @@ export function eventSubtitle(event: WebEvent) {
 }
 
 export function isPathEvent(event: WebEvent) {
+  if (isReadCompletion(event)) return false;
   return event.type === "log" && [
     "STEP",
     "TOOL CALL",
@@ -39,6 +40,30 @@ export function isPathEvent(event: WebEvent) {
     "JEV RESULT",
     "LLM RESULT",
   ].includes(event.category ?? "");
+}
+
+export function isResponseOrResultEvent(event: WebEvent) {
+  return event.type === "log" && Boolean(event.category?.endsWith("RESPONSE") || event.category?.endsWith("RESULT"));
+}
+
+export function responsePreview(event: WebEvent) {
+  const details = event.details ?? {};
+  const value = details.body ?? details.result ?? details.response ?? details;
+  let preview: string;
+  if (typeof value === "string") {
+    preview = value;
+  } else {
+    try {
+      preview = JSON.stringify(value, null, 2) ?? String(value);
+    } catch {
+      preview = String(value);
+    }
+  }
+  return preview.length > 260 ? `${preview.slice(0, 257)}…` : preview;
+}
+
+export function isReadCompletion(event: WebEvent) {
+  return event.type === "log" && event.category === "STEP" && event.message === "read" && event.details?.status === "ok";
 }
 
 export function isBusy(status: RunState["status"]) {

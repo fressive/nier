@@ -68,6 +68,7 @@ export type ApiState = { run: RunState; events: WebEvent[] };
 
 export type StepNodeData = {
   event: WebEvent;
+  response?: WebEvent;
   index: number;
   selected: boolean;
   active: boolean;

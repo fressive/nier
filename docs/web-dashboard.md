@@ -45,10 +45,11 @@ with the Python package.
 
 ## Execution trace and logs
 
-The graph shows STEP events and model results in the order they occur. It
-follows the selected run as it proceeds, marks the active step, and shows the
-final script exit state. The log panel contains the selected STEP details and
-its associated HTTP request/response details, plus recent script output.
+The graph shows STEP events and model results in the order they occur. A
+successful `read` result is attached to its read node instead of creating a
+separate completion node. Nodes show a short response preview; selecting one
+shows the associated response or result details in the sidebar alongside its
+STEP details and recent script output.
 
 Debug events also travel over the dashboard event stream. The runner pauses
 inside the STEP logger before execution continues past that event, then waits
