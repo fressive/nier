@@ -49,9 +49,20 @@ the difference in prose.
 - Keep secrets in environment variables or local configuration. Do not add
   API keys, device identifiers, screenshots, generated artifacts, or build
   output to a change unless the user explicitly requests it.
-- Use `jj` for repository status and diffs. Do not discard existing working
-  copy changes or create a commit unless the task or user explicitly calls for
-  it.
+- Use `jj` for repository status, diffs, logs, and commits. Every completed
+  task-sized logical change MUST be recorded in its own new commit before
+  handoff; do not leave completed task changes only in the working copy.
+- Commit descriptions MUST use
+  `<type>(<scope>): <imperative summary>`, following Conventional Commits.
+  Use a concise subject of at most 72 characters with no trailing period.
+  Common types are `feat`, `fix`, `docs`, `test`, `refactor`, `perf`, `build`,
+  `ci`, and `chore`; use a repository component or area for the scope. Add a
+  body when context is useful and a `BREAKING CHANGE:` footer for breaking
+  changes.
+- Create a separate commit for each independent change. Do not amend or
+  rewrite existing commits unless the user explicitly asks. Preserve unrelated
+  working-copy changes; if they cannot be safely kept out of the task commit,
+  stop and ask before committing.
 
 ## API documentation and tutorial workflow
 
@@ -106,7 +117,9 @@ PYTHONPATH=src python examples/05_model_decision.py
 4. For backend or protocol changes, also run the C++ helper checks when the
    toolchain is available.
 5. Review `jj diff` and `jj status`; verify that generated files, credentials,
-   and unrelated user changes were not included.
+   and unrelated user changes were not included. Commit the completed change
+   using the required message format, then verify the new commit with `jj log`
+   and confirm the resulting working-copy status.
 
 Useful checks are:
 
