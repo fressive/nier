@@ -157,7 +157,6 @@ class DeviceSession:
         log_result(
             "uidump",
             {
-                "xml": dump.xml,
                 "source": dump.source.value,
                 "complete": dump.complete,
                 "warning": dump.warning,

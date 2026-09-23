@@ -63,6 +63,7 @@ with connect(CONFIG) as phone:
         allowed_controls=allowed_controls,
         denied_controls=args.denied_controls,
         use_score=False,
+        dry_run=not args.execute,
     )
     _print_run_summary(result)
     if result.termination == "needs_verification":

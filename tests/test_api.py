@@ -255,6 +255,31 @@ def test_omitted_provider_names_use_the_first_configured_entries(monkeypatch) ->
     assert agent.provider == "primary"
 
 
+def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> None:
+    config = from_mapping(
+        {"models": {"ocr_providers": {"local": {"provider": "paddleocr"}}}}
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    created: list[str] = []
+
+    class FakeOcr:
+        def recognize(self, image: bytes):
+            return []
+
+    monkeypatch.setattr(
+        phone,
+        "_configured_ocr",
+        lambda provider: created.append(provider) or FakeOcr(),
+    )
+
+    goal = phone.jev_goal(jev=object())
+
+    assert created == []
+    assert goal.ocr is not None
+    assert goal.ocr.recognize(b"image") == []
+    assert created == ["local"]
+
+
 def test_unbound_screenshot_rejects_ocr() -> None:
     screenshot = Screenshot(b"image", ImageFormat.PNG, 100, 200, "digest")
 

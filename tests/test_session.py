@@ -5,6 +5,7 @@ from dataclasses import dataclass
 import pytest
 
 from nier.errors import BackendUnavailable
+from nier.logging_utils import configure_logging
 from nier.protocol import (
     ActionResult,
     Capabilities,
@@ -135,6 +136,20 @@ def test_session_accepts_keyword_ui_dump_options() -> None:
         prefer_webview=False,
         include_invisible=True,
     )
+
+
+def test_uidump_result_log_omits_xml(capsys) -> None:
+    session = DeviceSession(FakeBackend())
+    try:
+        configure_logging(2)
+        session.dump_ui()
+        output = capsys.readouterr().err
+    finally:
+        configure_logging(0)
+
+    assert "UIDUMP RESULT" in output
+    assert "source: 'UIAUTOMATOR'" in output
+    assert "<hierarchy />" not in output
 
 
 def test_session_rejects_mixed_request_styles() -> None:

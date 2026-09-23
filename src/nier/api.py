@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from typing import TYPE_CHECKING, Sequence, TypeAlias
@@ -41,6 +41,19 @@ if TYPE_CHECKING:
 
 PointLike: TypeAlias = Point | tuple[float, float]
 Endpoint: TypeAlias = str | tuple[str, int]
+
+
+class _LazyOcrProvider:
+    """Create a configured OCR provider only when OCR is requested."""
+
+    def __init__(self, create: Callable[[], OcrProvider]) -> None:
+        self._create = create
+        self._provider: OcrProvider | None = None
+
+    def recognize(self, image: bytes) -> Sequence[TextSpan]:
+        if self._provider is None:
+            self._provider = self._create()
+        return self._provider.recognize(image)
 
 
 def _point(value: PointLike, *, normalized: bool) -> Point:
@@ -427,7 +440,10 @@ class Device:
                         f"unknown OCR provider {selected_ocr_provider!r}; available: {available or 'none'}"
                     ) from exc
             else:
-                ocr = self._cached_ocr_provider(selected_ocr_provider)
+                provider_name = selected_ocr_provider
+                ocr = _LazyOcrProvider(
+                    lambda: self._cached_ocr_provider(provider_name)
+                )
 
         return JevGoal(
             self,
