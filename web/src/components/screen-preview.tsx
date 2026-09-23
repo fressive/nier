@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { AlertCircle, LoaderCircle, MonitorPlay, Play, RefreshCw, Square } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
+import { Card } from "./ui/card";
 import { fetchJson, postJson } from "../lib/api";
 import { cn } from "../lib/utils";
 
@@ -30,7 +31,7 @@ const dependencyLabels: Record<keyof PreviewState["dependencies"], string> = {
   ffmpeg: "FFmpeg",
 };
 
-export function ScreenPreview({ active }: { active: boolean }) {
+export function ScreenPreview() {
   const [state, setState] = useState<PreviewState | null>(null);
   const [serial, setSerial] = useState("");
   const [error, setError] = useState("");
@@ -53,11 +54,10 @@ export function ScreenPreview({ active }: { active: boolean }) {
   }, []);
 
   useEffect(() => {
-    if (!active) return;
     void refresh();
     const interval = window.setInterval(() => void refresh(), 2500);
     return () => window.clearInterval(interval);
-  }, [active, refresh]);
+  }, [refresh]);
 
   const start = async () => {
     setError("");
@@ -96,7 +96,8 @@ export function ScreenPreview({ active }: { active: boolean }) {
   const previewUrl = `/api/preview/stream?session=${streamKey}`;
 
   return (
-    <div className="flex h-full min-h-0 flex-col p-4">
+    <Card className="flex min-h-[580px] flex-col overflow-hidden border-border/80 bg-[#10151c]/85 xl:col-span-2 2xl:col-span-1 2xl:sticky 2xl:top-[88px] 2xl:h-[calc(100vh-108px)] 2xl:min-h-[610px]">
+      <div className="flex min-h-0 flex-1 flex-col p-4">
       <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <MonitorPlay className="h-4 w-4 text-emerald-300" />
@@ -187,6 +188,7 @@ export function ScreenPreview({ active }: { active: boolean }) {
       <p className="mt-2 text-center text-[9px] text-slate-600">
         {running ? `当前设备：${currentDevice?.model || serial}` : "视频经本机 ADB 转发，不启动手机网络服务"}
       </p>
-    </div>
+      </div>
+    </Card>
   );
 }

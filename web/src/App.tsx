@@ -7,6 +7,7 @@ import { RunConfirmDialog } from "./components/run-confirm-dialog";
 import { RunMetrics } from "./components/run-metrics";
 import { RunStatusBadge } from "./components/status-indicator";
 import { RunToolbar } from "./components/run-toolbar";
+import { ScreenPreview } from "./components/screen-preview";
 import { fetchJson, postJson } from "./lib/api";
 import { isBusy, isPathEvent, isResponseOrResultEvent, localTime } from "./lib/dashboard";
 import { cn } from "./lib/utils";
@@ -246,7 +247,7 @@ export default function App() {
 
         <RunMetrics script={run.script || selectedScript} pathCount={pathEvents.length} successCount={successCount} failureCount={failureCount} />
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_400px_380px]">
           <ExecutionGraph
             nodes={nodes}
             edges={edges}
@@ -263,6 +264,7 @@ export default function App() {
             selectedScript={selectedScript}
             onDebugCommand={handleDebugCommand}
           />
+          <ScreenPreview />
         </div>
 
         <footer className="mt-5 flex flex-col items-start justify-between gap-2 border-t border-border/50 py-4 text-[10px] text-slate-600 sm:flex-row sm:items-center">

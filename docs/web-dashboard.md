@@ -19,14 +19,16 @@ and Uvicorn at `http://127.0.0.1:8765`, then opens the browser. Use
 `--no-browser` to print the address without opening it. The script directory is
 scanned recursively for `.py` files.
 
-The **屏幕预览** sidebar tab can mirror an authorized ADB device through
-scrcpy. Install `scrcpy`, `ffmpeg`, and Android platform-tools (`adb`) on the
-host and make them available in `PATH`. Select a device reported as `device`,
-then start the preview. The dashboard disables scrcpy control and audio; the
-stream is view-only and stops when you stop it or shut down the dashboard. The
-preview uses ADB's temporary local socket forwarding and does not open a device
-network listener. It reads scrcpy's H.264 stream directly and converts frames
-to MJPEG locally; FIFO support is not required.
+The standalone **屏幕预览** panel can mirror an authorized ADB device through
+scrcpy. On wide screens it sits beside the execution graph and **执行日志**;
+on narrower screens it moves below them. Install `scrcpy`, `ffmpeg`, and Android
+platform-tools (`adb`) on the host and make them available in `PATH`. Select a
+device reported as `device`, then start the preview. The dashboard disables
+scrcpy control and audio; the stream is view-only and stops when you stop it or
+shut down the dashboard. The preview uses ADB's temporary local socket
+forwarding and does not open a device network listener. It reads scrcpy's H.264
+stream directly and converts frames to MJPEG locally; FIFO support is not
+required.
 
 The interface lists each script using its module docstring. Press **运行脚本**
 and confirm the prompt to start it. A script runs with the same Python

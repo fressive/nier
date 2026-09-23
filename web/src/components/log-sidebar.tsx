@@ -1,12 +1,11 @@
-import { useMemo, useState } from "react";
-import { ArrowDown, Clock3, Eye, MonitorPlay, Radio, XCircle } from "lucide-react";
+import { useMemo } from "react";
+import { ArrowDown, Clock3, Eye, Radio, XCircle } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Card, CardHeader, CardTitle } from "./ui/card";
 import { ScrollArea } from "./ui/scroll-area";
 import { DebugControls } from "./debug-controls";
 import { DetailEvent } from "./detail-event";
 import { RunStatusBadge } from "./status-indicator";
-import { ScreenPreview } from "./screen-preview";
 import { eventSubtitle, eventTitle, isPathEvent, isResponseOrResultEvent, localTime, stringify } from "../lib/dashboard";
 import { cn } from "../lib/utils";
 import type { DebugCommand, RunState, WebEvent } from "../types";
@@ -21,7 +20,6 @@ type Props = {
 };
 
 export function LogSidebar({ run, connected, events, selectedEvent, selectedScript, onDebugCommand }: Props) {
-  const [activePanel, setActivePanel] = useState<"logs" | "preview">("logs");
   const activeStep = [...events].reverse().find((event) => isPathEvent(event) && event.category === "STEP");
   const selectedStepId = selectedEvent?.category === "STEP"
     ? selectedEvent.event_id
@@ -54,7 +52,7 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
           </div>
           <RunStatusBadge status={run.status} />
         </div>
-        {selectedEvent && activePanel === "logs" && (
+        {selectedEvent && (
           <div className="mt-4 flex items-start gap-2 rounded-md border border-border/70 bg-[#0e131a] px-3 py-2.5">
             <span className="mt-0.5 font-mono text-[10px] text-emerald-300">#{String(selectedEvent.event_id).padStart(3, "0")}</span>
             <div className="min-w-0"><p className="truncate text-xs font-medium text-slate-200">{eventTitle(selectedEvent)}</p><p className="mt-1 text-[10px] text-slate-500">{localTime(selectedEvent.timestamp)} · {eventSubtitle(selectedEvent)}</p></div>
@@ -62,41 +60,14 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
         )}
       </CardHeader>
 
-      {activePanel === "logs" && (
-        <DebugControls
-          enabled={run.debug}
-          state={run.debug_state}
-          location={run.debug_location}
-          onCommand={onDebugCommand}
-        />
-      )}
+      <DebugControls
+        enabled={run.debug}
+        state={run.debug_state}
+        location={run.debug_location}
+        onCommand={onDebugCommand}
+      />
 
-      <div className="flex gap-1 border-b border-border/60 px-4 py-2">
-        <button
-          type="button"
-          aria-pressed={activePanel === "logs"}
-          onClick={() => setActivePanel("logs")}
-          className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[11px] font-medium transition-colors",
-            activePanel === "logs" ? "bg-slate-800 text-slate-100" : "text-slate-500 hover:bg-slate-800/50 hover:text-slate-300",
-          )}
-        >
-          <Radio className="h-3.5 w-3.5" />日志
-        </button>
-        <button
-          type="button"
-          aria-pressed={activePanel === "preview"}
-          onClick={() => setActivePanel("preview")}
-          className={cn(
-            "inline-flex h-8 items-center gap-1.5 rounded-md px-3 text-[11px] font-medium transition-colors",
-            activePanel === "preview" ? "bg-slate-800 text-slate-100" : "text-slate-500 hover:bg-slate-800/50 hover:text-slate-300",
-          )}
-        >
-          <MonitorPlay className="h-3.5 w-3.5" />屏幕预览
-        </button>
-      </div>
-
-      <div className={cn("min-h-0 flex-1", activePanel === "logs" ? "flex flex-col" : "hidden")}>
+      <div className="flex min-h-0 flex-1 flex-col">
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
           <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{detailEvents.length + Number(Boolean(responsePreviewEvent))} 条请求 / 响应 / 结果</span></div>
           <span className="max-w-[180px] truncate text-[10px] text-slate-500">{selectedScript || run.script || "未选择脚本"}</span>
@@ -134,10 +105,6 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
             {footerEvents.map((event) => <DetailEvent key={event.event_id} event={event} />)}
           </div>
         </ScrollArea>
-      </div>
-
-      <div className={cn("min-h-0 flex-1", activePanel === "preview" ? "flex" : "hidden")}>
-        <ScreenPreview active={activePanel === "preview"} />
       </div>
 
       <div className="flex items-center justify-between border-t border-border/70 px-4 py-3 text-[10px] text-slate-600">
