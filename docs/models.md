@@ -290,8 +290,8 @@ OCR is optional; without a configured provider, UI candidates remain available
 and `inspect_ocr` is not offered. With a provider configured, Jev can request
 OCR at most once for the current observation.
 
-If an LLM is configured, `next` also offers `call_llm` (two assists per run by
-default). Jev can select it when progress is stuck; failed runs can also
+If an LLM is configured, `next` offers `call_llm` by default without an
+assist-count limit. Jev can select it when progress is stuck; failed runs can also
 request recovery. The LLM receives bounded semantic state and returns one
 concise recovery subgoal—not advice to inject into the main Jev loop. A nested
 Jev goal executes that subgoal using only allowlisted safe dismiss/cancel,
@@ -299,12 +299,13 @@ Back, and explicitly requested Home controls, with at most three actions and
 thirty seconds (never beyond the main goal's deadline when one is set). On
 successful recovery,
 the main goal re-observes the device and resumes. If a recovery subgoal fails,
-the LLM can generate a different one from a fresh observation, until
-`max_llm_assists` is exhausted. Failed controls are excluded so device actions
-are not retried automatically. The LLM cannot return an executable action,
-coordinate, package, or completion signal. Set `max_llm_assists=0` to disable
-this option. `phone.run_jev_goal()` remains a compatibility wrapper around the
-same Jev-first flow.
+the LLM can generate a different one from a fresh observation. Set
+`max_llm_assists` to a non-negative integer to cap recovery-goal generations;
+zero disables LLM recovery. Each generated subgoal remains limited to three
+actions and thirty seconds. Failed controls are excluded so device actions are
+not retried automatically. The LLM cannot return an executable action,
+coordinate, package, or completion signal. `phone.run_jev_goal()` remains a
+compatibility wrapper around the same Jev-first flow.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android
 package name to offer app-launch candidates, for example

@@ -179,7 +179,7 @@ class JevGoal:
         prefer_webview: bool = True,
         llm: LlmProvider | None = None,
         llm_provider: str | None = None,
-        max_llm_assists: int = 2,
+        max_llm_assists: int | None = None,
     ) -> None:
         """Create a Jev goal runner with bounded actions and recovery.
 
@@ -187,7 +187,9 @@ class JevGoal:
         main goal encounters a recoverable failure. Each response supplies a
         recovery subgoal to a nested Jev runner; it is not passed back as
         guidance to the main Jev goal. Failed subgoals may be revised using a
-        fresh observation until ``max_llm_assists`` is exhausted. The overall
+        fresh observation until ``max_llm_assists`` is exhausted. By default,
+        there is no assist-count limit; pass a non-negative integer to cap it
+        or zero to disable LLM recovery. The overall
         deadline is disabled when ``max_seconds`` is ``None``; otherwise it
         must be a positive value up to 60 seconds.
         """
@@ -203,12 +205,12 @@ class JevGoal:
             raise ValueError("action_threshold must be between 0 and 1")
         if max_candidates <= 0:
             raise ValueError("max_candidates must be positive")
-        if (
+        if max_llm_assists is not None and (
             isinstance(max_llm_assists, bool)
             or not isinstance(max_llm_assists, int)
             or max_llm_assists < 0
         ):
-            raise ValueError("max_llm_assists must be a non-negative integer")
+            raise ValueError("max_llm_assists must be None or a non-negative integer")
         if allowed_apps is not None and not isinstance(allowed_apps, Mapping):
             raise TypeError("allowed_apps must map display labels to Android package names")
         if isinstance(allowed_controls, (str, bytes, bytearray)):
@@ -346,7 +348,10 @@ class JevGoal:
             excluded_controls: Sequence[str] = (),
         ) -> tuple[bool, str]:
             nonlocal llm_assists
-            if self.llm is None or llm_assists >= self.max_llm_assists:
+            if self.llm is None or (
+                self.max_llm_assists is not None
+                and llm_assists >= self.max_llm_assists
+            ):
                 return False, "LLM recovery is unavailable or its assist limit is exhausted"
             context_state = dict(
                 state
@@ -359,7 +364,10 @@ class JevGoal:
                 _normalize_label(label)
                 for label in (*excluded_controls, *runtime_denied_controls)
             }
-            while llm_assists < self.max_llm_assists:
+            while (
+                self.max_llm_assists is None
+                or llm_assists < self.max_llm_assists
+            ):
                 remaining = remaining_seconds()
                 if remaining is not None and remaining <= 0:
                     return False, "main goal time limit expired before recovery"
@@ -509,7 +517,10 @@ class JevGoal:
                     )
                     recovery_history.append(attempt)
 
-                if llm_assists >= self.max_llm_assists:
+                if (
+                    self.max_llm_assists is not None
+                    and llm_assists >= self.max_llm_assists
+                ):
                     history.append(
                         {
                             "decision": "recovery_subgoal",
@@ -612,7 +623,11 @@ class JevGoal:
                     observation,
                     instruction,
                     can_call_llm=(
-                        self.llm is not None and llm_assists < self.max_llm_assists
+                        self.llm is not None
+                        and (
+                            self.max_llm_assists is None
+                            or llm_assists < self.max_llm_assists
+                        )
                     ),
                 )
                 verify_fresh_state = (
