@@ -52,6 +52,15 @@ the difference in prose.
 - Use `jj` for repository status, diffs, logs, and commits. Every completed
   task-sized logical change MUST be recorded in its own new commit before
   handoff; do not leave completed task changes only in the working copy.
+- Every feature MUST start in a dedicated change created with
+  `jj new <integration-target>` before editing. Keep unrelated working-copy
+  changes out of the feature change.
+- After implementation and review, integrate the feature with its target. If
+  the feature and target histories have diverged, create a merge change with
+  `jj new <integration-target> <feature-change>`, resolve any conflicts, review
+  `jj diff` and `jj status`, and commit the merge change. If the feature still
+  descends directly from the target, it is already integrated in that history;
+  do not create a redundant merge.
 - Commit descriptions MUST use
   `<type>(<scope>): <imperative summary>`, following Conventional Commits.
   Use a concise subject of at most 72 characters with no trailing period.
