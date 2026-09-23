@@ -48,6 +48,10 @@ for spec in args.allowed_app_specs or []:
     allowed_apps[label.strip()] = package.strip()
 if args.execute and not (args.allowed_controls or allowed_apps):
     parser.error("--execute requires at least one --allow-control or --allow-app")
+allowed_controls = args.allowed_controls
+if allowed_apps and allowed_controls is None:
+    # An app-only grant in this example must not also enable discovered UI taps.
+    allowed_controls = ()
 
 with connect(CONFIG) as phone:
     result = phone.run_jev_goal(
@@ -55,7 +59,7 @@ with connect(CONFIG) as phone:
         max_steps=8,
         max_seconds=45,
         allowed_apps=allowed_apps,
-        allowed_controls=args.allowed_controls,
+        allowed_controls=allowed_controls,
         denied_controls=args.denied_controls,
         dry_run=not args.execute,
         use_score=False,

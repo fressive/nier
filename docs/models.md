@@ -287,7 +287,10 @@ package and keeps it in the executable candidate; Jev sees a candidate such as
 `打开应用：设置` with source `app`, never the package name. No app-launch
 candidates are offered by default, and Jev cannot invent a package. App entries
 are separate from `allowed_controls` and `denied_controls`. `open_app` changes
-device state and is not retried automatically.
+device state and is not retried automatically. If the goal should offer only
+app launches, also pass `allowed_controls=()`; otherwise omitting
+`allowed_controls` keeps the default discovery of visible UI/OCR and system
+candidates.
 
 Each observation sends one batched request containing:
 
