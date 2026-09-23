@@ -56,9 +56,10 @@ with the Python package.
 
 The graph shows STEP events and model results in the order they occur. A
 successful `read` result is attached to its read node instead of creating a
-separate completion node. Nodes show a short response preview; selecting one
-shows the associated response or result details in the sidebar alongside its
-STEP details and recent script output.
+separate completion node. Nodes stay compact and show an indicator when response
+data is available. The sidebar's separate **响应预览** panel follows the selected
+node and shows its bounded response; the log list shows related requests and
+responses alongside STEP details and recent script output.
 `dump_ui` results appear as an expandable UI hierarchy with element attributes,
 text, resource IDs, and bounds. Use **全屏预览** to inspect the tree across the
 full viewport; the tree remains independently scrollable and expandable.

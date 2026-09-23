@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { ArrowDown, Clock3, MonitorPlay, Radio, XCircle } from "lucide-react";
+import { ArrowDown, Clock3, Eye, MonitorPlay, Radio, XCircle } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Card, CardHeader, CardTitle } from "./ui/card";
 import { ScrollArea } from "./ui/scroll-area";
@@ -26,10 +26,22 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
   const selectedStepId = selectedEvent?.category === "STEP"
     ? selectedEvent.event_id
     : selectedEvent?.step_id ?? activeStep?.event_id;
+  const previewTarget = selectedEvent ?? activeStep;
+  const responsePreviewEvent = useMemo(() => {
+    if (!previewTarget) return undefined;
+    if (isResponseOrResultEvent(previewTarget)) return previewTarget;
+    const relatedResponses = events.filter((event) =>
+      isResponseOrResultEvent(event) && event.step_id === previewTarget.event_id,
+    );
+    return relatedResponses.filter((event) => event.category === "READ RESULT").at(-1)
+      ?? relatedResponses.filter((event) => event.category?.endsWith("RESULT")).at(-1)
+      ?? relatedResponses.at(-1);
+  }, [events, previewTarget?.event_id, previewTarget?.category]);
   const detailEvents = useMemo(() => events.filter((event) =>
     event.type === "log" && (event.category?.endsWith("REQUEST") || isResponseOrResultEvent(event)) &&
+    event.event_id !== responsePreviewEvent?.event_id &&
     (selectedStepId === undefined || selectedStepId === null || event.step_id === selectedStepId),
-  ), [events, selectedStepId]);
+  ), [events, responsePreviewEvent?.event_id, selectedStepId]);
   const footerEvents = events.filter((event) => event.type === "console" || event.type === "run.finished").slice(-8);
 
   return (
@@ -86,7 +98,7 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
 
       <div className={cn("min-h-0 flex-1", activePanel === "logs" ? "flex flex-col" : "hidden")}>
         <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
-          <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{detailEvents.length} 条请求 / 响应 / 结果</span></div>
+          <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{detailEvents.length + Number(Boolean(responsePreviewEvent))} 条请求 / 响应 / 结果</span></div>
           <span className="max-w-[180px] truncate text-[10px] text-slate-500">{selectedScript || run.script || "未选择脚本"}</span>
         </div>
 
@@ -98,8 +110,21 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
                 <pre className="code-scroll max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0b0f14] p-3 font-mono text-[10px] leading-relaxed text-slate-300">{stringify(selectedEvent.details ?? {})}</pre>
               </div>
             )}
+            <section className="space-y-2">
+              <div className="flex items-center gap-1.5 px-1 text-[11px] font-semibold text-slate-300">
+                <Eye className="h-3.5 w-3.5 text-emerald-300" />响应预览
+              </div>
+              {responsePreviewEvent ? (
+                <DetailEvent event={responsePreviewEvent} />
+              ) : (
+                <div className="rounded-lg border border-dashed border-border/80 bg-[#0e131a]/70 px-4 py-5 text-center">
+                  <p className="text-[11px] text-slate-500">当前节点暂无响应内容</p>
+                  <p className="mt-1 text-[10px] text-slate-600">选择包含结果的节点后，响应会显示在此面板。</p>
+                </div>
+              )}
+            </section>
             {detailEvents.map((event) => <DetailEvent key={event.event_id} event={event} />)}
-            {detailEvents.length === 0 && (
+            {detailEvents.length === 0 && !responsePreviewEvent && (
               <div className="rounded-lg border border-dashed border-border/80 bg-[#0e131a]/70 px-4 py-7 text-center">
                 <ArrowDown className="mx-auto h-4 w-4 text-slate-600" />
                 <p className="mt-3 text-xs font-medium text-slate-400">当前步骤没有请求 / 响应</p>
