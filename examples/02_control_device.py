@@ -9,7 +9,7 @@ from pathlib import Path
 from nier import connect
 
 CONFIG = Path("config/nier.yaml")
-SEARCH_LABEL = re.compile(r"^搜索$")  # Change this label for the application under test.
+SEARCH_LABEL = re.compile(r"^搜索.*$")  # Change this label for the application under test.
 SEARCH_TEXT = "nier"
 
 

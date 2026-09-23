@@ -32,7 +32,7 @@ from nier import connect
 
 
 with connect("config/nier.yaml") as phone:
-    phone.tap_label(re.compile(r"^搜索$"))
+    phone.tap_label(re.compile(r"^搜索.*$"))
 ```
 
 It uses only Python's standard-library `re` module. If no node matches or no

@@ -116,6 +116,21 @@ def test_tap_label_supports_exact_text_and_regex(label: str | re.Pattern[str]) -
     assert backend.dump_request == DumpUiRequest(prefer_webview=False)
 
 
+def test_tap_label_regex_matches_a_search_label_with_suffix() -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node text="搜索设置项" bounds="[10,20][30,40]" '
+            'clickable="true" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+
+    result = phone.tap_label(re.compile(r"^搜索.*$"))
+
+    assert result.success is True
+    assert backend.actions == [Click(Point(20, 30), 80)]
+
+
 def test_tap_label_raises_when_no_matching_label_exists() -> None:
     phone, backend = make_device()
 
