@@ -14,7 +14,6 @@ python -m pip install -e '.[dev]'
 | [`04_remote_adb.py`](04_remote_adb.py) | Run a session against a remote ADB device | Yes; TCP ADB |
 | [`05_model_decision.py`](05_model_decision.py) | OCR a screen and tap a matching label | Yes; configured OCR provider |
 | [`07_agent.py`](07_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
-| [`08_jev.py`](08_jev.py) | Ask a typed TypeSafe Jev decision | No device action; requires `TYPESAFE_API_KEY` |
 | [`09_remote_ocr.py`](09_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
 | [`10_jev_goal.py`](10_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
 | [`11_webview_uidump.py`](11_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
@@ -27,7 +26,6 @@ PYTHONPATH=src python examples/01_basic_session.py
 PYTHONPATH=src python examples/02_control_device.py --confirm
 PYTHONPATH=src python examples/03_screenshot_uidump.py
 PYTHONPATH=src python examples/07_agent.py
-TYPESAFE_API_KEY=... PYTHONPATH=src python examples/08_jev.py
 PYTHONPATH=src python examples/09_remote_ocr.py
 PYTHONPATH=src python examples/10_jev_goal.py
 PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 关于本机
