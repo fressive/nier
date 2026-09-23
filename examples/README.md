@@ -16,7 +16,7 @@ python -m pip install -e '.[dev]'
 | [`07_agent.py`](07_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
 | [`08_jev.py`](08_jev.py) | Ask a typed TypeSafe Jev decision | No device action; requires `TYPESAFE_API_KEY` |
 | [`09_remote_ocr.py`](09_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
-| [`10_jev_goal.py`](10_jev_goal.py) | Preview or run a bounded UI goal with Jev candidate selection | Yes; requires configured Jev; execution requires explicit allowed labels |
+| [`10_jev_goal.py`](10_jev_goal.py) | Preview or run a bounded UI goal with Jev candidate selection | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
 | [`11_webview_uidump.py`](11_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
 
 Copy the configuration before running device examples:
@@ -29,14 +29,15 @@ PYTHONPATH=src python examples/07_agent.py
 TYPESAFE_API_KEY=... PYTHONPATH=src python examples/08_jev.py
 PYTHONPATH=src python examples/09_remote_ocr.py
 PYTHONPATH=src python examples/10_jev_goal.py
-PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 设置 --allow-control 关于手机
+PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 关于手机
 PYTHONPATH=src python examples/11_webview_uidump.py
 ```
 
 Only run device-control examples against devices and applications you are
-authorized to test. `10_jev_goal.py` previews by default; `--execute` requires
-one or more `--allow-control` labels. Model credentials stay in environment
-variables.
+authorized to test. `10_jev_goal.py` previews by default and allowlists
+`com.android.settings` in its `allowed_apps` argument. `--allow-control` opts
+in to specific UI labels; `--execute` is required before device actions. Model
+credentials stay in environment variables.
 
 Edit the constants at the top of each script for the target package, labels,
 remote endpoint, or whether an Agent plan should be executed. The examples
