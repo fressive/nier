@@ -380,6 +380,46 @@ def test_jev_goal_preview_uses_one_dump_and_can_skip_webview() -> None:
     assert backend.dump_ui_requests == [DumpUiRequest(prefer_webview=False)]
 
 
+@pytest.mark.parametrize("entry_point", ("run", "run_jev_goal"))
+def test_goal_entry_points_have_no_main_deadline_by_default(
+    monkeypatch,
+    entry_point: str,
+) -> None:
+    phone, backend = make_device()
+    jev = FakeJev([_response(done=0.10, choice="ui_0")])
+    calls = 0
+
+    def expired_clock() -> float:
+        nonlocal calls
+        calls += 1
+        return 0.0 if calls == 1 else 100.0
+
+    monkeypatch.setattr("nier.jev_goal.monotonic", expired_clock)
+
+    result = getattr(phone, entry_point)("点击登录", jev=jev, dry_run=True)
+
+    assert result.termination == "next_action_preview"
+    assert backend.actions == []
+
+
+def test_device_run_accepts_an_explicit_sixty_second_deadline(monkeypatch) -> None:
+    phone, backend = make_device()
+    jev = FakeJev([])
+    clock_values = iter((0.0, 60.0))
+    monkeypatch.setattr("nier.jev_goal.monotonic", lambda: next(clock_values))
+
+    result = phone.run(
+        "点击登录",
+        jev=jev,
+        dry_run=True,
+        max_seconds=60,
+    )
+
+    assert result.termination == "time_limit"
+    assert jev.calls == []
+    assert backend.actions == []
+
+
 def test_jev_goal_dispatches_fixed_back_candidate_as_key() -> None:
     phone, backend = make_device()
     jev = FakeJev(

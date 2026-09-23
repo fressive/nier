@@ -296,7 +296,8 @@ request recovery. The LLM receives bounded semantic state and returns one
 concise recovery subgoal—not advice to inject into the main Jev loop. A nested
 Jev goal executes that subgoal using only allowlisted safe dismiss/cancel,
 Back, and explicitly requested Home controls, with at most three actions and
-ten seconds (never beyond the main goal's deadline). On successful recovery,
+thirty seconds (never beyond the main goal's deadline when one is set). On
+successful recovery,
 the main goal re-observes the device and resumes. If a recovery subgoal fails,
 the LLM can generate a different one from a fresh observation, until
 `max_llm_assists` is exhausted. Failed controls are excluded so device actions
@@ -341,11 +342,12 @@ discards that answer and asks again against the fresh observation. An OCR-based
 tap also requires the screenshot digest to match the image used for that OCR
 read; this check does not run OCR a second time. Three stale decisions trigger
 recovery and stop the run if recovery fails. Main-goal actions are bounded by
-`max_steps`; recovery uses a separate bounded action budget. The complete flow
-is bounded by `max_seconds`
-(45 seconds by default and maximum). The deadline prevents starting another
-action after it expires; it cannot interrupt an in-flight provider or device
-call. Failed device actions are excluded from later candidates, not retried.
+`max_steps`; recovery uses a separate bounded action budget. The overall
+`max_seconds` deadline is disabled by default. Pass a positive value up to 60
+seconds to enable it; it includes recovery and prevents starting another
+action after it expires. It cannot interrupt an in-flight provider or device
+call. Recovery keeps its separate 30-second cap when the main deadline is
+disabled. Failed device actions are excluded from later candidates, not retried.
 Provider or observation failures request bounded recovery when configured; if
 recovery is unavailable or fails, the run stops with an error (and unexpected
 exceptions remain surfaced to the caller). The caller should inspect a fresh

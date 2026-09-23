@@ -379,6 +379,7 @@ def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> Non
     goal = phone.jev_goal(jev=object())
 
     assert created == []
+    assert goal.max_seconds is None
     assert goal.ocr is not None
     assert goal.ocr.recognize(b"image") == []
     assert created == ["local"]
