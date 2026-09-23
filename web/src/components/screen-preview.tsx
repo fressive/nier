@@ -96,7 +96,7 @@ export function ScreenPreview() {
   const previewUrl = `/api/preview/stream?session=${streamKey}`;
 
   return (
-    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+    <Card className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
       <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
       <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">

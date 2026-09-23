@@ -56,7 +56,7 @@ export function ExecutionGraph({
 }: Props) {
   const latestNode = nodes.at(-1);
   return (
-    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+    <Card className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
       <CardHeader className="shrink-0 flex-row items-center justify-between space-y-0 border-b border-border/70 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center gap-3">
           <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-800/70 text-slate-300"><Workflow className="h-3.5 w-3.5" /></div>
