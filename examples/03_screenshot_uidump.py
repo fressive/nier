@@ -24,8 +24,12 @@ def main() -> int:
         ui_path = OUTPUT / "ui.xml"
         ui_path.write_text(dump.xml, encoding="utf-8")
 
-        print({"screenshot": str(screenshot_path), "sha256": screenshot.sha256})
-        print({"ui_dump": str(ui_path), "source": dump.source.value})
+        print(f"Screenshot saved to: {screenshot_path}")
+        print(f"Screenshot SHA-256: {screenshot.sha256}")
+        print(f"UI dump saved to: {ui_path}")
+        print(f"UI dump source: {dump.source.value}")
+        if dump.warning:
+            print(f"UI dump note: {dump.warning}")
 
         document = parse_uidump(dump)
         structured_path = OUTPUT / "ui.json"
@@ -33,21 +37,18 @@ def main() -> int:
             json.dumps(document.to_dict(max_nodes=256), ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        buttons = [
-            {
-                "text": node.text_content,
-                "resource_id": node.resource_id,
-                "center": node.center,
-            }
-            for node in document.find_all(clickable=True)
-        ]
-        print(
-            json.dumps(
-                {"structured_ui": str(structured_path), "clickable_nodes": buttons},
-                ensure_ascii=False,
-                indent=2,
+        buttons = document.find_all(clickable=True)
+        print(f"Structured UI tree saved to: {structured_path}")
+        print(f"Clickable nodes ({len(buttons)}):")
+        for node in buttons:
+            label = node.text_content or node.content_desc or "(no label)"
+            center = (
+                "unknown"
+                if node.center is None
+                else f"({node.center[0]:.1f}, {node.center[1]:.1f})"
             )
-        )
+            resource_id = f"; id={node.resource_id}" if node.resource_id else ""
+            print(f"  - {label!r}{resource_id}; center={center}")
         phone.save_run("screen-inspection.json")
     return 0
 

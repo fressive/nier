@@ -81,13 +81,17 @@ adds the original XML/HTML when a consumer needs it:
 
 ```python
 import json
+from pathlib import Path
 
 from nier import parse_uidump
 
 
 ui = parse_uidump("<hierarchy><node text='登录' clickable='true' /></hierarchy>")
 payload = ui.to_dict(max_nodes=100)
-print(json.dumps(payload, ensure_ascii=False))
+target = Path("artifacts/ui.json")
+target.parent.mkdir(parents=True, exist_ok=True)
+target.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+print(f"Structured UI saved to: {target} ({len(ui.walk())} nodes)")
 ```
 
 The structured form is JSON-ready and keeps element hierarchy, normalized

@@ -201,12 +201,7 @@ def block(
     """Write a bounded, indented text block at a selected verbosity level."""
     if _VERBOSITY >= verbosity_level:
         level = "v" * verbosity_level
-        suffix = ""
-        if fields:
-            safe_fields = _safe_mapping(fields)
-            suffix = " " + " ".join(
-                f"{key}={value}" for key, value in sorted(safe_fields.items())
-            )
+        suffix = "\n" + _format_fields(fields) if fields else ""
         content = _truncate(body)
         indented = "\n".join(f"  {line}" for line in content.splitlines())
         _LOGGER.info(
@@ -221,17 +216,67 @@ def block(
 
 
 def _emit(level: str, category: str, message: str, fields: Mapping[str, Any]) -> None:
-    suffix = ""
-    if fields:
-        suffix = " " + json.dumps(_safe_mapping(fields), ensure_ascii=False, sort_keys=True)
+    details = _format_fields(fields)
+    output = f"[nier {level}] {category} {message}"
+    if details:
+        output += f"\n{details}"
     _LOGGER.info(
-        "[nier %s] %s %s%s",
-        level,
-        category,
-        message,
-        suffix,
+        "%s",
+        output,
         extra={"nier_verbosity": level, "nier_category": category},
     )
+
+
+def _format_fields(fields: Mapping[str, Any]) -> str:
+    """Render sanitized event fields as labeled text rather than JSON."""
+    safe_fields = _safe_mapping(fields)
+    lines: list[str] = []
+    for key in sorted(safe_fields):
+        value = safe_fields[key]
+        if isinstance(value, (Mapping, list, tuple)):
+            lines.append(f"  {key}:")
+            lines.extend(_format_nested(value, indent=4))
+        else:
+            lines.append(f"  {key}: {_format_scalar(value)}")
+    return "\n".join(lines)
+
+
+def _format_nested(value: Any, *, indent: int) -> list[str]:
+    prefix = " " * indent
+    if isinstance(value, Mapping):
+        if not value:
+            return [f"{prefix}(empty)"]
+        lines: list[str] = []
+        for key in sorted(value, key=str):
+            item = value[key]
+            if isinstance(item, (Mapping, list, tuple)):
+                lines.append(f"{prefix}{key}:")
+                lines.extend(_format_nested(item, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}{key}: {_format_scalar(item)}")
+        return lines
+    if isinstance(value, (list, tuple)):
+        if not value:
+            return [f"{prefix}(empty)"]
+        lines = []
+        for item in value:
+            if isinstance(item, (Mapping, list, tuple)):
+                lines.append(f"{prefix}-")
+                lines.extend(_format_nested(item, indent=indent + 2))
+            else:
+                lines.append(f"{prefix}- {_format_scalar(item)}")
+        return lines
+    return [f"{prefix}{_format_scalar(value)}"]
+
+
+def _format_scalar(value: Any) -> str:
+    if value is None:
+        return "none"
+    if isinstance(value, bool):
+        return "yes" if value else "no"
+    if isinstance(value, str):
+        return repr(value) if value else "(empty)"
+    return str(value)
 
 
 def _supports_color(stream: Any) -> bool:

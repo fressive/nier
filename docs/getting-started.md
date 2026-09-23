@@ -23,10 +23,13 @@ from nier import connect
 
 
 with connect("config/nier.yaml") as phone:
-    print(phone.health())
-    print(phone.capabilities())
-    print(phone.list_apps())
-    print(phone.list_app_activities("com.android.settings"))
+    print(f"Device ready: {'yes' if phone.health() else 'no'}")
+    capabilities = phone.capabilities()
+    print(f"Device: {capabilities.model} ({capabilities.device_id})")
+    print(f"Screen: {capabilities.screen_width} × {capabilities.screen_height}")
+    print(f"Installed apps: {len(phone.list_apps())}")
+    activities = phone.list_app_activities("com.android.settings")
+    print(f"Settings activities: {len(activities)}")
     phone.open_app("com.android.settings")
     phone.start_activity("com.android.settings", ".Settings")
     phone.tap(0.5, 0.5, normalized=True)
@@ -79,7 +82,8 @@ Request and response payloads are bounded and sensitive headers such as
 Authorization and API keys are redacted in `vvv` transport logs. At `vv`, OCR,
 UI dump, Jev, and LLM results are logged with the same payload size limits.
 Screenshot data sent to OCR is shown as a size marker rather than a Base64
-payload.
+payload. Terminal logs and CLI summaries use labeled text rather than JSON;
+saved run records remain JSON files for machine-readable inspection.
 Jev answers are shown by question and type; at `vvv`, Jev context logs render UI
 summaries and OCR spans as readable lines.
 

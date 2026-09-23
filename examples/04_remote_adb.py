@@ -9,8 +9,9 @@ REMOTE_DEVICE = ("192.168.1.20", 5555)
 
 def main() -> int:
     with connect(remote=REMOTE_DEVICE, retries=1) as phone:
-        print("remote device:", phone.capabilities().device_id)
-        print("ready:", phone.health())
+        capabilities = phone.capabilities()
+        print(f"Remote device: {capabilities.model} ({capabilities.device_id})")
+        print(f"Device status: {'ready' if phone.health() else 'not ready'}")
         phone.screenshot("artifacts/remote-screen.png")
         phone.save_run("remote-session.json")
     return 0

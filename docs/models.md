@@ -137,7 +137,12 @@ with connect("config/nier.yaml") as phone:
         "打开设置，进入关于手机",
         dry_run=True,
     )
-    print(run.plan.to_dict())
+    print(f"Goal: {run.plan.goal}")
+    print(f"Provider: {run.plan.provider or 'default'}")
+    print("Planned actions:")
+    for index, step in enumerate(run.plan.steps, start=1):
+        reason = f" — {step.reason}" if step.reason else ""
+        print(f"  {index}. {step.action}{reason}")
 ```
 
 The Agent always executes one validated tool call, captures the new device
@@ -391,9 +396,9 @@ with connect("config/nier.yaml") as phone:
             ),
         },
     )
-    print(response.answer("route").choice)
-    print(response.answer("urgent").noul)
-    print(response.answer("severity").score)
+    print(f"Route: {response.answer('route').choice}")
+    print(f"Urgency score: {response.answer('urgent').noul}")
+    print(f"Severity score: {response.answer('severity').score}")
 ```
 
 `JevAnswer` preserves the typed value, confidence, probabilities, and raw
