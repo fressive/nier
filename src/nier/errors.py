@@ -21,6 +21,10 @@ class ProtocolError(BackendError):
     """The backend returned data that violates the protocol contract."""
 
 
+class UiElementNotFound(NierError):
+    """No UI label match with usable screen bounds was found."""
+
+
 class ModelError(NierError):
     """A model provider failed or returned an invalid result."""
 

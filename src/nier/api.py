@@ -5,11 +5,12 @@ from __future__ import annotations
 from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
+from re import Pattern
 from typing import TYPE_CHECKING, Sequence, TypeAlias
 
 from .backends.adb import AdbBackend
 from .config import AppConfig, load_config
-from .errors import ConfigurationError, ModelError
+from .errors import ConfigurationError, ModelError, UiElementNotFound
 from .logging_utils import configure_logging, step
 from .models.base import select_provider_name
 from .protocol import (
@@ -227,6 +228,40 @@ class Device:
         return self.session.execute(Click(Point(x, y, normalized), duration_ms))
 
     tap = click
+
+    def tap_label(self, label: str | Pattern[str]) -> ActionResult:
+        """Find a UI text/accessibility label and tap the center of its bounds.
+
+        String labels match exactly. Pass a compiled ``re.Pattern`` to match
+        using its ``search`` semantics. This captures a fresh UIAutomator dump
+        and performs one tap. ``UiElementNotFound`` is raised when no matching
+        text or content-description node with screen bounds is available.
+        """
+        def matches_value(value: str) -> bool:
+            if not value:
+                return False
+            if isinstance(label, str):
+                return value == label
+            return label.search(value) is not None
+
+        document = self.parse_uidump(prefer_webview=False)
+        matching_nodes = tuple(
+            node
+            for node in document.walk()
+            if matches_value(node.text) or matches_value(node.content_desc)
+        )
+        node = next(
+            (match for match in matching_nodes if match.center is not None), None
+        )
+        if not matching_nodes:
+            raise UiElementNotFound(f"no UI label matches {label!r}")
+        if node is None:
+            raise UiElementNotFound(
+                f"UI label {label!r} matched no node with screen bounds"
+            )
+        center = node.center
+        assert center is not None
+        return self.tap(*center)
 
     def swipe(
         self,

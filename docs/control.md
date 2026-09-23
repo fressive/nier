@@ -9,6 +9,7 @@ from nier import connect
 
 with connect("config/nier.yaml") as phone:
     phone.tap(540, 960)
+    phone.tap_label("搜索")
     phone.swipe(100, 300, 300, 500, 700, 500, duration_ms=600)
     phone.swipe((0.25, 0.5), (0.75, 0.5), normalized=True)
     phone.text("hello world")
@@ -18,6 +19,26 @@ with connect("config/nier.yaml") as phone:
     phone.key("volume_down")
     print(phone.current_activity())
 ```
+
+`tap_label` captures a fresh UIAutomator dump, finds the first matching node
+with bounds in document order, and taps its center. It matches node text or
+content descriptions. A plain string is an exact match. Pass a compiled Python
+regex for regex search:
+
+```python
+import re
+
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    phone.tap_label(re.compile(r"^搜索$"))
+```
+
+It uses only Python's standard-library `re` module. If no node matches or no
+matching node has screen bounds, it raises `UiElementNotFound` from
+`nier.errors`. Use it only with a device and app you are authorized to test.
+The tap is a device action and is never retried automatically.
 
 Action validation happens during construction:
 

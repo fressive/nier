@@ -1,12 +1,13 @@
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 
 import pytest
 
 from nier import Device, connect
 from nier.config import from_mapping
-from nier.errors import ProtocolError
+from nier.errors import ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, TextSpan
 from nier.protocol import (
     Action,
@@ -33,6 +34,7 @@ class FakeBackend:
     actions: list[Action] = field(default_factory=list)
     screenshot_request: ScreenshotRequest | None = None
     dump_request: DumpUiRequest | None = None
+    ui_xml: str = "<hierarchy />"
     closed: bool = False
 
     def health(self) -> bool:
@@ -54,7 +56,7 @@ class FakeBackend:
 
     def dump_ui(self, request: DumpUiRequest | None = None) -> UiDump:
         self.dump_request = request
-        return UiDump("<hierarchy />", UiSource.UIAUTOMATOR)
+        return UiDump(self.ui_xml, UiSource.UIAUTOMATOR)
 
     def list_apps(self) -> list[str]:
         return ["com.example.one", "com.example.two"]
@@ -95,6 +97,56 @@ def test_script_actions_build_protocol_actions() -> None:
     assert all(point.normalized for point in swipe.points)
     assert backend.actions[3] == InputText("hello")
     assert backend.actions[4] == Key(KeyCode.BACK)
+
+
+@pytest.mark.parametrize("label", ["登录", re.compile(r"登.*")])
+def test_tap_label_supports_exact_text_and_regex(label: str | re.Pattern[str]) -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node text="登录" bounds="[10,20][30,40]" '
+            'clickable="true" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+
+    result = phone.tap_label(label)
+
+    assert result.success is True
+    assert backend.actions == [Click(Point(20, 30), 80)]
+    assert backend.dump_request == DumpUiRequest(prefer_webview=False)
+
+
+def test_tap_label_raises_when_no_matching_label_exists() -> None:
+    phone, backend = make_device()
+
+    with pytest.raises(UiElementNotFound, match="no UI label matches"):
+        phone.tap_label("登录")
+
+    assert backend.actions == []
+
+
+def test_tap_label_can_match_content_description() -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node content-desc="Search button" '
+            'bounds="[10,20][30,40]" clickable="true" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+
+    phone.tap_label(re.compile("search", re.IGNORECASE))
+
+    assert backend.actions == [Click(Point(20, 30), 80)]
+
+
+def test_tap_label_raises_when_matching_node_has_no_bounds() -> None:
+    backend = FakeBackend(ui_xml='<hierarchy><node text="登录" /></hierarchy>')
+    phone, _ = make_device(backend)
+
+    with pytest.raises(UiElementNotFound, match="no node with screen bounds"):
+        phone.tap_label("登录")
+
+    assert backend.actions == []
 
 
 def test_device_lists_apps_and_app_activities() -> None:
