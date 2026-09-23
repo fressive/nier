@@ -226,7 +226,7 @@ def block(
 
 def _emit(level: str, category: str, message: str, fields: Mapping[str, Any]) -> None:
     safe_fields = _safe_mapping(fields)
-    details = _format_fields(safe_fields)
+    details = _format_fields(fields)
     output = f"[nier {level}] {category} {message}"
     if details:
         output += f"\n{details}"

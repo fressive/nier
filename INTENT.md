@@ -68,9 +68,8 @@ The current foundation includes:
 
 The following are intentionally outside the completed foundation:
 
-- unbounded autonomous recovery; current Jev recovery is bounded to safe
-  controls and a configured LLM-assist limit, and failed device actions are
-  excluded from subsequent candidates rather than retried;
+- automatic retries of failed device actions; failed controls are excluded from
+  subsequent recovery candidates;
 - continuous post-action verification;
 - autonomous WebView interaction beyond DOM extraction; the optional root
   Frida hook and cooperative non-root integration now enable WebView DevTools
@@ -79,6 +78,11 @@ The following are intentionally outside the completed foundation:
   remain a future extension.
 
 These are future extensions, not reasons to change the default ADB topology.
+
+Jev recovery may generate any number of recovery subgoals by default, with each
+subgoal still restricted to safe controls and bounded to three actions and
+thirty seconds. Callers can cap the number of LLM assists or set an overall
+goal deadline.
 
 ## Documentation map
 

@@ -49,7 +49,7 @@ type ScriptInfo = { path: string; name: string; description: string };
 type RunState = {
   id: string | null;
   script: string | null;
-  status: "idle" | "starting" | "running" | "stopping" | "completed" | "failed";
+  status: "idle" | "starting" | "running" | "stopping" | "completed" | "stopped" | "failed";
   started_at: string | null;
   finished_at: string | null;
   exit_code: number | null;
@@ -145,6 +145,7 @@ function statusLabel(status: RunState["status"]) {
     running: "执行中",
     stopping: "正在停止",
     completed: "已完成",
+    stopped: "已停止",
     failed: "运行失败",
   }[status];
 }
@@ -160,6 +161,7 @@ function StatusIcon({ status }: { status: RunState["status"] }) {
 
 function statusVariant(status: RunState["status"]) {
   if (status === "completed") return "success" as const;
+  if (status === "stopped") return "warning" as const;
   if (status === "failed") return "danger" as const;
   if (isBusy(status)) return "warning" as const;
   return "outline" as const;
@@ -390,7 +392,7 @@ export default function App() {
       const state = await fetchJson<ApiState>("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ script: selectedScript }),
+        body: JSON.stringify({ script: selectedScript, confirmed: true }),
       });
       setRun(state.run);
       setShowConfirm(false);
@@ -640,7 +642,7 @@ export default function App() {
         </div>
 
         <footer className="mt-5 flex flex-col items-start justify-between gap-2 border-t border-border/50 py-4 text-[10px] text-slate-600 sm:flex-row sm:items-center">
-          <span className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" />本地执行观测 · 仅显示已脱敏的结构化运行事件</span>
+          <span className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" />Nier 结构化事件按日志策略脱敏；脚本输出按原样展示</span>
           <span className="font-mono">NIER WEB / {run.id ? run.id.slice(0, 8) : "READY"}</span>
         </footer>
       </main>

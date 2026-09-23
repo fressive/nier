@@ -18,9 +18,19 @@ from urllib.parse import urlsplit
 import uuid
 import webbrowser
 
+from fastapi import FastAPI, HTTPException, Request
+from fastapi.responses import StreamingResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, Field
+
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
 _NIER_TERMINAL_LINE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3} \[nier ")
+
+
+class RunRequest(BaseModel):
+    script: str = Field(min_length=1, max_length=1024)
+    confirmed: bool
 
 
 def _timestamp() -> str:
@@ -79,6 +89,9 @@ class _DashboardState:
             or "\x00" in relative_path
         ):
             raise ValueError("script path is required")
+        available = {item["path"] for item in self.list_scripts()}
+        if relative_path not in available:
+            raise ValueError("script is not available in the selected scripts directory")
         candidate = (self.scripts / relative_path).resolve()
         if (
             not candidate.is_relative_to(self.scripts)
@@ -154,7 +167,7 @@ class _DashboardState:
             self.process = process
             self.run_state["pid"] = process.pid
             if self.run_state["status"] == "stopping":
-                process.terminate()
+                self._terminate_process(process)
             else:
                 self.run_state["status"] = "running"
                 self._publish_locked(
@@ -184,6 +197,7 @@ class _DashboardState:
         self._finish(run_id, exit_code, None)
 
     def _read_output(self, stream, label: str, run_id: str) -> None:
+        in_nier_block = False
         for line in stream:
             line = line.rstrip("\r\n")
             if label == "stdout" and line.startswith(_EVENT_PREFIX):
@@ -195,8 +209,13 @@ class _DashboardState:
                     event["run_id"] = run_id
                     self.publish(event)
                 continue
-            if label == "stderr" and _NIER_TERMINAL_LINE.match(line):
-                continue
+            if label == "stderr":
+                if _NIER_TERMINAL_LINE.match(line):
+                    in_nier_block = True
+                    continue
+                if in_nier_block and (not line or line[0].isspace()):
+                    continue
+                in_nier_block = False
             if line:
                 self.publish(
                     {
@@ -222,14 +241,39 @@ class _DashboardState:
                 }
             )
         if process is not None:
-            process.terminate()
+            self._terminate_process(process)
         return self.snapshot()
+
+    @classmethod
+    def _terminate_process(cls, process: subprocess.Popen[str]) -> None:
+        try:
+            process.terminate()
+        except OSError:
+            return
+        force_kill = threading.Timer(3, cls._kill_if_running, args=(process,))
+        force_kill.daemon = True
+        force_kill.start()
+
+    @staticmethod
+    def _kill_if_running(process: subprocess.Popen[str]) -> None:
+        if process.poll() is None:
+            try:
+                process.kill()
+            except OSError:
+                pass
 
     def _finish(self, run_id: str, exit_code: int | None, error: str | None) -> None:
         with self.lock:
             if self.run_state["id"] != run_id:
                 return
-            status = "completed" if exit_code == 0 and error is None else "failed"
+            was_stopped = self.run_state["status"] == "stopping"
+            status = (
+                "stopped"
+                if was_stopped
+                else "completed"
+                if exit_code == 0 and error is None
+                else "failed"
+            )
             self.run_state.update(
                 status=status,
                 finished_at=_timestamp(),
@@ -300,16 +344,8 @@ def _asset_root() -> Path:
     return Path(__file__).resolve().parent / "web_static"
 
 
-def create_app(scripts: Path, *, cwd: Path | None = None):
+def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
     """Create a FastAPI dashboard app for scripts inside ``scripts``."""
-    try:
-        from fastapi import FastAPI, HTTPException, Request
-        from fastapi.responses import StreamingResponse
-        from fastapi.staticfiles import StaticFiles
-        from pydantic import BaseModel, Field
-    except ImportError as exc:  # pragma: no cover - installation-specific
-        raise RuntimeError("FastAPI is required for `nier web`; reinstall Nier with its web dependencies") from exc
-
     scripts = scripts.resolve()
     if not scripts.is_dir():
         raise ValueError(f"scripts directory does not exist: {scripts}")
@@ -318,9 +354,6 @@ def create_app(scripts: Path, *, cwd: Path | None = None):
         raise RuntimeError(
             "Nier web assets are missing; run `npm install && npm run build` in the web directory"
         )
-
-    class RunRequest(BaseModel):
-        script: str = Field(min_length=1, max_length=1024)
 
     state = _DashboardState(scripts, cwd or Path.cwd())
     app = FastAPI(
@@ -378,6 +411,8 @@ def create_app(scripts: Path, *, cwd: Path | None = None):
     @app.post("/api/run", status_code=202)
     def run_script(payload: RunRequest, request: Request) -> dict[str, Any]:
         check_origin(request)
+        if not payload.confirmed:
+            raise HTTPException(status_code=400, detail="explicit run confirmation is required")
         try:
             return state.start(payload.script)
         except RuntimeError as exc:
@@ -415,7 +450,10 @@ def serve_web(
     print(f"Scripts: {scripts.resolve()}")
     if open_browser:
         webbrowser.open(url)
-    uvicorn.run(app, host=host, port=port, log_level="warning")
+    try:
+        uvicorn.run(app, host=host, port=port, log_level="warning")
+    finally:
+        app.state.dashboard.stop()
 
 
 __all__ = ["create_app", "serve_web"]

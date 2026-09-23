@@ -426,8 +426,9 @@ pass. The caller is responsible for checking a fresh screenshot or UI dump.
 signals. It MUST contain `inspect_ocr` only when available for the current
 observation. If an LLM provider is configured and the `max_llm_assists` cap has
 not been reached, `next` MUST also contain `call_llm`; otherwise that option
-MUST be absent. The cap MUST be a non-negative integer and default to two
-LLM recovery-goal generations per run. An unknown or below-threshold candidate
+MUST be absent. `max_llm_assists` MUST accept `None` or a non-negative integer,
+and default to `None`, which allows any number of LLM recovery-goal generations
+per run. Zero disables LLM recovery assistance. An unknown or below-threshold candidate
 choice MUST NOT dispatch that candidate; it MAY enter the bounded recovery
 flow. `blocked` MUST NOT dispatch a candidate from the failed main observation;
 it MAY enter the bounded recovery flow. `wait` MUST trigger a bounded wait and
@@ -458,13 +459,14 @@ main-goal limit. The generated recovery text MUST NOT be added to the parent
 Jev context as strategy advice.
 
 If a nested recovery subgoal fails, the host MUST pass its outcome and a fresh
-bounded semantic observation to the LLM to generate a different subgoal, while
-the `max_llm_assists` cap has remaining allowance. Exhausting that cap MUST
-terminate recovery as failed without returning an action suggestion to the
-main Jev. If the LLM provider fails to generate a recovery goal, recovery MUST
-fail. Other provider/observation failures MAY resume only after a successful
-nested recovery; otherwise they MUST fail the run (unexpected exceptions
-remain surfaced to the caller). Dry-run mode MUST NOT execute recovery actions.
+bounded semantic observation to the LLM to generate a different subgoal while
+the `max_llm_assists` cap has remaining allowance, or without a count limit
+when it is `None`. Exhausting a configured cap MUST terminate recovery as
+failed without returning an action suggestion to the main Jev. If the LLM
+provider fails to generate a recovery goal, recovery MUST fail. Other
+provider/observation failures MAY resume only after a successful nested
+recovery; otherwise they MUST fail the run (unexpected exceptions remain
+surfaced to the caller). Dry-run mode MUST NOT execute recovery actions.
 `max_steps` bounds
 main-goal actions; recovery has its separate bounded action budget. The parent
 `max_seconds` deadline MUST also bound recovery, and no recovery action may
@@ -557,7 +559,9 @@ MAY terminate the script process; script and device actions MUST NOT be
 automatically retried.
 
 The dashboard MUST visualize received STEP events in execution order and MUST
-allow the user to inspect STEP details and related request/response logs. Web
-events MUST pass through the existing bounded redaction policy before leaving
-the child script process. Static web assets MUST be bundled with the Python
-package; frontend dependencies MUST NOT be required at runtime.
+allow the user to inspect STEP details and related request/response logs.
+Structured Nier events MUST pass through the existing bounded redaction policy
+before leaving the child script process. Ordinary script stdout and stderr MAY
+be displayed as emitted by the script and MUST be identified as unsanitized.
+Static web assets MUST be bundled with the Python package; frontend dependencies
+MUST NOT be required at runtime.

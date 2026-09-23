@@ -43,11 +43,12 @@ final script exit state. The log panel contains the selected STEP details and
 its associated HTTP request/response details, plus recent script output.
 
 The dashboard enables the existing `vvv` request/response logging level in the
-child script and streams only structured Nier events after applying the
-existing secret redaction and payload limits. API keys, authorization headers,
-cookies, passwords, and token fields are redacted. Text included in a request
-body may still be visible, so use the local dashboard only with scripts and
-data you are authorized to inspect.
+child script and streams structured Nier events after applying the existing
+secret redaction and payload limits. API keys, authorization headers, cookies,
+passwords, and token fields are redacted. Text included in a request body may
+still be visible. Ordinary script stdout and stderr are displayed as written
+by the script and are not sanitized, so use the local dashboard only with
+scripts and data you are authorized to inspect.
 
 ## Device access and failures
 
