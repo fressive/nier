@@ -228,7 +228,7 @@ class _DashboardState:
                     continue
                 if isinstance(event, dict) and (
                     event.get("type") == "log"
-                    or str(event.get("type", "")).startswith("debug.")
+                    or event.get("type") in {"debug.paused", "debug.resumed"}
                 ):
                     event["run_id"] = run_id
                     self.publish(event)
@@ -354,7 +354,7 @@ class _DashboardState:
             event["step_id"] = self.sequence
         elif event.get("type") == "log":
             event["step_id"] = self.current_step_id
-        elif str(event.get("type", "")).startswith("debug."):
+        elif event.get("type") in {"debug.paused", "debug.resumed"}:
             event["step_id"] = self.current_step_id
         if event.get("type") == "debug.paused":
             self.run_state["debug_state"] = "paused"

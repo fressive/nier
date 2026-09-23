@@ -53,8 +53,9 @@ its associated HTTP request/response details, plus recent script output.
 Debug events also travel over the dashboard event stream. The runner pauses
 inside the STEP logger before execution continues past that event, then waits
 for the selected control command. Stopping the run terminates the paused
-process. STEP details and call paths reuse the structured event's redacted
-fields.
+process. STEP details retain structured-event redaction. Call paths show
+script-relative paths or library file names, line numbers, and function names;
+they omit source text and local variable values.
 
 The dashboard enables the existing `vvv` request/response logging level in the
 child script and streams structured Nier events after applying the existing

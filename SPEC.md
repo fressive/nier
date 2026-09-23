@@ -564,9 +564,11 @@ support continue, single STEP, step into, and step out controls. Single STEP
 MUST resume through exactly one subsequent `STEP` event and pause at the next
 one. Step into MUST pause at a subsequent STEP event with a deeper call path;
 step out MUST pause at one with a shallower call path. These controls MUST NOT
-advance by Python source lines. STEP details and call paths MAY be shown in the
-browser using the same bounded, redacted event fields. Stopping a paused debug
-run MUST terminate its child process.
+advance by Python source lines. STEP details MAY be shown with the existing
+bounded redaction, and call paths MAY show script-relative paths or library
+filenames, line numbers, and function names without source text or local
+variable values.
+Stopping a paused debug run MUST terminate its child process.
 
 The dashboard MUST visualize received STEP events in execution order and MUST
 allow the user to inspect STEP details and related request/response logs.
