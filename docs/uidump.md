@@ -147,10 +147,22 @@ arbitrary application; the target app must call
 [WebView DevTools guide](webview-devtools.md) for setup and examples.
 
 The runnable [`11_webview_uidump.py`](../examples/11_webview_uidump.py) example
-calls `phone.uidump(..., prefer_webview=True)`, prints an indented node tree,
-and saves both that tree and the complete raw HTML/XML. Long attribute values
-and text are shortened in displayed fields; use the raw dump for exact source
-data. Use `dump_ui()` when source and fallback warnings are needed.
+calls `phone.uidump(..., prefer_webview=True)`, formats the parsed tree through
+`phone.format_tree(document)`, and saves both that tree and the complete raw
+HTML/XML. The formatter shortens text, shows only true-valued boolean
+attributes, and uses ANSI colors by default. Pass `color=False` for plain text
+such as a file. Use the raw dump for exact source data and `dump_ui()` when
+source and fallback warnings are needed.
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    document = phone.parse_uidump(prefer_webview=True)
+    print(phone.format_tree(document))
+    print(phone.format_tree(document.root, color=False))
+```
 
 The `include_invisible` field is part of the domain contract. The ADB
 implementation currently accepts it but does not yet alter its dump command

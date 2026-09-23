@@ -165,6 +165,42 @@ def test_tap_label_raises_when_matching_node_has_no_bounds() -> None:
     assert backend.actions == []
 
 
+def test_format_tree_shows_text_and_only_true_boolean_attributes() -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node class="android.widget.Button" text="搜索" '
+            'resource-id="com.example:id/search" clickable="true" '
+            'enabled="1" selected="false" content-desc="true" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+    document = phone.parse_uidump()
+
+    tree = phone.format_tree(document, color=False)
+
+    assert tree == ("hierarchy\n└── node [text='搜索', clickable=True, enabled=True]")
+    assert "resource-id" not in tree
+    assert "selected" not in tree
+    assert "content-desc" not in tree
+    assert "android.widget.Button" not in tree
+
+
+def test_format_tree_adds_ansi_color_by_default() -> None:
+    phone, _ = make_device(
+        FakeBackend(
+            ui_xml='<hierarchy><node text="搜索" clickable="true" /></hierarchy>'
+        )
+    )
+    document = phone.parse_uidump()
+
+    colored = phone.format_tree(document.root)
+    plain = phone.format_tree(document.root, color=False)
+
+    assert "\x1b[" in colored
+    assert "\x1b[" not in plain
+    assert "text='搜索'" in plain
+
+
 def test_device_lists_apps_and_app_activities() -> None:
     phone, _ = make_device()
 
