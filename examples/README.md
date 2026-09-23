@@ -52,6 +52,8 @@ cannot invent coordinates or arbitrary device actions. After success the main
 goal observes the device again and resumes. Failed subgoals may be replaced
 using a fresh observation. Assist generation is unlimited by default; pass
 `max_llm_assists` to cap it. Jev still chooses every main-goal action.
+The example caps the main goal at eight actions and 45 seconds. A Jev completion
+signal is reported as requiring verification, not as a confirmed pass.
 `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
 bypasses preview and offers all discovered UI/OCR control labels. Jev still

@@ -9,6 +9,7 @@ from nier import connect
 
 CONFIG = Path("config/nier.yaml")
 GOAL = "打开设置，进入关于本机"
+MAX_STEPS = 8
 
 
 def _parser() -> argparse.ArgumentParser:
@@ -53,7 +54,13 @@ def _goal_options(args: argparse.Namespace) -> tuple[tuple[str, ...] | None, boo
 
 def _print_run_summary(run) -> None:
     print(f"Goal: {run.instruction}")
-    print(f"Outcome: {'success' if run.success else 'stopped'}")
+    if run.termination == "needs_verification":
+        outcome = "goal completion reported; verification required"
+    elif run.termination == "next_action_preview":
+        outcome = "preview ready"
+    else:
+        outcome = "success" if run.success else "stopped"
+    print(f"Outcome: {outcome}")
     print(f"Mode: {'preview only' if run.dry_run else 'device actions executed'}")
     if run.termination:
         print(f"Stopped because: {run.termination.replace('_', ' ')}")
@@ -83,7 +90,7 @@ def main(argv: list[str] | None = None) -> None:
     with connect(CONFIG) as phone:
         result = phone.run(
             GOAL,
-            max_steps=100,
+            max_steps=MAX_STEPS,
             max_seconds=45,
             allowed_apps={"设置": "com.android.settings"},
             allowed_controls=allowed_controls,
