@@ -583,5 +583,12 @@ response and related request/response events.
 Structured Nier events MUST pass through the existing bounded redaction policy
 before leaving the child script process. Ordinary script stdout and stderr MAY
 be displayed as emitted by the script and MUST be identified as unsanitized.
+The dashboard MAY offer an explicitly started, view-only scrcpy preview. It MUST
+target a serial currently reported by `adb devices -l` as `device`, disable
+scrcpy control and audio, and stop its scrcpy/FFmpeg processes when stopped or
+when the dashboard shuts down. The preview MAY use scrcpy's temporary ADB
+local-socket forwarding, but MUST NOT open a device network listener. If scrcpy,
+FFmpeg, ADB, or the required host pipe support is unavailable, the dashboard
+MUST show that state and keep preview startup disabled.
 Static web assets MUST be bundled with the Python package; frontend dependencies
 MUST NOT be required at runtime.

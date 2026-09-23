@@ -23,6 +23,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .web_preview import PreviewRequestError, PreviewUnavailable, ScrcpyPreview
+
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
 _NIER_TERMINAL_LINE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3} \[nier ")
@@ -36,6 +38,10 @@ class RunRequest(BaseModel):
 
 class DebugRequest(BaseModel):
     command: Literal["continue", "step", "step_into", "step_out"]
+
+
+class PreviewStartRequest(BaseModel):
+    serial: str = Field(min_length=1, max_length=512)
 
 
 def _timestamp() -> str:
@@ -54,6 +60,7 @@ class _DashboardState:
         self.sequence = 0
         self.current_step_id: int | None = None
         self.process: subprocess.Popen[str] | None = None
+        self.preview = ScrcpyPreview()
         self.run_state: dict[str, Any] = {
             "id": None,
             "script": None,
@@ -270,6 +277,10 @@ class _DashboardState:
             self._terminate_process(process)
         return self.snapshot()
 
+    def close(self) -> None:
+        self.stop()
+        self.preview.stop()
+
     def debug(self, command: str) -> dict[str, Any]:
         """Send one execution control command to the paused debug runner."""
         with self.lock:
@@ -418,6 +429,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         redoc_url=None,
         openapi_url=None,
     )
+    app.add_event_handler("shutdown", state.preview.stop)
 
     def check_origin(request: Request) -> None:
         origin = request.headers.get("origin")
@@ -434,6 +446,41 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
     @app.get("/api/state")
     def get_state() -> dict[str, Any]:
         return state.snapshot()
+
+    @app.get("/api/preview/state")
+    def get_preview_state() -> dict[str, Any]:
+        return state.preview.status()
+
+    @app.post("/api/preview/start", status_code=202)
+    def start_preview(payload: PreviewStartRequest, request: Request) -> dict[str, Any]:
+        check_origin(request)
+        try:
+            return state.preview.start(payload.serial)
+        except PreviewRequestError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except PreviewUnavailable as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+    @app.post("/api/preview/stop")
+    def stop_preview(request: Request) -> dict[str, Any]:
+        check_origin(request)
+        return state.preview.stop()
+
+    @app.get("/api/preview/stream")
+    def stream_preview(request: Request):
+        check_origin(request)
+        try:
+            subscriber = state.preview.subscribe()
+        except PreviewRequestError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+        return StreamingResponse(
+            state.preview.stream(subscriber),
+            media_type="multipart/x-mixed-replace; boundary=frame",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate",
+                "X-Accel-Buffering": "no",
+            },
+        )
 
     @app.get("/api/events")
     def stream_events():
@@ -517,7 +564,7 @@ def serve_web(
     try:
         uvicorn.run(app, host=host, port=port, log_level="warning")
     finally:
-        app.state.dashboard.stop()
+        app.state.dashboard.close()
 
 
 __all__ = ["create_app", "serve_web"]
