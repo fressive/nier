@@ -278,7 +278,7 @@ with connect("config/nier.yaml") as phone:
         max_steps=8,
         max_seconds=45,
         allowed_apps={"设置": "com.android.settings"},
-        allowed_controls=("关于本机", "返回上一页"),
+        allowed_controls=("关于本机", "向下滚动当前列表", "返回上一页"),
         prefer_webview=False,
         dry_run=True,
     )
@@ -298,7 +298,11 @@ label, source, and semantic metadata; coordinates and executable actions stay
 host-side. UI candidates must be visible clickable nodes with unique labels.
 OCR candidates must have unique text. Jev chooses an ID such as `ui_0` or
 `ocr_1`, and the host executes the already validated action behind it. `back` is
-a fixed system candidate;
+a fixed system candidate. When the UI marks a bounded viewport as scrollable,
+Jev may also choose
+`向下滚动当前列表` or `向上滚动当前列表`. The host keeps the swipe path private,
+rechecks the viewport before dispatch, and counts the swipe as a main-goal
+action. Include these labels in `allowed_controls` when using an allowlist.
 `home` is offered when the goal mentions the launcher/home screen. `enter` is
 offered only when `allowed_controls` explicitly includes `提交当前输入`. Jev
 never receives screenshots, screen dimensions, bounds, raw coordinates, shell
@@ -313,6 +317,10 @@ regenerated for each observation and are never valid after the page changes.
 OCR is optional; without a configured provider, UI candidates remain available
 and `inspect_ocr` is not offered. With a provider configured, Jev can request
 OCR at most once for the current observation.
+If the optional OCR provider is unavailable at that point (for example,
+PaddleOCR is configured but not installed), the agent reports the OCR error
+to Jev, disables further OCR requests for this run, and continues using UI
+candidates. It does not retry the failed OCR read.
 
 If an LLM is configured, `next` offers `call_llm` by default without an
 assist-count limit. Jev can select it when progress is stuck; failed runs can also
@@ -328,8 +336,9 @@ the main goal re-observes the device and resumes. If a recovery subgoal fails,
 the LLM can generate a different one from a fresh observation. Set
 `max_llm_assists` to a non-negative integer to cap recovery-goal generations;
 zero disables LLM recovery. Each generated subgoal remains limited to three
-actions and thirty seconds. Failed controls are excluded so device actions are
-not retried automatically. The LLM may mark only its recovery subgoal complete
+actions and thirty seconds. Repeated recovery on the same stalled screen
+terminates even without an assist cap. Failed controls are excluded so device
+actions are not retried automatically. The LLM may mark only its recovery subgoal complete
 or failed; Jev remains responsible for the main goal. It cannot provide
 coordinates, text, packages, or arbitrary operations. `phone.run_jev_goal()` remains a
 compatibility wrapper around the same Jev-first flow.

@@ -407,8 +407,13 @@ the app candidate ID and display label, not the package or executable action.
 `allowed_controls` MUST NOT implicitly authorize app launches. When
 `allowed_controls` is omitted, the host MAY discover all unique visible UI/OCR
 candidates subject to `denied_controls`; when it is supplied, only listed
-UI/OCR/system labels may be offered. Candidate IDs MUST be regenerated after
+UI/OCR/scroll/system labels may be offered. Candidate IDs MUST be regenerated after
 an observation and MUST NOT be trusted as coordinates or commands.
+For a visible UI node explicitly marked scrollable with usable bounds, the
+host MAY offer one pair of bounded vertical scroll candidates for that
+viewport. Their labels MUST pass the same control filters; Jev MUST receive
+only the direction, while swipe coordinates remain host-side. The host MUST
+re-observe and validate the viewport before dispatch.
 
 When an OCR provider is configured, the host MUST expose `ocr_available` and
 MUST NOT run OCR before Jev requests it. The initial observation MUST omit OCR
@@ -417,6 +422,9 @@ it, the host MUST re-read the UI state, run OCR once, and ask Jev again with the
 recognized spans. `inspect_ocr` MUST be removed after that read and MAY be
 offered again only for a new observation. When no OCR provider is configured,
 the option MUST NOT be offered.
+If an optional OCR provider fails when requested, the host MUST mark OCR
+unavailable for the remainder of that goal and continue with UI candidates;
+it MUST NOT treat the failed read as a device action or retry it automatically.
 
 The Jev goal request MUST contain a `done` Noul question and a `next` Choice
 question. `done` MUST use a configurable threshold; reaching it MUST return
@@ -467,7 +475,10 @@ bounded semantic observation to the LLM to generate a different subgoal while
 the `max_llm_assists` cap has remaining allowance, or without a count limit
 when it is `None`. Exhausting a configured cap MUST terminate recovery as
 failed without returning an action suggestion to the main Jev. If the LLM
-provider fails to generate a recovery goal, recovery MUST fail. Other
+repeatedly completes recovery but the same main-goal state remains stalled,
+or repeatedly fails recovery on the same screen, the host MUST stop recovery
+after a bounded number of repeats even when the assist count is unlimited.
+If the LLM provider fails to generate a recovery goal, recovery MUST fail. Other
 provider/observation failures MAY resume only after a successful nested
 recovery; otherwise they MUST fail the run (unexpected exceptions remain
 surfaced to the caller). Dry-run mode MUST NOT execute recovery actions.
@@ -477,8 +488,9 @@ main-goal actions; recovery has its separate bounded action budget. The parent
 start after it expires. An in-flight provider or device call need not be
 interrupted.
 The initial candidate implementation MUST limit execution to bounded UI/OCR
-taps, app launches from `allowed_apps`, and fixed safe system keys; free-form
-text, shell commands, Activity launches, and unbounded gestures MUST remain
+taps, host-bounded scrolls in observed scrollable viewports, app launches from
+`allowed_apps`, and fixed safe system keys; free-form text, shell commands,
+Activity launches, and unbounded gestures MUST remain
 outside this flow. App package names MUST be validated on the host. Device
 actions, including `open_app`, MUST never be retried automatically. Pressing
 Enter MUST require the corresponding explicit `allowed_controls` label.

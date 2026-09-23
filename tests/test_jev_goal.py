@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 import pytest
 
 from nier import Device
+from nier.errors import ModelError
 from nier.jev_goal import JevGoal
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
 from nier.models.jev import JevAnswer, JevResponse
@@ -18,6 +19,7 @@ from nier.protocol import (
     ImageFormat,
     KeyCode,
     Screenshot,
+    Swipe,
     UiDump,
     UiSource,
 )
@@ -180,6 +182,95 @@ def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
     assert len(backend.dump_ui_requests) == 3
 
 
+def test_jev_goal_scrolls_within_observed_viewport() -> None:
+    phone, backend = make_device()
+    backend.dump_ui = lambda request=None: UiDump(  # type: ignore[method-assign]
+        '<hierarchy><node class="android.widget.ScrollView" '
+        'bounds="[10,20][90,180]" scrollable="true" /></hierarchy>',
+        UiSource.UIAUTOMATOR,
+    )
+    jev = FakeJev([
+        _response(done=0.1, choice="scroll_0"),
+        _response(done=0.96, choice="blocked"),
+    ])
+
+    result = phone.run_jev_goal("查找关于本机", jev=jev, max_steps=2)
+
+    assert result.termination == "needs_verification"
+    assert isinstance(backend.actions[0], Swipe)
+    assert [(point.x, point.y) for point in backend.actions[0].points] == [
+        (50, 148), (50, 52)
+    ]
+    candidate = next(
+        item for item in jev.calls[0][0]["candidates"]  # type: ignore[index]
+        if item["source"] == "scroll"
+    )
+    assert candidate["label"] == "向下滚动当前列表"
+    assert candidate["source"] == "scroll"
+    assert candidate["metadata"] == {"direction": "down"}
+    assert "points" not in candidate
+
+
+def test_unavailable_ocr_falls_back_to_ui_candidates() -> None:
+    phone, backend = make_device()
+    jev = FakeJev([
+        _response(done=0.1, choice="inspect_ocr"),
+        _response(done=0.1, choice="ui_0"),
+    ])
+
+    class BrokenOcr:
+        def recognize(self, image: bytes):
+            raise ModelError("PaddleOCR is not installed")
+
+    result = JevGoal(phone, jev, ocr=BrokenOcr()).run("点击登录", dry_run=True)
+
+    assert result.termination == "next_action_preview"
+    assert result.plan.steps[0].action == "tap"
+    state, questions = jev.calls[1]
+    assert state["ocr_available"] is False
+    assert "PaddleOCR is not installed" in state["ocr_error"]
+    assert "inspect_ocr" not in questions["next"].options
+    assert backend.actions == []
+
+
+def test_jev_goal_scroll_respects_control_allowlist() -> None:
+    phone, backend = make_device()
+    backend.dump_ui = lambda request=None: UiDump(  # type: ignore[method-assign]
+        '<hierarchy><node bounds="[10,20][90,180]" scrollable="true" /></hierarchy>',
+        UiSource.UIAUTOMATOR,
+    )
+    jev = FakeJev([_response(done=0.1, choice="blocked")])
+
+    result = phone.run_jev_goal(
+        "查找关于本机", jev=jev, dry_run=True, allowed_controls=("关于本机",)
+    )
+
+    assert result.termination == "blocked"
+    assert not any(
+        candidate["source"] == "scroll"
+        for candidate in jev.calls[0][0]["candidates"]  # type: ignore[index]
+    )
+
+
+def test_jev_goal_prefers_visible_goal_target_and_ignores_tiny_nodes() -> None:
+    phone, backend = make_device()
+    backend.dump_ui = lambda request=None: UiDump(  # type: ignore[method-assign]
+        '<hierarchy><node bounds="[0,0][100,200]" scrollable="true">'
+        '<node text="设置" bounds="[10,20][60,70]" clickable="true" />'
+        '<node text="搜索设置项" bounds="[0,100][100,102]" clickable="true" />'
+        '</node></hierarchy>',
+        UiSource.UIAUTOMATOR,
+    )
+    jev = FakeJev([_response(done=0.1, choice="ui_0")])
+
+    result = phone.run_jev_goal("打开设置", jev=jev, dry_run=True)
+
+    assert result.termination == "next_action_preview"
+    assert [item["label"] for item in jev.calls[0][0]["candidates"]] == [  # type: ignore[index]
+        "设置", "返回上一页"
+    ]
+
+
 def test_device_run_lets_llm_execute_safe_recovery_actions() -> None:
     phone, backend = make_device()
     jev = FakeJev(
@@ -324,6 +415,39 @@ def test_jev_goal_default_allows_more_than_two_llm_assists() -> None:
     for index in (0, 1, 2):
         _, questions = jev.calls[index]
         assert "call_llm" in questions["next"].options  # type: ignore[index,operator]
+
+
+def test_repeated_completed_recovery_on_same_screen_stops() -> None:
+    phone, backend = make_device()
+    jev = FakeJev([_response(done=0.1, choice="call_llm")] * 4)
+    llm = FakeLlm(
+        "返回上一页",
+        tool_responses=[[tool("recovery_complete", reason="完成")] for _ in range(3)],
+    )
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+
+    assert result.termination == "recovery_failed"
+    assert len(llm.prompts) == 3
+    assert backend.actions == []
+
+
+def test_repeated_failed_recovery_on_same_screen_stops() -> None:
+    phone, backend = make_device()
+    jev = FakeJev([_response(done=0.1, choice="call_llm")])
+    llm = FakeLlm(
+        ["关闭弹窗", "返回上一页", "等待界面恢复"],
+        tool_responses=[
+            [tool("recovery_failed", reason="没有合适控件")]
+            for _ in range(3)
+        ],
+    )
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+
+    assert result.termination == "recovery_failed"
+    assert len(llm.prompts) == 3
+    assert backend.actions == []
 
 
 def test_failed_recovery_subgoal_causes_llm_to_generate_return_subgoal() -> None:

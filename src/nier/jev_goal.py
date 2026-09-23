@@ -46,6 +46,7 @@ from .ui import UiDocument, UiNode, parse_uidump
 _WAIT_INTERVAL_SECONDS = 0.75
 _MAX_CONSECUTIVE_WAITS = 3
 _MAX_STALE_DECISIONS = 3
+_MAX_REPEATED_RECOVERY_STATES = 3
 _MAX_RECOVERY_GOAL_CHARS = 1_200
 _MAX_RECOVERY_STEPS = 3
 _MAX_RECOVERY_SECONDS = 30
@@ -151,6 +152,10 @@ class JevGoal:
     Optional ``progress`` is a Score question intended for telemetry and
     stuck detection.  It is disabled by default because a score is less
     reliable as a success gate than an explicit Noul predicate.
+
+    Visible scrollable viewports may add host-bounded up/down swipe candidates;
+    Jev receives only their direction, not their coordinates. Repeated recovery
+    against an unchanged stalled screen stops even with unlimited LLM assists.
 
     Decisions are checked against a fresh host observation before an action is
     dispatched. Non-action decisions and dry-run previews reuse the initial
@@ -270,6 +275,7 @@ class JevGoal:
         self.llm_provider = llm_provider or ("custom" if llm is not None else "")
         self.max_llm_assists = max_llm_assists
         self._last_failed_candidate_label: str | None = None
+        self._ocr_error = ""
 
     def run(
         self,
@@ -334,11 +340,13 @@ class JevGoal:
         instruction = instruction.strip()
 
         steps: list[AgentStep] = []
+        self._ocr_error = ""
         results: list[ActionResult] = []
         history: list[dict[str, object]] = []
         jev_data: dict[str, object] | None = None
         llm_assists = 0
         recovery_history: list[dict[str, object]] = []
+        recovery_state_visits: dict[str, int] = {}
         runtime_denied_controls: set[str] = set()
         last_observation: _JevObservation | None = None
         iteration = 0
@@ -363,10 +371,29 @@ class JevGoal:
                 if last_observation is not None
                 else {}
             )
+            # A completed subgoal need not advance the main goal. Do not let
+            # an unlimited assist allowance cycle forever on the same screen.
+            screen_key = json.dumps(
+                {
+                    "activity": context_state.get("activity"),
+                    "ui": context_state.get("ui"),
+                    "candidates": context_state.get("candidates"),
+                },
+                ensure_ascii=False,
+                sort_keys=True,
+                default=str,
+            )
+            state_key = f"{trigger}:{screen_key}"
+            recovery_state_visits[state_key] = (
+                recovery_state_visits.get(state_key, 0) + 1
+            )
+            if recovery_state_visits[state_key] > _MAX_REPEATED_RECOVERY_STATES:
+                return False, "recovery repeatedly returned to the same stalled state"
             blocked_labels = {
                 _normalize_label(label)
                 for label in (*excluded_controls, *runtime_denied_controls)
             }
+            repeated_failures = 0
             while (
                 self.max_llm_assists is None
                 or llm_assists < self.max_llm_assists
@@ -428,11 +455,6 @@ class JevGoal:
                     llm=None,
                     max_llm_assists=0,
                 )
-                if dry_run:
-                    attempt.update({"outcome": "skipped", "reason": "dry_run"})
-                    recovery_history.append(attempt)
-                    return False, "recovery actions are disabled in dry-run mode"
-
                 if dry_run:
                     attempt.update({"outcome": "skipped", "reason": "dry_run"})
                     recovery_history.append(attempt)
@@ -524,6 +546,22 @@ class JevGoal:
                     ).state
                 except Exception:
                     pass
+                next_screen_key = json.dumps(
+                    {
+                        "activity": context_state.get("activity"),
+                        "ui": context_state.get("ui"),
+                        "candidates": context_state.get("candidates"),
+                    },
+                    ensure_ascii=False,
+                    sort_keys=True,
+                    default=str,
+                )
+                repeated_failures = (
+                    repeated_failures + 1 if next_screen_key == screen_key else 0
+                )
+                if repeated_failures >= _MAX_REPEATED_RECOVERY_STATES:
+                    return False, "recovery subgoals repeatedly failed on the same screen"
+                screen_key = next_screen_key
             return False, "LLM recovery assist limit exhausted"
 
         def can_continue() -> bool:
@@ -933,6 +971,8 @@ class JevGoal:
                 candidate.label if not result.success else None
             )
             results.append(result)
+            if result.success:
+                recovery_state_visits.clear()
             history.append(
                 {
                     "decision": "action",
@@ -1008,8 +1048,19 @@ class JevGoal:
                 activity_error = str(exc)
 
         spans: tuple[TextSpan, ...] = ()
-        if recognize_ocr and self.ocr is not None and screenshot is not None:
-            spans = tuple(self.ocr.recognize(screenshot.data)[:_JEV_MAX_OCR_SPANS])
+        if (
+            recognize_ocr
+            and self.ocr is not None
+            and screenshot is not None
+            and not self._ocr_error
+        ):
+            try:
+                spans = tuple(self.ocr.recognize(screenshot.data)[:_JEV_MAX_OCR_SPANS])
+            except ModelError as exc:
+                # OCR is optional; a missing or failed provider must not
+                # derail a goal that can still use the accessibility tree.
+                self._ocr_error = str(exc)[:_JEV_MAX_TEXT_LENGTH]
+                log_step("jev-goal-ocr-unavailable", reason=self._ocr_error)
         candidates = self._candidates(
             instruction,
             document,
@@ -1041,8 +1092,9 @@ class JevGoal:
                 if document is not None
                 else (dump_error or "Structured UI is unavailable")[:_JEV_MAX_TEXT_LENGTH]
             ),
-            "ocr_available": self.ocr is not None,
+            "ocr_available": self.ocr is not None and not self._ocr_error,
             "ocr_inspected": recognize_ocr,
+            "ocr_error": self._ocr_error,
             "ocr": [self._span_payload(index, span) for index, span in enumerate(spans)],
             "candidates": [candidate.to_decision_payload() for candidate in candidates],
             "history": [
@@ -1087,6 +1139,7 @@ class JevGoal:
         criteria = {candidate.id: candidate.label for candidate in observation.candidates}
         can_inspect_ocr = (
             self.ocr is not None
+            and not self._ocr_error
             and not observation.ocr_inspected
         )
         if can_inspect_ocr:
@@ -1114,7 +1167,9 @@ class JevGoal:
                 "using safe host-validated controls. "
                 "Choose wait only for a visible loading or transition state. Choose blocked "
                 "when no permitted candidate is safe or useful. An app candidate launches "
-                "only an app from the caller's explicit allowlist.",
+                "only an app from the caller's explicit allowlist. If the target is below "
+                "the visible portion of a scrollable list, choose its downward scroll "
+                "candidate; do not use search unless text entry is available.",
                 criteria=criteria,
             ),
         }
@@ -1448,7 +1503,12 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
             ui_nodes = [
                 (node, _node_label(node), node.center)
                 for node in document.walk()
-                if node.visible is not False and node.clickable is True and node.center is not None
+                if node.visible is not False
+                and node.clickable is True
+                and node.center is not None
+                and node.bounds is not None
+                and node.bounds[2] - node.bounds[0] >= 12
+                and node.bounds[3] - node.bounds[1] >= 12
             ]
             ui_counts = Counter(_normalize_label(label) for _node, label, _center in ui_nodes if label)
             for node, label, center in ui_nodes:
@@ -1477,6 +1537,51 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                     "clickable": node.clickable,
                 }
                 raw.append(("ui", label, step, metadata, center))
+
+            # Scroll only inside a host-observed scrollable viewport. Jev sees
+            # a direction, never the gesture coordinates or an arbitrary path.
+            visible_goal_target = any(
+                len(label) >= 2 and label in instruction
+                for _node, label, _center in ui_nodes
+            )
+            scrollables = (
+                [
+                    node
+                    for node in document.walk()
+                    if node.visible is not False
+                    and node.attr("scrollable", "").casefold() == "true"
+                    and node.bounds is not None
+                ]
+                if not visible_goal_target
+                else []
+            )
+            scrollables.sort(
+                key=lambda node: (node.bounds[2] - node.bounds[0])
+                * (node.bounds[3] - node.bounds[1]),  # type: ignore[index]
+                reverse=True,
+            )
+            for node in scrollables[:1]:
+                left, top, right, bottom = node.bounds  # type: ignore[misc]
+                if right - left < 40 or bottom - top < 120:
+                    continue
+                x = (left + right) / 2
+                height = bottom - top
+                for direction, start, end in (
+                    ("down", 0.8, 0.2),
+                    ("up", 0.2, 0.8),
+                ):
+                    label = "向下滚动当前列表" if direction == "down" else "向上滚动当前列表"
+                    if not permitted(label):
+                        continue
+                    step = AgentStep.from_mapping(
+                        {
+                            "action": "swipe",
+                            "points": [(x, top + height * start), (x, top + height * end)],
+                            "duration_ms": 350,
+                            "reason": f"Jev bounded scroll: {direction}",
+                        }
+                    )
+                    raw.append(("scroll", label, step, {"direction": direction}, None))
 
         ocr_counts = Counter(_normalize_label(item.text.strip()) for item in spans)
         for index, span in enumerate(spans):
@@ -1582,10 +1687,11 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
 
         app_candidates = [item for item in raw if item[0] == "app"]
         system = [item for item in raw if item[0] == "system"]
-        visual = [item for item in raw if item[0] not in {"app", "system"}]
+        navigation = [item for item in raw if item[0] == "scroll"]
+        visual = [item for item in raw if item[0] not in {"app", "system", "scroll"}]
         # Keep explicit app choices and fixed recovery actions available when
         # the screen has many labels. UI targets still outrank OCR duplicates.
-        reserved = app_candidates + system
+        reserved = app_candidates + system + navigation
         raw = visual[: max(0, self.max_candidates - len(reserved))]
         raw.extend(reserved[: max(0, self.max_candidates - len(raw))])
         source_indexes: dict[str, int] = {}
@@ -1622,6 +1728,12 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
             return self.device.tap(
                 params["x"],
                 params["y"],
+                normalized=params["normalized"],
+                duration_ms=params["duration_ms"],
+            )  # type: ignore[arg-type]
+        if step.action == "swipe":
+            return self.device.swipe(
+                *params["points"],
                 normalized=params["normalized"],
                 duration_ms=params["duration_ms"],
             )  # type: ignore[arg-type]
