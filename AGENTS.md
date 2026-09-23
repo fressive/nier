@@ -115,12 +115,12 @@ Examples under `examples/` are executable documentation. They MUST use the
 public API, avoid credentials and hard-coded device identifiers, and avoid
 contacting a device merely by being imported. Examples that mutate a device
 MUST require an explicit confirmation flag or equivalent opt-in. When behavior
-changes, update the matching example and run at least:
+changes, update the matching example and run at least the syntax check below.
+Run a relevant example too when its device, credential, and explicit opt-in
+prerequisites are available:
 
 ```bash
 python -m compileall examples
-PYTHONPATH=src python examples/04_custom_backend.py
-PYTHONPATH=src python examples/05_model_decision.py
 ```
 
 ## Change workflow

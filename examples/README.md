@@ -11,8 +11,6 @@ python -m pip install -e '.[dev]'
 | [`01_basic_session.py`](01_basic_session.py) | Connect, health-check, inspect capabilities, and record a run | Yes |
 | [`02_control_device.py`](02_control_device.py) | Find a visible label and submit a search flow | Yes |
 | [`03_screenshot_uidump.py`](03_screenshot_uidump.py) | Capture evidence, save a structured UI tree, and inspect clickable nodes | Yes |
-| [`04_remote_adb.py`](04_remote_adb.py) | Run a session against a remote ADB device | Yes; TCP ADB |
-| [`05_model_decision.py`](05_model_decision.py) | OCR a screen and tap a matching label | Yes; configured OCR provider |
 | [`07_agent.py`](07_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
 | [`09_remote_ocr.py`](09_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
 | [`10_jev_goal.py`](10_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
