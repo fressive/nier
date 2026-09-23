@@ -199,7 +199,7 @@ def _format_tree(root: UiNode, *, color: bool) -> str:
         if node.text:
             details.append(f"text={styled(repr(short(node.text)), '32')}")
         details.extend(
-            styled(f"{name}=True", "33")
+            styled(name, "33")
             for name, value in node.attributes.items()
             if (
                 name.lower() in _TREE_BOOLEAN_ATTRIBUTES

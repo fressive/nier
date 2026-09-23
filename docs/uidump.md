@@ -150,9 +150,9 @@ The runnable [`11_webview_uidump.py`](../examples/11_webview_uidump.py) example
 calls `phone.uidump(..., prefer_webview=True)`, formats the parsed tree through
 `phone.format_tree(document)`, and saves both that tree and the complete raw
 HTML/XML. The formatter shortens text, shows only true-valued boolean
-attributes, and uses ANSI colors by default. Pass `color=False` for plain text
-such as a file. Use the raw dump for exact source data and `dump_ui()` when
-source and fallback warnings are needed.
+attributes by name without appending `=True`, and uses ANSI colors by default.
+Pass `color=False` for plain text such as a file. Use the raw dump for exact
+source data and `dump_ui()` when source and fallback warnings are needed.
 
 ```python
 from nier import connect
