@@ -612,11 +612,11 @@ class Device:
     ) -> Agent:
         """Create an iterative goal agent for this device.
 
-        A configured LLM is loaded lazily; when ``provider`` is omitted, the
-        first configured LLM provider is used. The first configured OCR and
-        Jev providers are added to the planner context automatically when
-        ``ocr_provider`` and ``jev_provider`` are omitted. Pass a name to
-        select a provider explicitly. The Agent re-observes after each action
+        A configured LLM is loaded from the first configured provider when
+        ``provider`` is omitted. The first configured OCR provider is used
+        when ``ocr_provider`` is omitted. Jev is advisory and opt-in: pass
+        ``jev=`` or ``jev_provider=`` to include it in the planner context.
+        The Agent re-observes after each action
         until the goal terminates. A direct ``jev`` client can also be
         supplied. For interactive debugging, call ``agent.debug(goal)`` and
         explicitly invoke its ``step()`` method to execute and inspect one
@@ -673,18 +673,12 @@ class Device:
                         f"unknown OCR provider {selected_ocr_provider!r}; available: {available}"
                     ) from exc
             else:
-                ocr = self._cached_ocr_provider(selected_ocr_provider)
+                ocr = _LazyOcrProvider(
+                    lambda: self._cached_ocr_provider(selected_ocr_provider)
+                )
 
         if jev is None:
             selected_jev_provider = jev_provider
-            if selected_jev_provider is None:
-                if router is not None:
-                    selected_jev_provider = next(iter(router.jev_providers), None)
-                elif self.app_config is not None:
-                    selected_jev_provider = next(
-                        iter(self.app_config.models.jev_providers),
-                        None,
-                    )
             if selected_jev_provider is not None:
                 if router is not None:
                     try:
@@ -728,25 +722,20 @@ class Device:
         prefer_webview: bool = True,
         max_llm_assists: int | None = None,
     ) -> AgentRun:
-        """Run one goal with Jev-first decisions and LLM recovery assistance.
+        """Run one goal with LLM-first planning and validated tool execution.
 
-        When a Jev provider is supplied or configured, Jev chooses among
-        host-validated candidates. If Jev selects ``call_llm`` or a recoverable
-        failure occurs, the optional LLM generates and executes a bounded cleanup
-        subgoal by choosing from safe host-validated controls. Failed
-        subgoals can be revised after a fresh observation. By default, there is
-        no assist-count limit; pass a non-negative ``max_llm_assists`` to cap
-        it, or zero to disable LLM recovery.
-        Recovery guidance is never passed back as strategic text to the main
-        Jev goal.
-        Without an available Jev provider, this preserves the LLM-planned Agent
-        flow. Use :meth:`agent` explicitly when LLM-first tool planning is
-        desired.
+        When an LLM is available, it chooses the next device operation from
+        the current screenshot and UI state. Pass ``jev=`` or
+        ``jev_provider=`` to add typed advisory context; configured Jev
+        providers are not called implicitly and Jev does not select or
+        dispatch actions.
+        If no LLM is available and Jev is configured, this method falls back to
+        the bounded Jev goal runner. Use :meth:`run_jev_goal` to request that
+        flow explicitly when both models are configured.
 
-        The Jev-first flow has no overall deadline by default. Pass
-        ``max_seconds`` to impose a limit of up to 60 seconds; recovery
-        subgoals keep their separate 30-second cap. ``max_steps`` continues to
-        bound main-goal actions.
+        Jev-specific tuning options such as ``allowed_controls``,
+        ``done_threshold`` and ``max_seconds`` retain the Jev goal behavior for
+        compatibility. ``max_steps`` bounds actions in either flow.
         """
         if llm is not None and router is not None:
             raise ValueError("pass either llm or router, not both")
@@ -771,7 +760,18 @@ class Device:
             or not prefer_webview
             or max_llm_assists is not None
         )
-        if jev_configured or jev_options_used:
+        llm_available = llm is not None or provider is not None
+        if router is not None:
+            llm_available = llm_available or bool(router.llm_providers)
+        elif self.app_config is not None:
+            configured_llms = self.app_config.models.llm_providers
+            llm_available = llm_available or bool(
+                self.app_config.models.llm.api_key
+                or any(spec.api_key for spec in configured_llms.values())
+                or any(name != "default" for name in configured_llms)
+            )
+
+        if jev_options_used or (jev_configured and not llm_available):
             return self.jev_goal(
                 router=router,
                 ocr_provider=ocr_provider,
@@ -825,7 +825,7 @@ class Device:
         max_llm_assists: int | None = None,
         dry_run: bool = False,
     ) -> AgentRun:
-        """Compatibility wrapper for the Jev-first :meth:`run` flow.
+        """Run a goal with Jev-first decisions and optional LLM recovery.
 
         The overall goal deadline is disabled by default. Pass ``max_seconds``
         to enable a positive deadline of up to 60 seconds.
@@ -842,7 +842,7 @@ class Device:
         Dry-run previews and non-action decisions do not make a second UI dump;
         a fresh observation is still required immediately before a real action.
         A completion decision returns ``needs_verification`` for the caller to
-        check independently.
+        check independently. Use :meth:`run` for LLM-first planning.
         """
         return self.jev_goal(
             router=router,

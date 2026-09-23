@@ -43,7 +43,7 @@ def test_jev_goal_example_uses_a_bounded_main_action_budget(monkeypatch) -> None
         run_options.update(options)
         return SimpleNamespace(termination="blocked")
 
-    phone = SimpleNamespace(run=run, save_run=lambda _name: None)
+    phone = SimpleNamespace(run_jev_goal=run, save_run=lambda _name: None)
     namespace = example["main"].__globals__
     monkeypatch.setitem(namespace, "connect", lambda _config: nullcontext(phone))
     monkeypatch.setitem(namespace, "_print_run_summary", lambda _run: None)

@@ -59,12 +59,11 @@ The current foundation includes:
   while retaining shell input as the default;
 - OCR, deterministic text-match decisions, TypeSafe Jev typed decisions,
   provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
-- a unified `Device.run()` goal flow that uses TypeSafe Jev as the primary
-  decision-maker when configured, selecting only host-validated actions and
-  optionally asking an LLM to generate and execute bounded recovery subgoals
-  by selecting only safe, host-validated controls;
-- an explicit LLM-first Agent API for goals that need free-form text or actions
-  outside Jev's bounded candidate set, with validated native tool calls.
+- a unified `Device.run()` goal flow that uses the configured LLM as the
+  primary planner, re-observes after each validated tool action, and accepts
+  optional typed Jev advice without letting Jev failures block execution;
+- a Jev-first goal API for callers that need finite, host-validated UI/OCR
+  candidates, with bounded LLM recovery subgoals.
 
 The following are intentionally outside the completed foundation:
 
@@ -79,11 +78,10 @@ The following are intentionally outside the completed foundation:
 
 These are future extensions, not reasons to change the default ADB topology.
 
-Jev recovery may generate any number of recovery subgoals by default, with each
-subgoal still restricted to safe controls and bounded to three actions and
-thirty seconds. The LLM cannot provide arbitrary coordinates, text, app
-launches, or task operations; the host executes only a current candidate from
-the safe-control allowlist. Callers can cap the number of LLM assists or set
+In the explicit Jev-first goal flow, recovery may generate any number of
+subgoals by default, with each subgoal restricted to safe controls and bounded
+to three actions and thirty seconds. The host executes only a current candidate
+from the safe-control allowlist. Callers can cap the number of assists or set
 an overall goal deadline.
 
 ## Documentation map

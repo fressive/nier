@@ -48,12 +48,13 @@ The provider is created lazily and cached for the duration of the connection;
 scripts do not need to instantiate an OCR provider.
 
 Natural-language operation flows are available through `phone.run(...)`. When
-Jev is configured, Jev is the primary decision-maker and selects only from
-host-validated UI/OCR candidates; it can ask an optional LLM for high-level
-direction when stuck, while Jev remains responsible for choosing actions. When
-Jev is not configured, `phone.run(...)` keeps the LLM Agent flow. Use
-`phone.agent().run(...)` explicitly for LLM-first tool planning, and
-`dry_run=True` to preview the next validated action. See the
+an LLM is configured, it is the primary planner: it observes the current
+screenshot and UI, then selects one validated tool action per step. Pass
+`jev=` or `jev_provider=` when you want Jev to supply advisory context. Use
+`phone.run_jev_goal(...)` to explicitly request Jev-first selection from
+host-validated UI/OCR candidates; when no LLM is configured, `phone.run(...)`
+can use that flow as a fallback. Use `dry_run=True` to preview the next
+validated action. See the
 [model and Agent guide](docs/models.md).
 
 Typed TypeSafe Jev decisions are available through `phone.jev()` for bounded
@@ -63,11 +64,11 @@ environment (`JEV_API_KEY` is accepted as a compatibility alias). See the
 [model guide](docs/models.md) for configuration and examples.
 
 For goals where Jev should select only from host-generated UI/OCR actions,
-`phone.run(...)` uses Noul for completion and Choice for the next candidate,
+`phone.run_jev_goal(...)` uses Noul for completion and Choice for the next candidate,
 requests OCR only when Jev chooses `inspect_ocr`, and rechecks the device state
 before acting. Jev receives semantic UI/OCR labels; the host keeps coordinates
-and executes validated actions. `phone.run_jev_goal(...)` remains as a
-compatibility wrapper for this flow.
+and executes validated actions. `phone.run_jev_goal(...)` is the explicit
+entry point for this flow.
 `allowed_controls` and `denied_controls` can restrict visible labels, while
 `allowed_apps={"设置": "com.android.settings"}` can explicitly allow app
 launch candidates. Jev sees the app label, while the package stays host-side.
@@ -80,8 +81,8 @@ dismiss/back/home controls; the main goal observes again and resumes. It cannot
 provide coordinates or arbitrary operations. Set
 `max_llm_assists` to a non-negative integer to cap generation, or to zero to
 disable LLM recovery. If a recovery subgoal fails, the LLM may generate a
-replacement from the updated UI state. Use `phone.agent().run(...)` when
-the goal needs free-form text or LLM-generated actions.
+replacement from the updated UI state. Use `phone.agent().run(...)` to customize
+the LLM Agent directly.
 
 `connect(remote="192.168.1.20:5555")` connects to an authorized device over
 ADB TCP. See the [feature-oriented API documentation](docs/README.md) and

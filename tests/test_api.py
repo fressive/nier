@@ -302,7 +302,7 @@ def test_jev_is_created_from_configuration_and_cached(monkeypatch) -> None:
     assert fake.closed is True
 
 
-def test_omitted_provider_names_use_the_first_configured_entries(monkeypatch) -> None:
+def test_first_llm_ocr_and_explicit_jev_providers_are_selected(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
@@ -350,14 +350,18 @@ def test_omitted_provider_names_use_the_first_configured_entries(monkeypatch) ->
 
     phone.screenshot().ocr()
     phone.jev()
+    selected["jev"].clear()
     agent = phone.agent()
 
     assert selected == {
         "ocr": ["cloud"],
         "llm": ["primary"],
-        "jev": ["typed"],
+        "jev": [],
     }
     assert agent.provider == "primary"
+
+    phone.agent(jev_provider="backup")
+    assert selected["jev"] == ["backup"]
 
 
 def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> None:
@@ -386,7 +390,7 @@ def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> Non
     assert created == ["local"]
 
 
-def test_device_run_routes_to_configured_jev_without_eagerly_loading_llm(monkeypatch) -> None:
+def test_device_run_uses_llm_without_implicit_jev_call(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
@@ -398,6 +402,97 @@ def test_device_run_routes_to_configured_jev_without_eagerly_loading_llm(monkeyp
     phone = Device(DeviceSession(FakeBackend()), app_config=config)
     created_jev: list[str] = []
     jev_calls: list[tuple[object, object]] = []
+    created_llm: list[str] = []
+    llm_calls: list[str] = []
+
+    class FakeJev:
+        def ask(self, state, questions):
+            jev_calls.append((state, questions))
+            return JevResponse(
+                answers={
+                    "ready": JevAnswer(type="noul", noul=0.96),
+                },
+                model="fake",
+            )
+
+    class FakeLlm:
+        def complete_with_tools(self, prompt, *, tools, image=None):
+            llm_calls.append(prompt)
+            return [LlmToolCall("goal_complete", {"reason": "LLM confirms goal"})]
+
+    monkeypatch.setattr(
+        phone,
+        "_configured_jev",
+        lambda provider: created_jev.append(provider) or FakeJev(),
+    )
+    monkeypatch.setattr(
+        phone,
+        "_configured_llm",
+        lambda provider: created_llm.append(provider) or FakeLlm(),
+    )
+
+    result = phone.run("检查当前页面", dry_run=True)
+
+    assert result.success is True
+    assert result.termination == "goal_complete"
+    assert result.plan.provider == "primary"
+    assert created_jev == []
+    assert created_llm == ["primary"]
+    assert jev_calls == []
+    assert result.plan.jev == {
+        "ocr_error": "PaddleOCR is not installed; install the models extra"
+    }
+    assert len(llm_calls) == 1
+
+
+def test_device_run_adds_jev_only_when_explicitly_requested(monkeypatch) -> None:
+    config = from_mapping(
+        {
+            "models": {
+                "llm_providers": {"primary": {"model": "primary-model"}},
+                "jev_providers": {"typed": {"model": "typed-model"}},
+            }
+        }
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    jev_calls: list[object] = []
+
+    class FakeJev:
+        def ask(self, state, questions):
+            jev_calls.append((state, questions))
+            return JevResponse(
+                answers={"ready": JevAnswer(type="noul", noul=0.96)},
+                model="fake",
+            )
+
+    class FakeLlm:
+        def complete_with_tools(self, prompt, *, tools, image=None):
+            return [LlmToolCall("goal_complete", {"reason": "LLM confirms goal"})]
+
+    monkeypatch.setattr(phone, "_configured_jev", lambda _provider: FakeJev())
+    monkeypatch.setattr(phone, "_configured_llm", lambda _provider: FakeLlm())
+
+    result = phone.run("检查当前页面", jev_provider="typed", dry_run=True)
+
+    assert result.termination == "goal_complete"
+    assert result.plan.jev == {
+        "ready": 0.96,
+        "ocr_error": "PaddleOCR is not installed; install the models extra",
+    }
+    assert len(jev_calls) == 1
+
+
+def test_device_run_falls_back_to_jev_when_no_llm_is_configured(monkeypatch) -> None:
+    config = from_mapping(
+        {
+            "models": {
+                "llm": {"api_key_env": "NIER_TEST_MISSING_LLM_KEY"},
+                "jev_providers": {"typed": {"model": "typed-model"}},
+            }
+        }
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    jev_calls: list[object] = []
 
     class FakeJev:
         def ask(self, state, questions):
@@ -415,25 +510,18 @@ def test_device_run_routes_to_configured_jev_without_eagerly_loading_llm(monkeyp
                 model="fake",
             )
 
-    monkeypatch.setattr(
-        phone,
-        "_configured_jev",
-        lambda provider: created_jev.append(provider) or FakeJev(),
-    )
+    monkeypatch.setattr(phone, "_configured_jev", lambda _provider: FakeJev())
     monkeypatch.setattr(
         phone,
         "_configured_llm",
-        lambda provider: pytest.fail(f"LLM loaded eagerly: {provider}"),
+        lambda _provider: pytest.fail("LLM should not be loaded without configuration"),
     )
 
     result = phone.run("检查当前页面", dry_run=True)
 
-    assert result.success is True
     assert result.termination == "needs_verification"
     assert result.plan.provider == "typed"
-    assert created_jev == ["typed"]
     assert len(jev_calls) == 1
-    assert "call_llm" in jev_calls[0][1]["next"].options  # type: ignore[index,operator]
 
 
 def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
