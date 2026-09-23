@@ -576,6 +576,10 @@ Stopping a paused debug run MUST terminate its child process.
 
 The dashboard MUST visualize received STEP events in execution order and MUST
 allow the user to inspect STEP details and related request/response logs.
+Successful device `read` results MUST be attached to their originating read
+step and MUST NOT create a separate completion node. The graph node MUST show a
+bounded response preview, and the sidebar MUST show the bounded, sanitized read
+response and related request/response events.
 Structured Nier events MUST pass through the existing bounded redaction policy
 before leaving the child script process. Ordinary script stdout and stderr MAY
 be displayed as emitted by the script and MUST be identified as unsanitized.
