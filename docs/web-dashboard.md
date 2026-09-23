@@ -50,6 +50,8 @@ successful `read` result is attached to its read node instead of creating a
 separate completion node. Nodes show a short response preview; selecting one
 shows the associated response or result details in the sidebar alongside its
 STEP details and recent script output.
+`dump_ui` results appear as an expandable UI hierarchy with element attributes,
+text, resource IDs, and bounds.
 
 Debug events also travel over the dashboard event stream. The runner pauses
 inside the STEP logger before execution continues past that event, then waits

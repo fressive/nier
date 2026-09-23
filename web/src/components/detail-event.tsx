@@ -2,6 +2,8 @@ import { Radio } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { cn } from "../lib/utils";
 import { detailTitle, localTime, stringify } from "../lib/dashboard";
+import { UiDumpTree } from "./ui-dump-tree";
+import { isUiDumpPayload } from "../lib/ui-dump";
 import type { WebEvent } from "../types";
 
 export function DetailEvent({ event }: { event: WebEvent }) {
@@ -17,6 +19,11 @@ export function DetailEvent({ event }: { event: WebEvent }) {
     : event.type === "log"
       ? details
       : event;
+  const uiDump = event.type === "log"
+    && details.operation === "dump_ui"
+    && isUiDumpPayload(details.result)
+    ? details.result
+    : undefined;
 
   return (
     <div className="rounded-lg border border-border/80 bg-[#10151c] p-3">
@@ -33,7 +40,9 @@ export function DetailEvent({ event }: { event: WebEvent }) {
         <span className="shrink-0 font-mono text-[10px] text-slate-500">{localTime(event.timestamp)}</span>
       </div>
       {target && <p className="mt-2 break-all font-mono text-[10px] text-slate-500">{target}</p>}
-      <pre className="code-scroll mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0b0f14] p-3 font-mono text-[10px] leading-relaxed text-slate-300">{stringify(raw)}</pre>
+      {uiDump
+        ? <UiDumpTree dump={uiDump} />
+        : <pre className="code-scroll mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-words rounded-md bg-[#0b0f14] p-3 font-mono text-[10px] leading-relaxed text-slate-300">{stringify(raw)}</pre>}
       {(isRequest || isResponse) && (
         <div className="mt-2 flex items-center gap-1.5 text-[9px] text-slate-600">
           <Radio className="h-3 w-3" />
