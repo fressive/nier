@@ -73,9 +73,12 @@ compatibility wrapper for this flow.
 launch candidates. Jev sees the app label, while the package stays host-side.
 `max_steps` and `max_seconds` bound the loop. A completion signal returns
 `needs_verification` for caller review. If Jev selects `call_llm`, the LLM
-returns bounded strategic guidance (up to two assists by default); it cannot
-choose or execute an action. Use `phone.agent().run(...)` when the goal needs
-free-form text or LLM-generated actions.
+generates a bounded recovery subgoal (up to two assists by default); a nested
+Jev run carries it out using only safe, host-validated dismiss/back/home
+controls, then the main goal observes again and resumes. If a recovery subgoal
+fails, the LLM may generate a replacement from the updated UI state. The LLM
+cannot choose or execute actions directly. Use `phone.agent().run(...)` when
+the goal needs free-form text or LLM-generated actions.
 
 `connect(remote="192.168.1.20:5555")` connects to an authorized device over
 ADB TCP. See the [feature-oriented API documentation](docs/README.md) and

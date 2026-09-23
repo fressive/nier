@@ -27,6 +27,8 @@ from nier.session import DeviceSession
 @dataclass
 class FakeBackend:
     actions: list[Action] = field(default_factory=list)
+    action_results: list[ActionResult] = field(default_factory=list)
+    action_errors: list[Exception] = field(default_factory=list)
     opened_apps: list[str] = field(default_factory=list)
     dump_ui_requests: list[DumpUiRequest | None] = field(default_factory=list)
 
@@ -38,6 +40,10 @@ class FakeBackend:
 
     def execute(self, action: Action) -> ActionResult:
         self.actions.append(action)
+        if self.action_errors:
+            raise self.action_errors.pop(0)
+        if self.action_results:
+            return self.action_results.pop(0)
         return ActionResult(True, "ok")
 
     def open_app(self, package: str) -> ActionResult:
@@ -78,13 +84,15 @@ class FakeJev:
 
 
 class FakeLlm:
-    def __init__(self, guidance: str) -> None:
-        self.guidance = guidance
+    def __init__(self, guidance: str | list[str]) -> None:
+        self.responses = guidance if isinstance(guidance, list) else [guidance]
         self.prompts: list[str] = []
 
     def complete(self, prompt: str, *, image: bytes | None = None) -> str:
         self.prompts.append(prompt)
-        return self.guidance
+        if len(self.responses) > 1:
+            return self.responses.pop(0)
+        return self.responses[0]
 
 
 class FakeOcr:
@@ -153,38 +161,44 @@ def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
     assert len(backend.dump_ui_requests) == 3
 
 
-def test_device_run_uses_jev_and_llm_only_for_directional_assistance() -> None:
+def test_device_run_executes_llm_recovery_as_nested_jev_subgoal() -> None:
     phone, backend = make_device()
     jev = FakeJev(
         [
             _response(done=0.10, choice="call_llm"),
+            _response(done=0.10, choice="back"),
+            _response(done=0.96, choice="blocked"),
             _response(done=0.10, choice="ui_0"),
             _response(done=0.96, choice="blocked"),
         ]
     )
-    llm = FakeLlm("先检查当前页面中的登录入口，再判断是否需要打开设置。")
+    llm = FakeLlm("返回上一页")
 
     result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
 
     assert result.success is True
     assert result.termination == "needs_verification"
-    assert len(backend.actions) == 1
+    assert len(backend.actions) == 2
+    assert backend.actions[0].key_code == KeyCode.BACK  # type: ignore[union-attr]
+    assert isinstance(backend.actions[1], Click)
     assert len(llm.prompts) == 1
-    assert "Do not return an action, tool call" in llm.prompts[0]
+    assert "Return exactly one concise imperative subgoal" in llm.prompts[0]
+    assert "Original main goal" in llm.prompts[0]
     assert "[10,20]" not in llm.prompts[0]
     first_state, first_questions = jev.calls[0]
     assert first_state["goal"] == "进入登录页面"
     assert "call_llm" in first_questions["next"].options  # type: ignore[index,operator]
-    second_state, _ = jev.calls[1]
-    assert second_state["llm_guidance"] == llm.guidance
-    assert second_state["llm_assists_used"] == 1
-    assert result.plan.jev["llm_assists"] == [  # type: ignore[index]
-        {
-            "iteration": 1,
-            "provider": "custom",
-            "guidance": llm.guidance,
-        }
+    recovery_state, recovery_questions = jev.calls[1]
+    assert recovery_state["goal"] == "返回上一页"
+    assert [item["label"] for item in recovery_state["candidates"]] == [  # type: ignore[index]
+        "返回上一页"
     ]
+    assert "call_llm" not in recovery_questions["next"].options  # type: ignore[index,operator]
+    resumed_state, _ = jev.calls[3]
+    assert resumed_state["goal"] == "进入登录页面"
+    assert "llm_guidance" not in resumed_state
+    assert resumed_state["history"][-1]["decision"] == "recovery_subgoal"  # type: ignore[index]
+    assert result.plan.jev["recovery_subgoals"][0]["outcome"] == "completed"  # type: ignore[index]
 
 
 def test_jev_goal_removes_call_llm_after_assist_limit() -> None:
@@ -205,11 +219,94 @@ def test_jev_goal_removes_call_llm_after_assist_limit() -> None:
     )
 
     assert result.success is False
-    assert result.termination == "blocked"
+    assert result.termination == "recovery_failed"
     assert len(llm.prompts) == 1
     assert "call_llm" in jev.calls[0][1]["next"].options  # type: ignore[index,operator]
+    assert jev.calls[1][0]["goal"] == "换一个页面入口继续查找。"
     assert "call_llm" not in jev.calls[1][1]["next"].options  # type: ignore[index,operator]
     assert backend.actions == []
+
+
+def test_failed_recovery_subgoal_causes_llm_to_generate_return_subgoal() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="call_llm"),
+            _response(done=0.10, choice="blocked"),
+            _response(done=0.10, choice="back"),
+            _response(done=0.96, choice="blocked"),
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+    llm = FakeLlm(["关闭弹窗", "返回上一页"])
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+
+    assert result.success is True
+    assert len(llm.prompts) == 2
+    assert "关闭弹窗" in llm.prompts[1]
+    assert "from which the original main goal can resume" in llm.prompts[1]
+    assert jev.calls[1][0]["goal"] == "关闭弹窗"
+    assert jev.calls[2][0]["goal"] == "返回上一页"
+    assert jev.calls[4][0]["goal"] == "进入登录页面"
+    assert [action.key_code for action in backend.actions if hasattr(action, "key_code")] == [
+        KeyCode.BACK
+    ]
+    assert len(backend.actions) == 2
+    attempts = result.plan.jev["recovery_subgoals"]  # type: ignore[index]
+    assert [item["outcome"] for item in attempts] == ["failed", "completed"]  # type: ignore[index]
+
+
+def test_failed_main_action_is_not_retried_after_recovery() -> None:
+    phone, backend = make_device()
+    backend.action_results = [ActionResult(False, "device rejected click")]
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.10, choice="back"),
+            _response(done=0.96, choice="blocked"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+    llm = FakeLlm("返回上一页")
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=2)
+
+    assert result.success is True
+    assert len(llm.prompts) == 1
+    assert "device rejected click" in llm.prompts[0]
+    assert len(backend.actions) == 2
+    assert sum(isinstance(action, Click) for action in backend.actions) == 1
+    assert backend.actions[-1].key_code == KeyCode.BACK  # type: ignore[union-attr]
+    resumed_state, _ = jev.calls[-1]
+    assert resumed_state["goal"] == "进入登录页面"
+    assert [item["label"] for item in resumed_state["candidates"]] == [  # type: ignore[index]
+        "返回上一页"
+    ]
+
+
+def test_action_exception_uses_recovery_subgoal_before_resuming_main_goal() -> None:
+    phone, backend = make_device()
+    backend.action_errors = [RuntimeError("dispatch connection dropped")]
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.10, choice="back"),
+            _response(done=0.96, choice="blocked"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+    llm = FakeLlm("返回上一页")
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=2)
+
+    assert result.success is True
+    assert len(backend.actions) == 2
+    assert isinstance(backend.actions[0], Click)
+    assert backend.actions[1].key_code == KeyCode.BACK  # type: ignore[union-attr]
+    assert "dispatch connection dropped" in llm.prompts[0]
+    assert result.plan.jev["recovery_subgoals"][0]["outcome"] == "completed"  # type: ignore[index]
 
 
 def test_jev_goal_runs_ocr_only_after_jev_requests_it() -> None:

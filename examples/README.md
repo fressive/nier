@@ -13,7 +13,7 @@ python -m pip install -e '.[dev]'
 | [`03_screenshot_uidump.py`](03_screenshot_uidump.py) | Capture evidence, save a structured UI tree, and inspect clickable nodes | Yes |
 | [`04_agent.py`](04_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
 | [`05_remote_ocr.py`](05_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
-| [`06_jev_goal.py`](06_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
+| [`06_jev_goal.py`](06_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and bounded LLM recovery subgoals | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
 | [`07_webview_uidump.py`](07_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
 
 Copy the configuration before running device examples:
@@ -36,7 +36,11 @@ authorized to test. `02_control_device.py` requires `--confirm` because it taps
 a label and submits text. `06_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
 `关于本机` by default. When an LLM provider is configured, Jev may request
-high-level direction through `call_llm`; Jev still chooses every action.
+recovery through `call_llm` or after a failure. The LLM creates a bounded
+subgoal that a nested Jev run executes using safe controls; after success the
+main goal observes the device again and resumes. Failed subgoals may be
+replaced using a fresh observation, within the configured assist limit.
+Jev still chooses every action.
 `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
 bypasses preview and offers all discovered UI/OCR control labels. Jev still

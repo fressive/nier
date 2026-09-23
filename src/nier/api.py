@@ -58,7 +58,7 @@ class _LazyOcrProvider:
 
 
 class _LazyLlmProvider:
-    """Create the optional LLM only if Jev requests strategic assistance."""
+    """Create the optional LLM only when bounded recovery is requested."""
 
     def __init__(self, create: Callable[[], LlmProvider]) -> None:
         self._create = create
@@ -448,18 +448,23 @@ class Device:
 
         Jev chooses among a bounded UI/OCR/app candidate list and the host
         executes only its selected, validated candidate. If an LLM is available,
-        Jev may choose ``call_llm`` to get a bounded strategic adjustment; the
-        LLM cannot choose or execute device actions. ``max_llm_assists`` limits
-        this to two calls per run by default; set it to zero to disable the
-        option. The first configured Jev, LLM, and OCR providers are selected
-        when names are omitted. A configured OCR provider runs only after Jev
+        Jev may choose ``call_llm`` or a failed run may request a bounded
+        recovery subgoal. A nested Jev runner executes that subgoal using only
+        safe, host-validated dismiss/cancel/skip/back/home controls; the LLM cannot choose
+        or execute device actions. If a recovery subgoal fails, the LLM may
+        generate a replacement using a fresh observation, up to
+        ``max_llm_assists`` calls per run (two by default). Set this to zero to
+        disable recovery assistance. The first configured Jev, LLM, and OCR
+        providers are selected when names are omitted. A configured OCR provider runs only after Jev
         selects ``inspect_ocr`` and at most once per observation.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;
         a fresh observation is still required immediately before a real action.
-        The action loop is bounded by ``max_steps`` and ``max_seconds``. Jev
-        only selects from host-generated candidates; it cannot provide text or
+        Main-goal actions are bounded by ``max_steps``; recovery subgoals have
+        a separate limit of three actions and ten seconds, further bounded by
+        the remaining ``max_seconds`` deadline. Jev only selects from
+        host-generated candidates; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
         UI/OCR/system labels after case and whitespace normalization.
         ``allowed_apps`` maps display labels to validated Android package names;
@@ -712,9 +717,13 @@ class Device:
         """Run one goal with Jev-first decisions and bounded LLM assistance.
 
         When a Jev provider is supplied or configured, Jev chooses among
-        host-validated candidates. If Jev selects ``call_llm``, the optional
-        LLM returns strategic guidance only; Jev still selects every action.
-        ``max_llm_assists`` bounds such calls and defaults to two per run.
+        host-validated candidates. If Jev selects ``call_llm`` or a recoverable
+        failure occurs, the optional LLM generates a bounded cleanup subgoal.
+        A nested Jev run executes it from safe host-validated controls. Failed
+        subgoals can be revised after a fresh observation until
+        ``max_llm_assists`` is exhausted; the default cap is two calls per run.
+        Recovery guidance is never passed back as strategic text to the main
+        Jev goal.
         Without an available Jev provider, this preserves the LLM-planned Agent
         flow. Use :meth:`agent` explicitly when LLM-first tool planning is
         desired.
@@ -802,8 +811,9 @@ class Device:
         and package name. ``allowed_controls`` and ``denied_controls`` restrict
         UI/OCR/system candidate labels.
         A configured OCR provider runs only after Jev selects ``inspect_ocr``.
-        Jev may select ``call_llm`` for a high-level strategy adjustment; the
-        LLM does not choose or execute device actions.
+        Jev may select ``call_llm`` or a failed run may request a bounded
+        recovery subgoal. A nested Jev run chooses only safe host-validated
+        controls, and the LLM never chooses or executes device actions.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;

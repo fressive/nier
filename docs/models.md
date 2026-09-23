@@ -291,12 +291,19 @@ and `inspect_ocr` is not offered. With a provider configured, Jev can request
 OCR at most once for the current observation.
 
 If an LLM is configured, `next` also offers `call_llm` (two assists per run by
-default). Jev can select it when progress is stuck; the LLM receives a bounded
-semantic summary and returns only high-level strategic guidance. That guidance
-is included in Jev's next observation, and Jev still selects every candidate
-action. The LLM cannot return an action, coordinate, package, or completion
-signal. Set `max_llm_assists=0` to disable this option. `phone.run_jev_goal()`
-remains a compatibility wrapper around the same Jev-first flow.
+default). Jev can select it when progress is stuck; failed runs can also
+request recovery. The LLM receives bounded semantic state and returns one
+concise recovery subgoal—not advice to inject into the main Jev loop. A nested
+Jev goal executes that subgoal using only allowlisted safe dismiss/cancel,
+Back, and explicitly requested Home controls, with at most three actions and
+ten seconds (never beyond the main goal's deadline). On successful recovery,
+the main goal re-observes the device and resumes. If a recovery subgoal fails,
+the LLM can generate a different one from a fresh observation, until
+`max_llm_assists` is exhausted. Failed controls are excluded so device actions
+are not retried automatically. The LLM cannot return an executable action,
+coordinate, package, or completion signal. Set `max_llm_assists=0` to disable
+this option. `phone.run_jev_goal()` remains a compatibility wrapper around the
+same Jev-first flow.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android
 package name to offer app-launch candidates, for example
@@ -319,10 +326,12 @@ Each observation sends one batched request containing:
   `needs_verification` does not mean the goal has been independently verified;
 - `next` — a Choice over candidate IDs plus `blocked` and `wait`, and
   `inspect_ocr` when OCR is configured and has not run for this observation.
-  Low confidence or an unknown choice stops without dispatching an action.
+  Low confidence or an unknown choice never dispatches that selected
+  candidate; it can enter bounded recovery when LLM is configured.
   `inspect_ocr` is a read-only request; after OCR, Jev receives a new
-  observation. `blocked` returns control immediately. `wait` waits 750 ms and
-  observes again; three consecutive waits stop with `loading_timeout`;
+  observation. `blocked` does not dispatch a main-goal action and may trigger
+  bounded recovery. `wait` waits 750 ms and observes again; three consecutive
+  waits trigger recovery and stop with `loading_timeout` if it fails;
 - `progress` — an optional Score answer enabled with `use_score=True`. It is
   recorded for diagnostics/stuck detection and is not the success gate.
 
@@ -330,13 +339,17 @@ Immediately before an action, the host reads the device state again. If the UI,
 candidate list, or host-side coordinates changed while Jev was deciding, it
 discards that answer and asks again against the fresh observation. An OCR-based
 tap also requires the screenshot digest to match the image used for that OCR
-read; this check does not run OCR a second time. Three stale decisions stop the
-run. The flow is bounded by `max_steps` and `max_seconds`
+read; this check does not run OCR a second time. Three stale decisions trigger
+recovery and stop the run if recovery fails. Main-goal actions are bounded by
+`max_steps`; recovery uses a separate bounded action budget. The complete flow
+is bounded by `max_seconds`
 (45 seconds by default and maximum). The deadline prevents starting another
 action after it expires; it cannot interrupt an in-flight provider or device
-call. Device actions are not retried. Provider or observation failures stop the
-run with an error. The caller should inspect a fresh screenshot or UI dump when
-Jev returns `needs_verification`.
+call. Failed device actions are excluded from later candidates, not retried.
+Provider or observation failures request bounded recovery when configured; if
+recovery is unavailable or fails, the run stops with an error (and unexpected
+exceptions remain surfaced to the caller). The caller should inspect a fresh
+screenshot or UI dump when Jev returns `needs_verification`.
 
 This keeps Jev in a mechanical selection role: it cannot type text or invent
 coordinates and operations. Use `phone.agent().run()` for LLM-first tool

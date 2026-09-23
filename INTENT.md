@@ -61,14 +61,16 @@ The current foundation includes:
   provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
 - a unified `Device.run()` goal flow that uses TypeSafe Jev as the primary
   decision-maker when configured, selecting only host-validated actions and
-  optionally asking an LLM for high-level direction when Jev requests help;
+  optionally asking an LLM to generate bounded recovery subgoals that a nested
+  Jev runner executes through safe, host-validated controls;
 - an explicit LLM-first Agent API for goals that need free-form text or actions
   outside Jev's bounded candidate set, with validated native tool calls.
 
 The following are intentionally outside the completed foundation:
 
-- automatic stuck/failure detection and recovery; Jev may explicitly request a
-  bounded LLM strategy adjustment, but neither model silently retries actions;
+- unbounded autonomous recovery; current Jev recovery is bounded to safe
+  controls and a configured LLM-assist limit, and failed device actions are
+  excluded from subsequent candidates rather than retried;
 - continuous post-action verification;
 - autonomous WebView interaction beyond DOM extraction; the optional root
   Frida hook and cooperative non-root integration now enable WebView DevTools

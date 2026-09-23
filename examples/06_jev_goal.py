@@ -70,6 +70,11 @@ def _print_run_summary(run) -> None:
             detail = result.message or result.error_code
             suffix = f": {detail}" if detail else ""
             print(f"  {index}. {status}{suffix}")
+    if run.plan.jev and run.plan.jev.get("recovery_subgoals"):
+        print("Recovery subgoals:")
+        for index, subgoal in enumerate(run.plan.jev["recovery_subgoals"], start=1):
+            goal = subgoal.get("recovery_goal", "(not generated)")
+            print(f"  {index}. {goal} — {subgoal['outcome']}")
 
 
 def main(argv: list[str] | None = None) -> None:

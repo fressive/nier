@@ -337,8 +337,10 @@ then compiles returned tool calls into validated `AgentStep` values before
 executing. `Device.run(instruction)` MUST use the Jev-first goal flow whenever
 a direct Jev client, an explicit Jev provider, a Jev-containing router, or a
 configured Jev provider is available. In that flow, Jev selects from the
-host-validated finite candidate set; an optional LLM can provide direction only
-when Jev selects `call_llm`. If Jev is not configured and no Jev-specific option
+host-validated finite candidate set; an optional LLM can provide a bounded
+recovery subgoal when Jev selects `call_llm` or failure recovery is needed.
+The nested recovery goal does not return free-form strategy text to the main
+Jev loop. If Jev is not configured and no Jev-specific option
 is requested, `Device.run()` MUST preserve the LLM-first Agent flow. The model
 context MUST include a bounded foreground Activity object when available, and
 an explicit unavailable warning otherwise. The same Activity object MUST be
@@ -425,19 +427,48 @@ signals. It MUST contain `inspect_ocr` only when available for the current
 observation. If an LLM provider is configured and the `max_llm_assists` cap has
 not been reached, `next` MUST also contain `call_llm`; otherwise that option
 MUST be absent. The cap MUST be a non-negative integer and default to two
-assists per run. An unknown or below-threshold answer MUST stop without
-dispatching an action.
-`blocked` MUST return control without acting. `wait` MUST trigger a bounded wait
-and fresh observation; three consecutive waits MUST stop with a loading timeout.
-When selected, `call_llm` MUST pass the user goal and bounded semantic
-observation to `LlmProvider.complete`, then expose its bounded text guidance in
-the next Jev observation and recent history. The LLM MUST be prompted to revise
-only the high-level approach; it MUST NOT select or dispatch an action, supply
-coordinates/packages/commands, or declare completion. The LLM guidance MUST NOT
-bypass Jev candidate selection or host validation. Each response MUST be bounded
-to 1,200 characters. The call MUST count toward `max_llm_assists`; when that cap
-is exhausted Jev MUST continue without the `call_llm` option. Provider failures
-MUST fail the run rather than silently altering the route.
+LLM recovery-goal generations per run. An unknown or below-threshold candidate
+choice MUST NOT dispatch that candidate; it MAY enter the bounded recovery
+flow. `blocked` MUST NOT dispatch a candidate from the failed main observation;
+it MAY enter the bounded recovery flow. `wait` MUST trigger a bounded wait and
+fresh observation; three consecutive waits MUST trigger recovery and, if that
+recovery fails, stop with a loading timeout.
+When selected, `call_llm` MUST pass the user goal, bounded semantic
+observation, and stop reason to `LlmProvider.complete`. The response MUST be one
+bounded recovery subgoal, not strategic text returned to the main Jev loop.
+Recoverable blocked, low-confidence, stale-state, loading-timeout, action
+failure, and action/planning exception outcomes MUST also request a recovery
+subgoal when an LLM is configured and time remains. The LLM MUST NOT select or
+dispatch an action, supply coordinates/packages/commands, request task
+submission/deletion/purchase/permission changes, or declare completion. Each
+response MUST be bounded to 1,200 characters.
+
+Every recovery subgoal MUST run as a nested Jev goal with LLM assistance
+disabled. It MUST NOT inherit `allowed_apps`; its UI/OCR/system candidates MUST
+be restricted to the fixed safe dismiss/close/cancel/skip/back controls, plus
+Home only when requested by the recovery instruction, and MUST still honor the
+caller's `allowed_controls` and `denied_controls`. A recovery run MUST be
+bounded to at most three device actions and ten seconds, further limited by the
+remaining main-goal deadline. It MUST NOT repeat any control whose action
+failed or raised during the current run. On nested-goal completion, the parent
+MUST take a new observation and resume the original main goal if its main
+action and time budgets permit; otherwise it MUST terminate with the applicable
+main-goal limit. The generated recovery text MUST NOT be added to the parent
+Jev context as strategy advice.
+
+If a nested recovery subgoal fails, the host MUST pass its outcome and a fresh
+bounded semantic observation to the LLM to generate a different subgoal, while
+the `max_llm_assists` cap has remaining allowance. Exhausting that cap MUST
+terminate recovery as failed without returning an action suggestion to the
+main Jev. If the LLM provider fails to generate a recovery goal, recovery MUST
+fail. Other provider/observation failures MAY resume only after a successful
+nested recovery; otherwise they MUST fail the run (unexpected exceptions
+remain surfaced to the caller). Dry-run mode MUST NOT execute recovery actions.
+`max_steps` bounds
+main-goal actions; recovery has its separate bounded action budget. The parent
+`max_seconds` deadline MUST also bound recovery, and no recovery action may
+start after it expires. An in-flight provider or device call need not be
+interrupted.
 The initial candidate implementation MUST limit execution to bounded UI/OCR
 taps, app launches from `allowed_apps`, and fixed safe system keys; free-form
 text, shell commands, Activity launches, and unbounded gestures MUST remain
@@ -453,17 +484,19 @@ each action. Immediately before dispatch, the host MUST take a fresh
 observation and discard the decision if the UI candidate list or its
 host-side coordinates have changed. For an OCR candidate, the host MUST also
 compare the fresh screenshot digest with the image used for OCR, without running
-OCR again. Stale decisions MUST be bounded; the goal
-MUST stop after three consecutive stale decisions. The complete flow MUST be
-bounded by both `max_steps` and `max_seconds` (at most 45 seconds). The time
-limit MUST prevent starting a new action after expiry; it need not interrupt an
+OCR again. Stale decisions MUST be bounded; after three consecutive stale
+decisions the goal MUST attempt bounded recovery and, if recovery fails, stop.
+`max_steps` bounds main-goal actions; each recovery subgoal has its own smaller
+action budget. The complete flow MUST be bounded by `max_seconds` (at most 45
+seconds), which includes recovery. The time limit MUST prevent starting a new
+action after expiry; it need not interrupt an
 in-flight provider or device call.
 The Jev goal MUST use the same `RunRecorder`, dry-run semantics, provider
 selection rule (first configured provider when omitted), and bounded action
 limit as the regular Agent.
 
-Multi-model voting, automatic post-action verification, and recovery remain
-planned extensions.
+Multi-model voting and automatic post-action verification remain planned
+extensions.
 
 ## 9. API surface and documentation
 
