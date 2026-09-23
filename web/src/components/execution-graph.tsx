@@ -14,20 +14,35 @@ import { Button } from "./ui/button";
 import { Card, CardHeader, CardTitle } from "./ui/card";
 import type { StepNodeData, WebEvent } from "../types";
 
-function FollowLatest({ eventId, index, running }: { eventId?: number; index: number; running: boolean }) {
-  const { setCenter } = useReactFlow();
+function FollowLatest({
+  eventId,
+  y,
+  hasResponse,
+  running,
+}: {
+  eventId?: string;
+  y: number;
+  hasResponse: boolean;
+  running: boolean;
+}) {
+  const { getNode, setCenter } = useReactFlow();
   useEffect(() => {
     if (running && eventId !== undefined) {
-      setCenter(255, index * 146 + 84, { zoom: 0.82, duration: 320 });
+      const node = getNode(eventId);
+      const x = node?.position.x ?? 60;
+      const nodeY = node?.position.y ?? y;
+      const width = node?.measured?.width ?? 390;
+      const measuredHeight = node?.measured?.height ?? 0;
+      const height = hasResponse ? Math.max(measuredHeight, 156) : measuredHeight || 100;
+      setCenter(x + width / 2, nodeY + height / 2, { zoom: 0.82, duration: 320 });
     }
-  }, [eventId, index, running, setCenter]);
+  }, [eventId, getNode, hasResponse, running, setCenter, y]);
   return null;
 }
 
 type Props = {
   nodes: Node<StepNodeData>[];
   edges: Edge[];
-  events: WebEvent[];
   activeStep?: WebEvent;
   running: boolean;
   onSelectNode: (id: number) => void;
@@ -37,13 +52,12 @@ type Props = {
 export function ExecutionGraph({
   nodes,
   edges,
-  events,
   activeStep,
   running,
   onSelectNode,
   onRefresh,
 }: Props) {
-  const latest = events.at(-1);
+  const latestNode = nodes.at(-1);
   return (
     <Card className="overflow-hidden border-border/80 bg-[#10151c]/85">
       <CardHeader className="flex-row items-center justify-between border-b border-border/70 py-4">
@@ -77,7 +91,12 @@ export function ExecutionGraph({
             proOptions={{ hideAttribution: true }}
             className="flow-canvas"
           >
-            <FollowLatest eventId={latest?.event_id} index={events.length - 1} running={running} />
+            <FollowLatest
+              eventId={latestNode?.id}
+              y={latestNode?.position.y ?? 36}
+              hasResponse={Boolean(latestNode?.data.response)}
+              running={running}
+            />
             <Background color="#26313d" gap={22} size={1} />
             <Controls showInteractive={false} />
             <MiniMap nodeColor={(node) => node.id === String(activeStep?.event_id) && running ? "#43d4a6" : "#65798a"} pannable zoomable />
