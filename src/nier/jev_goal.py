@@ -18,14 +18,14 @@ from hashlib import sha256
 from time import monotonic, sleep
 
 from .agent import (
-    AgentDevice,
-    AgentPlan,
-    AgentRun,
-    AgentStep,
     _JEV_MAX_OCR_SPANS,
     _JEV_MAX_TEXT_LENGTH,
     _JEV_MAX_UI_NODES,
     _JEV_MAX_UI_SUMMARY_CHARS,
+    AgentDevice,
+    AgentPlan,
+    AgentRun,
+    AgentStep,
     _activity_context,
     _jsonable,
     _semantic_ui,
@@ -39,7 +39,6 @@ from .models.jev import JevAnswer, JevProvider, JevQuestion
 from .protocol import ActionResult, ActivityInfo, validate_package_name
 from .results import ExecutionRecord
 from .ui import UiDocument, UiNode, parse_uidump
-
 
 _WAIT_INTERVAL_SECONDS = 0.75
 _MAX_CONSECUTIVE_WAITS = 3

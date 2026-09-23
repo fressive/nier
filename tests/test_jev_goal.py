@@ -173,6 +173,7 @@ def test_device_run_uses_jev_and_llm_only_for_directional_assistance() -> None:
     assert "Do not return an action, tool call" in llm.prompts[0]
     assert "[10,20]" not in llm.prompts[0]
     first_state, first_questions = jev.calls[0]
+    assert first_state["goal"] == "进入登录页面"
     assert "call_llm" in first_questions["next"].options  # type: ignore[index,operator]
     second_state, _ = jev.calls[1]
     assert second_state["llm_guidance"] == llm.guidance
