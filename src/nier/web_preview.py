@@ -115,9 +115,13 @@ class ScrcpyPreview:
         return self.status()
 
     def stop(self) -> dict[str, Any]:
+        self.close()
+        return self.status()
+
+    def close(self) -> None:
+        """Stop preview subprocesses without querying ADB during shutdown."""
         with self._lock:
             self._shutdown_locked(status="idle", error=None, bump_generation=True)
-        return self.status()
 
     def subscribe(self) -> queue.Queue[bytes | None]:
         subscriber: queue.Queue[bytes | None] = queue.Queue(maxsize=2)

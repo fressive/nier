@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 import ast
 from collections import deque
+from contextlib import asynccontextmanager
 import json
 import os
 from pathlib import Path
@@ -279,7 +281,7 @@ class _DashboardState:
 
     def close(self) -> None:
         self.stop()
-        self.preview.stop()
+        self.preview.close()
 
     def debug(self, command: str) -> dict[str, Any]:
         """Send one execution control command to the paused debug runner."""
@@ -423,13 +425,21 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         )
 
     state = _DashboardState(scripts, cwd or Path.cwd())
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI):
+        try:
+            yield
+        finally:
+            await asyncio.to_thread(state.preview.close)
+
     app = FastAPI(
         title="Nier Execution Studio",
         docs_url=None,
         redoc_url=None,
         openapi_url=None,
+        lifespan=lifespan,
     )
-    app.add_event_handler("shutdown", state.preview.stop)
 
     def check_origin(request: Request) -> None:
         origin = request.headers.get("origin")
