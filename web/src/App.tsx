@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Edge, type Node } from "@xyflow/react";
-import { Code2, Workflow, XCircle } from "lucide-react";
+import { ClipboardList, Code2, MonitorPlay, Workflow, XCircle } from "lucide-react";
 import { ExecutionGraph } from "./components/execution-graph";
 import { LogSidebar } from "./components/log-sidebar";
 import { RunConfirmDialog } from "./components/run-confirm-dialog";
@@ -14,6 +14,7 @@ import { cn } from "./lib/utils";
 import { initialRun, type ApiState, type DebugCommand, type RunState, type ScriptInfo, type StepNodeData, type WebEvent } from "./types";
 
 const NODE_SPACING = 146;
+type DashboardPanel = "graph" | "logs" | "preview";
 
 export default function App() {
   const [scripts, setScripts] = useState<ScriptInfo[]>([]);
@@ -26,6 +27,7 @@ export default function App() {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
+  const [activePanel, setActivePanel] = useState<DashboardPanel>("graph");
 
   const mergeEvent = useCallback((incoming: WebEvent) => {
     if (incoming.type === "run.started") {
@@ -203,30 +205,29 @@ export default function App() {
   })), [pathEvents, busy]);
 
   return (
-    <div className="min-h-screen text-foreground">
-      <header className="sticky top-0 z-20 border-b border-border/80 bg-[#0b0e13]/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-[68px] max-w-[1800px] items-center justify-between px-5 lg:px-8">
+    <div className="app-shell flex h-dvh min-h-0 flex-col overflow-hidden text-foreground">
+      <header className="z-20 h-14 shrink-0 border-b border-border/80 bg-[#0b0e13]/90 backdrop-blur-xl">
+        <div className="mx-auto flex h-full w-full max-w-[1800px] items-center justify-between px-3 sm:px-5 lg:px-8">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300"><Workflow className="h-5 w-5" /></div>
+            <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300"><Workflow className="h-4 w-4" /></div>
             <div>
-              <div className="flex items-center gap-2"><span className="text-sm font-semibold tracking-wide text-slate-100">NIER</span><span className="text-xs text-slate-600">/</span><span className="text-xs font-medium text-slate-400">Execution Studio</span></div>
-              <p className="mt-0.5 hidden text-[10px] tracking-wide text-slate-600 sm:block">ANDROID AUTOMATION · LIVE TRACE</p>
+              <div className="flex items-center gap-2"><span className="text-sm font-semibold tracking-wide text-slate-100">NIER</span><span className="hidden text-xs text-slate-600 sm:inline">/</span><span className="hidden text-xs font-medium text-slate-400 sm:inline">Execution Studio</span></div>
+              <p className="mt-0.5 hidden text-[9px] tracking-wide text-slate-600 sm:block">ANDROID AUTOMATION · LIVE TRACE</p>
             </div>
           </div>
-          <div className="flex items-center gap-2 sm:gap-4">
-            <div className="flex items-center gap-2 text-[11px] text-slate-500"><span className={cn("h-1.5 w-1.5 rounded-full", connected ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-rose-400")} /><span>{connected ? "本地连接正常" : "正在连接"}</span></div>
+          <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+            <div className="flex items-center gap-2 text-[10px] text-slate-500 sm:text-[11px]"><span className={cn("h-1.5 w-1.5 shrink-0 rounded-full", connected ? "bg-emerald-400 shadow-[0_0_8px_#34d399]" : "bg-rose-400")} /><span className="hidden sm:inline">{connected ? "本地连接正常" : "正在连接"}</span></div>
             <div className="hidden h-5 w-px bg-border sm:block" />
             <RunStatusBadge status={run.status} />
           </div>
         </div>
       </header>
 
-      <main className="mx-auto max-w-[1800px] px-4 py-5 sm:px-5 lg:px-8 lg:py-7">
-        <div className="mb-5 flex flex-col justify-between gap-4 xl:flex-row xl:items-end">
-          <div>
-            <div className="flex items-center gap-2 text-[11px] font-medium uppercase tracking-[0.18em] text-emerald-300/80"><span className="h-px w-5 bg-emerald-400/60" />Run observability</div>
-            <h1 className="mt-2 text-2xl font-semibold tracking-tight text-slate-100 sm:text-[28px]">执行路径</h1>
-            <p className="mt-1.5 max-w-2xl text-sm text-slate-500">从脚本启动到每次设备操作，实时追踪执行步骤与模型通信。</p>
+      <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:px-5 lg:px-6">
+        <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <h1 className="shrink-0 text-base font-semibold tracking-tight text-slate-100 sm:text-lg">执行路径</h1>
+            <p className="hidden truncate text-xs text-slate-500 lg:block">实时追踪执行步骤与模型通信</p>
           </div>
           <RunToolbar
             scripts={scripts}
@@ -239,37 +240,64 @@ export default function App() {
         </div>
 
         {error && (
-          <div className="mb-4 flex items-center justify-between rounded-lg border border-rose-400/20 bg-rose-400/5 px-4 py-3 text-sm text-rose-200">
-            <span>{error}</span>
-            <button className="text-rose-300/70 hover:text-rose-200" onClick={() => setError("")}><XCircle className="h-4 w-4" /></button>
+          <div className="flex max-h-14 shrink-0 items-center justify-between gap-3 overflow-hidden rounded-lg border border-rose-400/20 bg-rose-400/5 px-3 py-2 text-xs text-rose-200">
+            <span className="min-w-0 break-words">{error}</span>
+            <button className="shrink-0 text-rose-300/70 hover:text-rose-200" onClick={() => setError("")} aria-label="关闭错误提示"><XCircle className="h-4 w-4" /></button>
           </div>
         )}
 
         <RunMetrics script={run.script || selectedScript} pathCount={pathEvents.length} successCount={successCount} failureCount={failureCount} />
 
-        <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px] 2xl:grid-cols-[minmax(0,1fr)_400px_380px]">
-          <ExecutionGraph
-            nodes={nodes}
-            edges={edges}
-            activeStep={activeStep}
-            running={busy}
-            onSelectNode={onSelectNode}
-            onRefresh={() => window.location.reload()}
-          />
-          <LogSidebar
-            run={run}
-            connected={connected}
-            events={events}
-            selectedEvent={selectedEvent}
-            selectedScript={selectedScript}
-            onDebugCommand={handleDebugCommand}
-          />
-          <ScreenPreview />
+        <nav aria-label="运行面板" className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-[#10151c]/80 p-1 xl:hidden">
+          {([
+            { id: "graph", label: "拓扑", Icon: Workflow },
+            { id: "logs", label: "执行日志", Icon: ClipboardList },
+            { id: "preview", label: "scrcpy 预览", Icon: MonitorPlay },
+          ] as const).map(({ id, label, Icon }) => (
+            <button
+              key={id}
+              type="button"
+              aria-pressed={activePanel === id}
+              onClick={() => setActivePanel(id)}
+              className={cn(
+                "flex h-full min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md px-2 text-[10px] font-medium transition-colors sm:text-[11px]",
+                activePanel === id ? "bg-emerald-400/10 text-emerald-200" : "text-slate-500 hover:text-slate-300",
+              )}
+            >
+              <Icon className="h-3.5 w-3.5 shrink-0" /><span className="truncate">{label}</span>
+            </button>
+          ))}
+        </nav>
+
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(260px,0.85fr)_minmax(260px,0.85fr)]">
+          <div className={cn("min-h-0 min-w-0", activePanel === "graph" ? "flex" : "hidden", "xl:flex")}>
+            <ExecutionGraph
+              nodes={nodes}
+              edges={edges}
+              activeStep={activeStep}
+              running={busy}
+              onSelectNode={onSelectNode}
+              onRefresh={() => window.location.reload()}
+            />
+          </div>
+          <div className={cn("min-h-0 min-w-0", activePanel === "logs" ? "flex" : "hidden", "xl:flex")}>
+            <LogSidebar
+              run={run}
+              connected={connected}
+              events={events}
+              selectedEvent={selectedEvent}
+              selectedScript={selectedScript}
+              onDebugCommand={handleDebugCommand}
+            />
+          </div>
+          <div className={cn("min-h-0 min-w-0", activePanel === "preview" ? "flex" : "hidden", "xl:flex")}>
+            <ScreenPreview />
+          </div>
         </div>
 
-        <footer className="mt-5 flex flex-col items-start justify-between gap-2 border-t border-border/50 py-4 text-[10px] text-slate-600 sm:flex-row sm:items-center">
-          <span className="flex items-center gap-2"><Code2 className="h-3.5 w-3.5" />Nier 结构化事件按日志策略脱敏；脚本输出按原样展示</span>
-          <span className="font-mono">NIER WEB / {run.id ? run.id.slice(0, 8) : "READY"} · {localTime(run.started_at)}</span>
+        <footer className="flex h-5 shrink-0 items-center justify-between gap-2 border-t border-border/50 pt-1 text-[9px] text-slate-600">
+          <span className="hidden min-w-0 items-center gap-1.5 truncate sm:flex"><Code2 className="h-3 w-3 shrink-0" />Nier 结构化事件按日志策略脱敏；脚本输出按原样展示</span>
+          <span className="ml-auto truncate font-mono">NIER WEB / {run.id ? run.id.slice(0, 8) : "READY"} · {localTime(run.started_at)}</span>
         </footer>
       </main>
 
