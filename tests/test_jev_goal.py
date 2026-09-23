@@ -3,8 +3,21 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 
 from nier import Device
+from nier.jev_goal import JevGoal
+from nier.models.base import BoundingBox, TextSpan
 from nier.models.jev import JevAnswer, JevResponse
-from nier.protocol import Action, ActionResult, ActivityInfo, Capabilities, ImageFormat, KeyCode, Screenshot, UiDump, UiSource
+from nier.protocol import (
+    Action,
+    ActionResult,
+    ActivityInfo,
+    Capabilities,
+    Click,
+    ImageFormat,
+    KeyCode,
+    Screenshot,
+    UiDump,
+    UiSource,
+)
 from nier.session import DeviceSession
 
 
@@ -54,6 +67,21 @@ class FakeJev:
         return self.responses.pop(0)
 
 
+class FakeOcr:
+    def __init__(self) -> None:
+        self.calls = 0
+
+    def recognize(self, image: bytes) -> list[TextSpan]:
+        self.calls += 1
+        return [
+            TextSpan(
+                text="OCR-only",
+                confidence=0.99,
+                box=BoundingBox(left=20, top=30, right=60, bottom=90),
+            )
+        ]
+
+
 def _response(*, done: float, choice: str, confidence: float = 0.95, progress=None) -> JevResponse:
     answers = {
         "done": JevAnswer(type="noul", noul=done),
@@ -99,8 +127,64 @@ def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
         first_state["candidates"][0]["metadata"]  # type: ignore[index]
     )
     assert set(first_questions) == {"done", "next"}
+    assert "inspect_ocr" not in first_questions["next"].options  # type: ignore[index,operator]
     assert result.plan.jev["done"] == 0.96  # type: ignore[index]
     assert len(backend.actions) == 1
+
+
+def test_jev_goal_runs_ocr_only_after_jev_requests_it() -> None:
+    phone, backend = make_device()
+    ocr = FakeOcr()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="inspect_ocr"),
+            _response(done=0.10, choice="ocr_0"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+
+    result = JevGoal(
+        phone,
+        jev,
+        ocr=ocr,
+        allowed_controls=("OCR-only",),
+        max_steps=1,
+    ).run("点击图像文字")
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert ocr.calls == 1
+    assert len(jev.calls) == 3
+    initial_state, initial_questions = jev.calls[0]
+    assert initial_state["ocr_available"] is True
+    assert initial_state["ocr_inspected"] is False
+    assert initial_state["ocr"] == []
+    assert "inspect_ocr" in initial_questions["next"].options  # type: ignore[index,operator]
+    ocr_state, ocr_questions = jev.calls[1]
+    assert ocr_state["ocr_inspected"] is True
+    assert ocr_state["ocr"][0]["text"] == "OCR-only"  # type: ignore[index]
+    assert "inspect_ocr" not in ocr_questions["next"].options  # type: ignore[index,operator]
+    assert isinstance(backend.actions[0], Click)
+    assert backend.actions[0].point.x == 40  # type: ignore[union-attr]
+
+
+def test_jev_goal_skips_ocr_when_ui_candidate_is_sufficient() -> None:
+    phone, _ = make_device()
+    ocr = FakeOcr()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+
+    JevGoal(phone, jev, ocr=ocr, max_steps=1).run("点击登录")
+
+    assert ocr.calls == 0
+    initial_state, initial_questions = jev.calls[0]
+    assert initial_state["ocr"] == []
+    assert initial_state["ocr_inspected"] is False
+    assert "inspect_ocr" in initial_questions["next"].options  # type: ignore[index,operator]
 
 
 def test_jev_goal_dispatches_fixed_back_candidate_as_key() -> None:

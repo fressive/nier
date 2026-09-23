@@ -254,12 +254,15 @@ with connect("config/nier.yaml") as phone:
 This example previews one next action. Set `dry_run=False` only when the
 connected device and allowed control labels are authorized for execution.
 
-The host creates a bounded candidate list from the current UI dump and OCR
-spans. Jev sees only each candidate's ID, label, source, and semantic metadata;
-coordinates and executable actions stay host-side. UI candidates must be
-visible clickable nodes with unique labels. OCR candidates must have unique
-text. Jev chooses an ID such as `ui_0` or `ocr_1`, and the host executes the
-already validated action behind it. `back` is a fixed system candidate;
+The host initially creates candidates from the current UI dump. It does not run
+OCR automatically. If Jev cannot choose from the semantic UI and visible
+controls, it can select `inspect_ocr`; the host then runs one OCR read and asks
+Jev again with the resulting text spans. Jev sees only each candidate's ID,
+label, source, and semantic metadata; coordinates and executable actions stay
+host-side. UI candidates must be visible clickable nodes with unique labels.
+OCR candidates must have unique text. Jev chooses an ID such as `ui_0` or
+`ocr_1`, and the host executes the already validated action behind it. `back` is
+a fixed system candidate;
 `home` is offered when the goal mentions the launcher/home screen. `enter` is
 offered only when `allowed_controls` explicitly includes `提交当前输入`. Jev
 never receives screenshots, screen dimensions, bounds, raw coordinates, shell
@@ -269,9 +272,11 @@ Use `allowed_controls` to constrain UI/OCR and fixed system-action labels;
 `denied_controls` excludes matching labels. Matching ignores case and
 surrounding or repeated whitespace; denied labels take precedence. If
 `allowed_controls` is omitted, the host discovers unique visible clickable UI
-controls and unique OCR labels. Candidate IDs are regenerated for each
-observation and are never valid after the page changes. OCR is optional;
-without it, UI candidates remain available without loading the OCR dependency.
+controls and, after an OCR request, unique OCR labels. Candidate IDs are
+regenerated for each observation and are never valid after the page changes.
+OCR is optional; without a configured provider, UI candidates remain available
+and `inspect_ocr` is not offered. With a provider configured, Jev can request
+OCR at most once for the current observation.
 
 Each observation sends one batched request containing:
 
@@ -280,17 +285,21 @@ Each observation sends one batched request containing:
   The caller must check a fresh screenshot or UI dump independently before
   reporting a pass. `success=True` means the bounded run stopped normally;
   `needs_verification` does not mean the goal has been independently verified;
-- `next` — a Choice over candidate IDs plus `blocked` and `wait`. Low confidence
-  or an unknown choice stops without dispatching an action. `blocked` returns
-  control immediately. `wait` waits 750 ms and observes again; three
-  consecutive waits stop with `loading_timeout`;
+- `next` — a Choice over candidate IDs plus `blocked` and `wait`, and
+  `inspect_ocr` when OCR is configured and has not run for this observation.
+  Low confidence or an unknown choice stops without dispatching an action.
+  `inspect_ocr` is a read-only request; after OCR, Jev receives a new
+  observation. `blocked` returns control immediately. `wait` waits 750 ms and
+  observes again; three consecutive waits stop with `loading_timeout`;
 - `progress` — an optional Score answer enabled with `use_score=True`. It is
   recorded for diagnostics/stuck detection and is not the success gate.
 
 Immediately before an action, the host reads the device state again. If the UI,
 candidate list, or host-side coordinates changed while Jev was deciding, it
-discards that answer and asks again against the fresh observation. Three stale
-decisions stop the run. The flow is bounded by `max_steps` and `max_seconds`
+discards that answer and asks again against the fresh observation. An OCR-based
+tap also requires the screenshot digest to match the image used for that OCR
+read; this check does not run OCR a second time. Three stale decisions stop the
+run. The flow is bounded by `max_steps` and `max_seconds`
 (45 seconds by default and maximum). The deadline prevents starting another
 action after it expires; it cannot interrupt an in-flight provider or device
 call. Device actions are not retried. Provider or observation failures stop the

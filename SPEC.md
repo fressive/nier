@@ -374,8 +374,8 @@ the Agent proceeds without Jev context.
 `Device.jev_goal()` and `Device.run_jev_goal(instruction)` provide a separate
 Jev-driven goal flow. This flow MUST NOT ask Jev to generate arbitrary device
 operations. For each observation, the host MUST expose the goal, bounded
-foreground Activity, a bounded semantic UI tree, OCR text/confidence, bounded
-recent action history, and a finite candidate list. Jev MUST NOT receive
+foreground Activity, a bounded semantic UI tree, optional OCR text/confidence,
+bounded recent action history, and a finite candidate list. Jev MUST NOT receive
 screenshots, screen dimensions, bounds, centers, coordinates, executable action
 objects, or raw UI markup. Candidate IDs and concise labels are sent to Jev;
 the corresponding coordinates and host-validated `AgentStep` remain host-side.
@@ -392,26 +392,37 @@ is omitted, the host MAY discover all unique visible candidates subject to
 Candidate IDs MUST be regenerated after an observation and MUST NOT be trusted
 as coordinates or commands.
 
+When an OCR provider is configured, the host MUST expose `ocr_available` and
+MUST NOT run OCR before Jev requests it. The initial observation MUST omit OCR
+spans and MUST offer `inspect_ocr` as a non-action Choice option. If Jev selects
+it, the host MUST re-read the UI state, run OCR once, and ask Jev again with the
+recognized spans. `inspect_ocr` MUST be removed after that read and MAY be
+offered again only for a new observation. When no OCR provider is configured,
+the option MUST NOT be offered.
+
 The Jev goal request MUST contain a `done` Noul question and a `next` Choice
 question. `done` MUST use a configurable threshold; reaching it MUST return
 `needs_verification` and MUST NOT be reported as an independently verified
 pass. The caller is responsible for checking a fresh screenshot or UI dump.
-`next` MUST contain only generated candidate IDs and the `blocked` and `wait`
-signals. An unknown or below-threshold answer MUST stop without dispatching an
-action. `blocked` MUST return control without acting. `wait` MUST trigger a
-bounded wait and fresh observation; three consecutive waits MUST stop with a
-loading timeout. The initial candidate implementation MUST limit execution to
-bounded UI/OCR taps and fixed safe system keys; free-form text, shell commands,
-and unbounded gestures MUST remain outside this flow. Pressing Enter MUST
-require the corresponding explicit `allowed_controls` label.
+`next` MUST contain generated candidate IDs, the `blocked` and `wait` signals,
+and `inspect_ocr` only when it is available for the current observation. An
+unknown or below-threshold answer MUST stop without dispatching an action.
+`blocked` MUST return control without acting. `wait` MUST trigger a bounded wait
+and fresh observation; three consecutive waits MUST stop with a loading timeout.
+The initial candidate implementation MUST limit execution to bounded UI/OCR
+taps and fixed safe system keys; free-form text, shell commands, and unbounded
+gestures MUST remain outside this flow. Pressing Enter MUST require the
+corresponding explicit `allowed_controls` label.
 
 An optional `use_score=True` setting MAY add one progress Score question. Its
 answer MUST be recorded for diagnostics or future stuck detection and MUST
 NOT independently establish success. The default implementation MUST batch
 `done` and `next` in one Jev request per observation and MUST re-observe after
 each action. Immediately before dispatch, the host MUST take a fresh
-observation and discard the decision if the action candidates or their
-host-side coordinates have changed. Stale decisions MUST be bounded; the goal
+observation and discard the decision if the UI candidate list or its
+host-side coordinates have changed. For an OCR candidate, the host MUST also
+compare the fresh screenshot digest with the image used for OCR, without running
+OCR again. Stale decisions MUST be bounded; the goal
 MUST stop after three consecutive stale decisions. The complete flow MUST be
 bounded by both `max_steps` and `max_seconds` (at most 45 seconds). The time
 limit MUST prevent starting a new action after expiry; it need not interrupt an

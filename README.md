@@ -60,8 +60,9 @@ environment (`JEV_API_KEY` is accepted as a compatibility alias). See the
 
 For goals where Jev should select only from host-generated UI/OCR actions, use
 `phone.run_jev_goal(...)`. It uses Noul for completion, Choice for the next
-candidate, and rechecks the device state before acting. Jev receives semantic
-UI/OCR labels; the host keeps coordinates and executes validated actions.
+candidate, requests OCR only when Jev chooses `inspect_ocr`, and rechecks the
+device state before acting. Jev receives semantic UI/OCR labels; the host keeps
+coordinates and executes validated actions.
 `allowed_controls` and `denied_controls` can restrict visible labels, while
 `max_steps` and `max_seconds` bound the loop. A completion signal returns
 `needs_verification` for caller review. Use `phone.run(...)` when the goal needs

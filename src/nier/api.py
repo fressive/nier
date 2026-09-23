@@ -363,6 +363,8 @@ class Device:
         operations.  It exposes a bounded UI/OCR candidate list to Jev and
         executes only the selected, host-validated candidate.  The first
         configured Jev and OCR providers are selected when names are omitted.
+        A configured OCR provider is called only if Jev selects ``inspect_ocr``;
+        OCR is limited to once per observation.
         The action loop is bounded by ``max_steps`` and ``max_seconds``. Jev
         only selects from host-generated controls; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
@@ -587,6 +589,7 @@ class Device:
         """Run a bounded Jev goal and return its next-action or handoff status.
 
         ``allowed_controls`` and ``denied_controls`` restrict candidate labels.
+        A configured OCR provider runs only after Jev selects ``inspect_ocr``.
         A completion decision returns ``needs_verification`` for the caller to
         check independently.
         """

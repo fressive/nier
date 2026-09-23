@@ -1,8 +1,10 @@
 """Bounded device goals driven by typed Jev decisions.
 
 Jev is deliberately used as a selector here, not as a free-form action
-generator.  The host builds a finite set of validated candidate actions from
-the current UI/OCR observation, and Jev returns the id of one candidate.
+generator. The host builds a finite set of validated candidate actions from
+the current UI observation, and Jev returns the id of one candidate. If the
+accessibility tree is insufficient, Jev can request one OCR read for that
+observation.
 """
 
 from __future__ import annotations
@@ -10,6 +12,7 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from hashlib import sha256
 from time import monotonic, sleep
 
 from .agent import (
@@ -97,7 +100,9 @@ class JevGoalCandidate:
 class _JevObservation:
     candidates: tuple[JevGoalCandidate, ...]
     state: Mapping[str, object]
-    fingerprint: object
+    freshness_fingerprint: object
+    screenshot_digest: str | None
+    ocr_inspected: bool
 
 
 class JevGoal:
@@ -107,7 +112,7 @@ class JevGoal:
 
     * ``done`` is a Noul predicate for whether the user goal is satisfied;
     * ``next`` is a Choice over host-generated, validated candidate actions,
-      plus bounded ``wait`` and ``blocked`` handoff options.
+      plus bounded ``inspect_ocr``, ``wait``, and ``blocked`` options.
 
     Optional ``progress`` is a Score question intended for telemetry and
     stuck detection.  It is disabled by default because a score is less
@@ -115,7 +120,8 @@ class JevGoal:
 
     Decisions are checked against a fresh host observation before an action is
     dispatched. The loop is bounded by ``max_steps`` and ``max_seconds``;
-    completion returns ``needs_verification`` for the caller to review.
+    OCR runs only after Jev requests it and at most once per observation.
+    Completion returns ``needs_verification`` for the caller to review.
     """
 
     def __init__(
@@ -253,6 +259,7 @@ class JevGoal:
             )
 
         pending_observation: _JevObservation | None = None
+        pending_recognize_ocr = False
         stale_decisions = 0
         consecutive_waits = 0
         iteration = 0
@@ -265,13 +272,26 @@ class JevGoal:
                 )
             iteration += 1
             try:
-                observation = pending_observation or self._observe(instruction, history)
+                if pending_observation is None:
+                    observation = self._observe(
+                        instruction,
+                        history,
+                        recognize_ocr=pending_recognize_ocr,
+                    )
+                else:
+                    observation = pending_observation
                 pending_observation = None
+                pending_recognize_ocr = False
                 jev_data, candidate, done, decision = self._decide(
                     observation,
                     instruction,
                 )
-                fresh = self._observe(instruction, history)
+                verify_ocr_target = candidate is not None and candidate.source == "ocr"
+                fresh = self._observe(
+                    instruction,
+                    history,
+                    capture_screenshot=verify_ocr_target,
+                )
             except Exception as exc:
                 record.error = str(exc)
                 record.finish(
@@ -289,7 +309,14 @@ class JevGoal:
                     error=f"goal exceeded the {self.max_seconds:g}-second time limit",
                 )
 
-            if fresh.fingerprint != observation.fingerprint:
+            same_observation = (
+                fresh.freshness_fingerprint == observation.freshness_fingerprint
+            )
+            if verify_ocr_target:
+                same_observation = same_observation and (
+                    fresh.screenshot_digest == observation.screenshot_digest
+                )
+            if not same_observation:
                 stale_decisions += 1
                 log_step(
                     "jev-goal-stale-decision",
@@ -311,12 +338,18 @@ class JevGoal:
                 jev_data["verification_required"] = True
                 return finish(True, "needs_verification")
 
-            if not dry_run and len(steps) >= step_limit:
-                return finish(
-                    False,
-                    "max_steps",
-                    error=f"goal exceeded the {step_limit}-step action limit",
+            if decision == "inspect_ocr":
+                consecutive_waits = 0
+                history.append(
+                    {
+                        "decision": "inspect_ocr",
+                        "executed": True,
+                        "reason": "Jev requested OCR for this observation",
+                    }
                 )
+                del history[:-8]
+                pending_recognize_ocr = True
+                continue
 
             if decision == "wait":
                 if dry_run:
@@ -356,6 +389,13 @@ class JevGoal:
                     False,
                     "blocked",
                     error="Jev found no safe candidate action that advances the goal",
+                )
+
+            if not dry_run and len(steps) >= step_limit:
+                return finish(
+                    False,
+                    "max_steps",
+                    error=f"goal exceeded the {step_limit}-step action limit",
                 )
 
             if dry_run:
@@ -406,8 +446,17 @@ class JevGoal:
         self,
         instruction: str,
         history: Sequence[Mapping[str, object]],
+        *,
+        recognize_ocr: bool = False,
+        capture_screenshot: bool = False,
     ) -> _JevObservation:
-        screenshot = self.device.screenshot()
+        screenshot = (
+            self.device.screenshot()
+            if recognize_ocr or capture_screenshot
+            else None
+        )
+        if recognize_ocr and self.ocr is None:
+            raise ModelError("Jev requested OCR, but no OCR provider is configured")
         try:
             dump = self.device.dump_ui(prefer_webview=True)
         except BackendError as exc:
@@ -432,11 +481,9 @@ class JevGoal:
             except (BackendError, TimeoutError) as exc:
                 activity_error = str(exc)
 
-        spans = (
-            tuple(self.ocr.recognize(screenshot.data)[:_JEV_MAX_OCR_SPANS])
-            if self.ocr is not None
-            else ()
-        )
+        spans: tuple[TextSpan, ...] = ()
+        if recognize_ocr and self.ocr is not None and screenshot is not None:
+            spans = tuple(self.ocr.recognize(screenshot.data)[:_JEV_MAX_OCR_SPANS])
         candidates = self._candidates(
             instruction,
             document,
@@ -466,6 +513,8 @@ class JevGoal:
                 if document is not None
                 else (dump_error or "Structured UI is unavailable")[:_JEV_MAX_TEXT_LENGTH]
             ),
+            "ocr_available": self.ocr is not None,
+            "ocr_inspected": recognize_ocr,
             "ocr": [self._span_payload(index, span) for index, span in enumerate(spans)],
             "candidates": [candidate.to_decision_payload() for candidate in candidates],
             "history": [
@@ -476,11 +525,29 @@ class JevGoal:
                 for item in history[-8:]
             ],
         }
-        fingerprint = {
-            "state": state,
-            "candidates": [candidate.to_dict() for candidate in candidates],
+        stable_state = {
+            key: value
+            for key, value in state.items()
+            if key not in {"ocr", "ocr_inspected", "candidates"}
         }
-        return _JevObservation(tuple(candidates), state, fingerprint)
+        freshness_fingerprint = {
+            "state": stable_state,
+            "ui_candidates": [
+                candidate.to_dict()
+                for candidate in candidates
+                if candidate.source != "ocr"
+            ],
+        }
+        screenshot_digest = (
+            sha256(screenshot.data).hexdigest() if screenshot is not None else None
+        )
+        return _JevObservation(
+            tuple(candidates),
+            state,
+            freshness_fingerprint,
+            screenshot_digest,
+            recognize_ocr,
+        )
 
     def _decide(
         self,
@@ -488,6 +555,15 @@ class JevGoal:
         instruction: str,
     ) -> tuple[dict[str, object], JevGoalCandidate | None, bool, str]:
         criteria = {candidate.id: candidate.label for candidate in observation.candidates}
+        can_inspect_ocr = (
+            self.ocr is not None
+            and not observation.ocr_inspected
+        )
+        if can_inspect_ocr:
+            criteria["inspect_ocr"] = (
+                "Read visible text with OCR because the accessibility tree and current "
+                "candidates do not provide enough information"
+            )
         criteria["blocked"] = "No permitted candidate action can safely advance the goal"
         criteria["wait"] = "The screen is loading or transitioning; wait and observe again"
         questions: dict[str, JevQuestion] = {
@@ -496,6 +572,9 @@ class JevGoal:
             ),
             "next": JevQuestion.choice(
                 "Choose one allowed candidate action that most safely advances the goal. "
+                "Choose inspect_ocr only when the accessibility tree does not expose "
+                "enough visible text to decide. OCR is read-only and is available at most "
+                "once for this observation. "
                 "Choose wait only for a visible loading or transition state. Choose blocked "
                 "when no permitted candidate is safe or useful.",
                 criteria=criteria,
@@ -520,6 +599,9 @@ class JevGoal:
             candidate = None
         elif next_confidence < self.action_threshold:
             decision = "low_confidence"
+            candidate = None
+        elif selected == "inspect_ocr" and can_inspect_ocr:
+            decision = "inspect_ocr"
             candidate = None
         elif selected == "wait":
             decision = "wait"
