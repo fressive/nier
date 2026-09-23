@@ -17,12 +17,10 @@ import type { StepNodeData, WebEvent } from "../types";
 function FollowLatest({
   eventId,
   y,
-  hasResponse,
   running,
 }: {
   eventId?: string;
   y: number;
-  hasResponse: boolean;
   running: boolean;
 }) {
   const { getNode, setCenter } = useReactFlow();
@@ -31,12 +29,11 @@ function FollowLatest({
       const node = getNode(eventId);
       const x = node?.position.x ?? 60;
       const nodeY = node?.position.y ?? y;
-      const width = node?.measured?.width ?? 390;
-      const measuredHeight = node?.measured?.height ?? 0;
-      const height = hasResponse ? Math.max(measuredHeight, 156) : measuredHeight || 100;
+      const width = node?.measured?.width ?? 320;
+      const height = node?.measured?.height ?? 100;
       setCenter(x + width / 2, nodeY + height / 2, { zoom: 0.82, duration: 320 });
     }
-  }, [eventId, getNode, hasResponse, running, setCenter, y]);
+  }, [eventId, getNode, running, setCenter, y]);
   return null;
 }
 
@@ -94,7 +91,6 @@ export function ExecutionGraph({
             <FollowLatest
               eventId={latestNode?.id}
               y={latestNode?.position.y ?? 36}
-              hasResponse={Boolean(latestNode?.data.response)}
               running={running}
             />
             <Background color="#26313d" gap={22} size={1} />

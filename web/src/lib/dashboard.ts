@@ -46,31 +46,6 @@ export function isResponseOrResultEvent(event: WebEvent) {
   return event.type === "log" && Boolean(event.category?.endsWith("RESPONSE") || event.category?.endsWith("RESULT"));
 }
 
-export function responsePreview(event: WebEvent) {
-  const details = event.details ?? {};
-  if (details.operation === "dump_ui" && typeof details.result === "object" && details.result !== null) {
-    const result = details.result as Record<string, unknown>;
-    const source = result.source === "WEBVIEW_DEVTOOLS"
-      ? "WebView DOM"
-      : result.source === "UIAUTOMATOR_FALLBACK"
-        ? "UIAutomator fallback"
-        : "UIAutomator";
-    return `${source} · UI 层级${result.complete === false ? "（不完整）" : ""}`;
-  }
-  const value = details.body ?? details.result ?? details.response ?? details;
-  let preview: string;
-  if (typeof value === "string") {
-    preview = value;
-  } else {
-    try {
-      preview = JSON.stringify(value, null, 2) ?? String(value);
-    } catch {
-      preview = String(value);
-    }
-  }
-  return preview.length > 260 ? `${preview.slice(0, 257)}…` : preview;
-}
-
 export function isReadCompletion(event: WebEvent) {
   return event.type === "log" && event.category === "STEP" && event.message === "read" && event.details?.status === "ok";
 }

@@ -12,8 +12,7 @@ import { isBusy, isPathEvent, isResponseOrResultEvent, localTime } from "./lib/d
 import { cn } from "./lib/utils";
 import { initialRun, type ApiState, type DebugCommand, type RunState, type ScriptInfo, type StepNodeData, type WebEvent } from "./types";
 
-const STEP_NODE_SPACING = 146;
-const RESPONSE_NODE_SPACING = 180;
+const NODE_SPACING = 146;
 
 export default function App() {
   const [scripts, setScripts] = useState<ScriptInfo[]>([]);
@@ -170,34 +169,29 @@ export default function App() {
   };
 
   const onSelectNode = useCallback((id: number) => setSelectedEventId(id), []);
-  const nodes = useMemo<Node<StepNodeData>[]>(() => {
-    let y = 36;
-    return pathEvents.map((event, index) => {
-      const relatedResponses = events.filter((candidate) =>
-        isResponseOrResultEvent(candidate) && candidate.step_id === event.event_id,
-      );
-      const response = isResponseOrResultEvent(event)
-        ? event
-        : relatedResponses.filter((candidate) => candidate.category === "READ RESULT").at(-1)
-          ?? relatedResponses.filter((candidate) => candidate.category?.endsWith("RESULT")).at(-1)
-          ?? relatedResponses.at(-1);
-      const node: Node<StepNodeData> = {
-        id: String(event.event_id),
-        type: "step",
-        position: { x: 60, y },
-        data: {
-          event,
-          response,
-          index: index + 1,
-          selected: selectedEvent?.event_id === event.event_id,
-          active: activeStep?.event_id === event.event_id && busy,
-          onSelect: onSelectNode,
-        },
-      };
-      y += response ? RESPONSE_NODE_SPACING : STEP_NODE_SPACING;
-      return node;
-    });
-  }, [pathEvents, events, selectedEvent?.event_id, activeStep?.event_id, busy, onSelectNode]);
+  const nodes = useMemo<Node<StepNodeData>[]>(() => pathEvents.map((event, index) => {
+    const relatedResponses = events.filter((candidate) =>
+      isResponseOrResultEvent(candidate) && candidate.step_id === event.event_id,
+    );
+    const response = isResponseOrResultEvent(event)
+      ? event
+      : relatedResponses.filter((candidate) => candidate.category === "READ RESULT").at(-1)
+        ?? relatedResponses.filter((candidate) => candidate.category?.endsWith("RESULT")).at(-1)
+        ?? relatedResponses.at(-1);
+    return {
+      id: String(event.event_id),
+      type: "step",
+      position: { x: 60, y: index * NODE_SPACING + 36 },
+      data: {
+        event,
+        response,
+        index: index + 1,
+        selected: selectedEvent?.event_id === event.event_id,
+        active: activeStep?.event_id === event.event_id && busy,
+        onSelect: onSelectNode,
+      },
+    };
+  }), [pathEvents, events, selectedEvent?.event_id, activeStep?.event_id, busy, onSelectNode]);
   const edges = useMemo<Edge[]>(() => pathEvents.slice(1).map((event, index) => ({
     id: `path-${pathEvents[index].event_id}-${event.event_id}`,
     source: String(pathEvents[index].event_id),

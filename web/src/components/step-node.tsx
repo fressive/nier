@@ -1,8 +1,8 @@
-import { Activity, Bot, Braces, Workflow } from "lucide-react";
+import { Activity, Bot, Braces, Eye, Workflow } from "lucide-react";
 import { Handle, Position, type NodeProps } from "@xyflow/react";
 import { Badge } from "./ui/badge";
 import { cn } from "../lib/utils";
-import { eventSubtitle, eventTitle, localTime, responsePreview } from "../lib/dashboard";
+import { eventSubtitle, eventTitle, localTime } from "../lib/dashboard";
 import type { StepNodeType } from "../types";
 
 function NodeIcon({ category }: { category?: string }) {
@@ -25,7 +25,7 @@ export function StepNode({ data }: NodeProps<StepNodeType>) {
     <div
       onClick={() => onSelect(event.event_id)}
       className={cn(
-        "step-node w-[390px] cursor-pointer rounded-xl border bg-[#151b23] p-4 shadow-xl transition-all",
+        "step-node w-[320px] cursor-pointer rounded-xl border bg-[#151b23] p-4 shadow-xl transition-all",
         selected ? "border-emerald-400/60 shadow-emerald-950/40" : "border-[#2a3542] hover:border-[#536273]",
         failed && "border-rose-400/50",
         active && !failed && "border-emerald-400/45",
@@ -44,17 +44,18 @@ export function StepNode({ data }: NodeProps<StepNodeType>) {
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <p className="truncate text-sm font-semibold text-slate-100">{eventTitle(event)}</p>
-            <Badge variant={failed ? "danger" : completed ? "success" : "outline"} className="shrink-0 px-2 py-0">
-              {failed ? "失败" : completed ? "完成" : event.category === "STEP" ? "STEP" : "MODEL"}
-            </Badge>
+            <div className="flex shrink-0 items-center gap-1.5">
+              {response && (
+                <span className="text-emerald-300" aria-label="侧栏有响应预览" role="img" title="侧栏有响应预览">
+                  <Eye className="h-3.5 w-3.5" aria-hidden="true" />
+                </span>
+              )}
+              <Badge variant={failed ? "danger" : completed ? "success" : "outline"} className="px-2 py-0">
+                {failed ? "失败" : completed ? "完成" : event.category === "STEP" ? "STEP" : "MODEL"}
+              </Badge>
+            </div>
           </div>
           <p className="mt-1 truncate text-xs text-slate-400">{subtitle}</p>
-          {response && (
-            <div className="mt-2 border-l border-emerald-400/40 pl-2">
-              <span className="text-[9px] font-semibold uppercase tracking-[0.12em] text-emerald-300/80">响应</span>
-              <pre className="mt-0.5 max-h-8 overflow-hidden whitespace-pre-wrap break-words font-mono text-[9px] leading-4 text-slate-400">{responsePreview(response)}</pre>
-            </div>
-          )}
           <div className="mt-3 flex items-center justify-between text-[10px] uppercase tracking-[0.12em] text-slate-500">
             <span>节点 {String(index).padStart(2, "0")}</span>
             <span className="font-mono normal-case tracking-normal">{localTime(event.timestamp)}</span>
