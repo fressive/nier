@@ -136,7 +136,8 @@ nier web --scripts=./examples
 
 The dashboard binds to `127.0.0.1` by default. Select a script and confirm
 each run in the browser. It streams bounded, sanitized Nier log events. See the
-[web dashboard guide](docs/web-dashboard.md) for setup and behavior.
+[web dashboard guide](docs/web-dashboard.md) for setup, live logs, and the
+optional STEP-level debugger controls.
 
 ## Disclaimer
 
