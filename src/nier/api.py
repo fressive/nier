@@ -537,9 +537,9 @@ class Device:
                 if selected_llm_provider is None and named_llm:
                     selected_llm_provider = next(iter(named_llm))
                 if selected_llm_provider is not None:
-                    provider_name = selected_llm_provider
+                    llm_provider_name = selected_llm_provider
                     llm = _LazyLlmProvider(
-                        lambda: self._configured_llm(provider_name)
+                        lambda: self._configured_llm(llm_provider_name)
                     )
                 elif self.app_config.models.llm.api_key is not None:
                     selected_llm_provider = "default"
@@ -547,9 +547,9 @@ class Device:
                         lambda: self._configured_llm("default")
                     )
             elif selected_llm_provider is not None:
-                provider_name = selected_llm_provider
+                llm_provider_name = selected_llm_provider
                 llm = _LazyLlmProvider(
-                    lambda: self._configured_llm(provider_name)
+                    lambda: self._configured_llm(llm_provider_name)
                 )
         elif selected_llm_provider is None:
             selected_llm_provider = "custom"
@@ -574,9 +574,9 @@ class Device:
                         f"unknown OCR provider {selected_ocr_provider!r}; available: {available or 'none'}"
                     ) from exc
             else:
-                provider_name = selected_ocr_provider
+                ocr_provider_name = selected_ocr_provider
                 ocr = _LazyOcrProvider(
-                    lambda: self._cached_ocr_provider(provider_name)
+                    lambda: self._cached_ocr_provider(ocr_provider_name)
                 )
 
         return JevGoal(

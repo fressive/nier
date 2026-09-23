@@ -445,7 +445,8 @@ def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
             }
         }
     )
-    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    backend = FakeBackend()
+    phone = Device(DeviceSession(backend), app_config=config)
     llm_created: list[str] = []
     tool_requests: list[object] = []
     choices = iter(["call_llm", "blocked"])
