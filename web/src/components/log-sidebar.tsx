@@ -43,7 +43,7 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
   const footerEvents = events.filter((event) => event.type === "console" || event.type === "run.finished").slice(-8);
 
   return (
-    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+    <Card className="flex h-full min-h-0 w-full min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
       <CardHeader className="shrink-0 space-y-0 border-b border-border/70 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between">
           <div className="flex min-w-0 items-center gap-2.5">

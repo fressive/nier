@@ -207,7 +207,7 @@ export default function App() {
   return (
     <div className="app-shell flex h-dvh min-h-0 flex-col overflow-hidden text-foreground">
       <header className="z-20 h-14 shrink-0 border-b border-border/80 bg-[#0b0e13]/90 backdrop-blur-xl">
-        <div className="mx-auto flex h-full w-full max-w-[1800px] items-center justify-between px-3 sm:px-5 lg:px-8">
+        <div className="mx-auto flex h-full w-full items-center justify-between px-3 sm:px-5 lg:px-8">
           <div className="flex items-center gap-3">
             <div className="flex h-8 w-8 items-center justify-center rounded-xl border border-emerald-400/20 bg-emerald-400/10 text-emerald-300"><Workflow className="h-4 w-4" /></div>
             <div>
@@ -223,7 +223,7 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-0 w-full max-w-[1800px] flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:px-5 lg:px-6">
+      <main className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:px-5 lg:px-6">
         <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <h1 className="shrink-0 text-base font-semibold tracking-tight text-slate-100 sm:text-lg">执行路径</h1>
