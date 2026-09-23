@@ -386,11 +386,17 @@ and only the eight most recent action outcomes may be included.
 UI candidates MUST come from visible, uniquely labelled clickable nodes; OCR
 candidates MUST have unique text labels. `allowed_controls` and
 `denied_controls` MUST filter labels by exact match after case/whitespace
-normalization, with denied labels taking precedence. When `allowed_controls`
-is omitted, the host MAY discover all unique visible candidates subject to
-`denied_controls`; when it is supplied, only listed labels may be offered.
-Candidate IDs MUST be regenerated after an observation and MUST NOT be trusted
-as coordinates or commands.
+normalization, with denied labels taking precedence, for UI/OCR and fixed
+system candidates. `allowed_apps` MUST be an explicit mapping of non-empty
+display labels to validated Android package names. Each mapping entry MAY add
+one bounded `open_app` candidate; no app candidate may be offered by default,
+and a Jev response MUST NOT supply or alter a package name. Jev MUST see only
+the app candidate ID and display label, not the package or executable action.
+`allowed_controls` MUST NOT implicitly authorize app launches. When
+`allowed_controls` is omitted, the host MAY discover all unique visible UI/OCR
+candidates subject to `denied_controls`; when it is supplied, only listed
+UI/OCR/system labels may be offered. Candidate IDs MUST be regenerated after
+an observation and MUST NOT be trusted as coordinates or commands.
 
 When an OCR provider is configured, the host MUST expose `ocr_available` and
 MUST NOT run OCR before Jev requests it. The initial observation MUST omit OCR
@@ -410,9 +416,11 @@ unknown or below-threshold answer MUST stop without dispatching an action.
 `blocked` MUST return control without acting. `wait` MUST trigger a bounded wait
 and fresh observation; three consecutive waits MUST stop with a loading timeout.
 The initial candidate implementation MUST limit execution to bounded UI/OCR
-taps and fixed safe system keys; free-form text, shell commands, and unbounded
-gestures MUST remain outside this flow. Pressing Enter MUST require the
-corresponding explicit `allowed_controls` label.
+taps, app launches from `allowed_apps`, and fixed safe system keys; free-form
+text, shell commands, Activity launches, and unbounded gestures MUST remain
+outside this flow. App package names MUST be validated on the host. Device
+actions, including `open_app`, MUST never be retried automatically. Pressing
+Enter MUST require the corresponding explicit `allowed_controls` label.
 
 An optional `use_score=True` setting MAY add one progress Score question. Its
 answer MUST be recorded for diagnostics or future stuck detection and MUST

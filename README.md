@@ -64,6 +64,8 @@ candidate, requests OCR only when Jev chooses `inspect_ocr`, and rechecks the
 device state before acting. Jev receives semantic UI/OCR labels; the host keeps
 coordinates and executes validated actions.
 `allowed_controls` and `denied_controls` can restrict visible labels, while
+`allowed_apps={"设置": "com.android.settings"}` can explicitly allow app
+launch candidates. Jev sees the app label, while the package stays host-side.
 `max_steps` and `max_seconds` bound the loop. A completion signal returns
 `needs_verification` for caller review. Use `phone.run(...)` when the goal needs
 free-form text or LLM-generated actions.

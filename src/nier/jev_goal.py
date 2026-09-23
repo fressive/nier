@@ -34,7 +34,7 @@ from .errors import BackendError, ModelError
 from .logging_utils import step as log_step
 from .models.base import OcrProvider, TextSpan
 from .models.jev import JevAnswer, JevProvider, JevQuestion
-from .protocol import ActionResult, ActivityInfo
+from .protocol import ActionResult, ActivityInfo, validate_package_name
 from .results import ExecutionRecord
 from .ui import UiDocument, UiNode, parse_uidump
 
@@ -136,6 +136,7 @@ class JevGoal:
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
+        allowed_apps: Mapping[str, str] | None = None,
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
@@ -150,6 +151,8 @@ class JevGoal:
             raise ValueError("action_threshold must be between 0 and 1")
         if max_candidates <= 0:
             raise ValueError("max_candidates must be positive")
+        if allowed_apps is not None and not isinstance(allowed_apps, Mapping):
+            raise TypeError("allowed_apps must map display labels to Android package names")
         if isinstance(allowed_controls, (str, bytes, bytearray)):
             raise TypeError("allowed_controls must be a sequence of control labels")
         if isinstance(denied_controls, (str, bytes, bytearray)):
@@ -169,6 +172,27 @@ class JevGoal:
         self.done_threshold = done_threshold
         self.action_threshold = action_threshold
         self.max_candidates = max_candidates
+        normalized_apps: list[tuple[str, str]] = []
+        seen_app_labels: set[str] = set()
+        seen_candidate_labels: set[str] = set()
+        for label, package in (allowed_apps or {}).items():
+            if not isinstance(label, str) or not label.strip():
+                raise ValueError("allowed_apps labels must be non-empty strings")
+            normalized_label = _normalize_label(label)
+            if normalized_label in seen_app_labels:
+                raise ValueError("allowed_apps labels must be unique after normalization")
+            try:
+                package = validate_package_name(package)
+            except ValueError as exc:
+                raise ValueError(f"invalid package in allowed_apps for {label!r}: {exc}") from exc
+            candidate_label = f"打开应用：{label.strip()}"[:160]
+            normalized_candidate_label = _normalize_label(candidate_label)
+            if normalized_candidate_label in seen_candidate_labels:
+                raise ValueError("allowed_apps labels must be unique after candidate clipping")
+            seen_app_labels.add(normalized_label)
+            seen_candidate_labels.add(normalized_candidate_label)
+            normalized_apps.append((label.strip(), package))
+        self.allowed_apps = tuple(normalized_apps)
         self.allowed_controls = (
             None
             if allowed_controls is None
@@ -195,6 +219,10 @@ class JevGoal:
             action_threshold=self.action_threshold,
             max_candidates=self.max_candidates,
             max_seconds=self.max_seconds,
+            allowed_apps=[
+                {"label": label, "package": package}
+                for label, package in self.allowed_apps
+            ],
             allowed_controls=(
                 None if self.allowed_controls is None else sorted(self.allowed_controls)
             ),
@@ -488,6 +516,7 @@ class JevGoal:
             instruction,
             document,
             spans,
+            allowed_apps=self.allowed_apps,
             allowed_controls=self.allowed_controls,
             denied_controls=self.denied_controls,
         )
@@ -576,7 +605,8 @@ class JevGoal:
                 "enough visible text to decide. OCR is read-only and is available at most "
                 "once for this observation. "
                 "Choose wait only for a visible loading or transition state. Choose blocked "
-                "when no permitted candidate is safe or useful.",
+                "when no permitted candidate is safe or useful. An app candidate launches "
+                "only an app from the caller's explicit allowlist.",
                 criteria=criteria,
             ),
         }
@@ -640,6 +670,7 @@ class JevGoal:
         document: UiDocument | None,
         spans: Sequence[TextSpan],
         *,
+        allowed_apps: Sequence[tuple[str, str]],
         allowed_controls: frozenset[str] | None,
         denied_controls: frozenset[str],
     ) -> tuple[JevGoalCandidate, ...]:
@@ -721,6 +752,19 @@ class JevGoal:
                 )
             )
 
+        # App launches are offered only from the caller's explicit allowlist.
+        # The package stays in the host-side AgentStep; Jev sees only this label.
+        for label, package in allowed_apps:
+            candidate_label = f"打开应用：{label}"[:160]
+            step = AgentStep.from_mapping(
+                {
+                    "action": "open_app",
+                    "package": package,
+                    "reason": f"Jev app candidate: {label[:80]}",
+                }
+            )
+            raw.append(("app", candidate_label, step, {"kind": "app"}, None))
+
         # System actions are deliberately small and fixed.  They are offered
         # only after UI/OCR targets so an accidental Back/Home is less likely
         # to win a crowded choice question.
@@ -775,12 +819,14 @@ class JevGoal:
                 unique_raw.append(item)
         raw = unique_raw
 
+        app_candidates = [item for item in raw if item[0] == "app"]
         system = [item for item in raw if item[0] == "system"]
-        visual = [item for item in raw if item[0] != "system"]
-        # Reserve room for fixed recovery actions when the screen has many
-        # labels. The order above also makes UI targets outrank OCR duplicates.
-        raw = visual[: max(0, self.max_candidates - len(system))]
-        raw.extend(system[: max(0, self.max_candidates - len(raw))])
+        visual = [item for item in raw if item[0] not in {"app", "system"}]
+        # Keep explicit app choices and fixed recovery actions available when
+        # the screen has many labels. UI targets still outrank OCR duplicates.
+        reserved = app_candidates + system
+        raw = visual[: max(0, self.max_candidates - len(reserved))]
+        raw.extend(reserved[: max(0, self.max_candidates - len(raw))])
         source_indexes: dict[str, int] = {}
         candidates: list[JevGoalCandidate] = []
         for source, label, action, metadata, _center in raw:
@@ -818,6 +864,8 @@ class JevGoal:
                 normalized=params["normalized"],
                 duration_ms=params["duration_ms"],
             )  # type: ignore[arg-type]
+        if step.action == "open_app":
+            return self.device.open_app(params["package"])  # type: ignore[arg-type]
         if step.action in {"key", "back", "home", "enter"}:
             return self.device.key(params["key"])  # type: ignore[arg-type]
         raise ModelError(f"unsupported Jev goal candidate action: {step.action}")

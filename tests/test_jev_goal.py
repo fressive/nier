@@ -2,6 +2,8 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
+import pytest
+
 from nier import Device
 from nier.jev_goal import JevGoal
 from nier.models.base import BoundingBox, TextSpan
@@ -24,6 +26,7 @@ from nier.session import DeviceSession
 @dataclass
 class FakeBackend:
     actions: list[Action] = field(default_factory=list)
+    opened_apps: list[str] = field(default_factory=list)
 
     def health(self) -> bool:
         return True
@@ -34,6 +37,10 @@ class FakeBackend:
     def execute(self, action: Action) -> ActionResult:
         self.actions.append(action)
         return ActionResult(True, "ok")
+
+    def open_app(self, package: str) -> ActionResult:
+        self.opened_apps.append(package)
+        return ActionResult(True, "opened")
 
     def screenshot(self, request=None) -> Screenshot:
         return Screenshot(b"image", ImageFormat.PNG, 100, 200, "digest")
@@ -207,6 +214,47 @@ def test_jev_goal_dispatches_fixed_back_candidate_as_key() -> None:
     assert result.termination == "needs_verification"
     assert len(backend.actions) == 1
     assert backend.actions[0].key_code == KeyCode.BACK  # type: ignore[union-attr]
+
+
+def test_jev_goal_launches_only_an_explicitly_allowlisted_app() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="app_0"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+
+    result = phone.run_jev_goal(
+        "打开阅读器",
+        jev=jev,
+        allowed_apps={"阅读器": "com.example.reader"},
+        max_steps=1,
+    )
+
+    assert result.success is True
+    assert backend.opened_apps == ["com.example.reader"]
+    state, questions = jev.calls[0]
+    app_candidate = next(
+        item for item in state["candidates"] if item["source"] == "app"  # type: ignore[index]
+    )
+    assert app_candidate == {
+        "id": "app_0",
+        "label": "打开应用：阅读器",
+        "source": "app",
+        "metadata": {"kind": "app"},
+    }
+    assert "com.example.reader" not in repr(state)
+    assert "action" not in app_candidate
+    assert questions["next"].options["app_0"] == "打开应用：阅读器"  # type: ignore[index]
+
+
+def test_jev_goal_rejects_invalid_allowlisted_app_package() -> None:
+    phone, _backend = make_device()
+    jev = FakeJev([])
+
+    with pytest.raises(ValueError, match="invalid package in allowed_apps"):
+        JevGoal(phone, jev, allowed_apps={"阅读器": "not a package"})
 
 
 def test_jev_goal_score_is_optional_progress_telemetry() -> None:

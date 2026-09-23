@@ -246,13 +246,15 @@ with connect("config/nier.yaml") as phone:
         "打开设置，进入关于手机",
         max_steps=8,
         max_seconds=45,
-        allowed_controls=("设置", "关于手机", "返回上一页"),
+        allowed_apps={"设置": "com.android.settings"},
+        allowed_controls=("关于手机", "返回上一页"),
         dry_run=True,
     )
 ```
 
 This example previews one next action. Set `dry_run=False` only when the
-connected device and allowed control labels are authorized for execution.
+connected device and candidates authorized through `allowed_controls` or
+`allowed_apps` are approved for execution.
 
 The host initially creates candidates from the current UI dump. It does not run
 OCR automatically. If Jev cannot choose from the semantic UI and visible
@@ -277,6 +279,15 @@ regenerated for each observation and are never valid after the page changes.
 OCR is optional; without a configured provider, UI candidates remain available
 and `inspect_ocr` is not offered. With a provider configured, Jev can request
 OCR at most once for the current observation.
+
+Pass `allowed_apps` as an explicit mapping from a display label to an Android
+package name to offer app-launch candidates, for example
+`allowed_apps={"设置": "com.android.settings"}`. The host validates each
+package and keeps it in the executable candidate; Jev sees a candidate such as
+`打开应用：设置` with source `app`, never the package name. No app-launch
+candidates are offered by default, and Jev cannot invent a package. App entries
+are separate from `allowed_controls` and `denied_controls`. `open_app` changes
+device state and is not retried automatically.
 
 Each observation sends one batched request containing:
 

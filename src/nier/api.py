@@ -353,6 +353,7 @@ class Device:
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
+        allowed_apps: Mapping[str, str] | None = None,
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
@@ -360,18 +361,21 @@ class Device:
         """Create a bounded goal runner driven directly by Jev.
 
         Unlike :meth:`agent`, this flow does not ask an LLM to invent device
-        operations.  It exposes a bounded UI/OCR candidate list to Jev and
+        operations.  It exposes a bounded UI/OCR/app candidate list to Jev and
         executes only the selected, host-validated candidate.  The first
         configured Jev and OCR providers are selected when names are omitted.
         A configured OCR provider is called only if Jev selects ``inspect_ocr``;
         OCR is limited to once per observation.
         The action loop is bounded by ``max_steps`` and ``max_seconds``. Jev
-        only selects from host-generated controls; it cannot provide text or
+        only selects from host-generated candidates; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
-        candidate labels after case and whitespace normalization. ``use_score``
-        adds optional progress telemetry. ``max_seconds`` prevents another
-        action after its deadline, but cannot interrupt an in-flight provider
-        or device call.
+        UI/OCR/system labels after case and whitespace normalization.
+        ``allowed_apps`` maps display labels to validated Android package names;
+        these app-launch candidates are omitted by default and Jev sees only
+        their label and candidate ID. It cannot supply an arbitrary package.
+        ``use_score`` adds optional progress telemetry. ``max_seconds`` prevents
+        another action after its deadline, but cannot interrupt an in-flight
+        provider or device call.
         A Noul completion signal returns ``needs_verification`` for independent
         caller review.
         """
@@ -435,6 +439,7 @@ class Device:
             done_threshold=done_threshold,
             action_threshold=action_threshold,
             max_candidates=max_candidates,
+            allowed_apps=allowed_apps,
             allowed_controls=allowed_controls,
             denied_controls=denied_controls,
             use_score=use_score,
@@ -581,6 +586,7 @@ class Device:
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
+        allowed_apps: Mapping[str, str] | None = None,
         allowed_controls: Sequence[str] | None = None,
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
@@ -588,7 +594,9 @@ class Device:
     ) -> AgentRun:
         """Run a bounded Jev goal and return its next-action or handoff status.
 
-        ``allowed_controls`` and ``denied_controls`` restrict candidate labels.
+        ``allowed_apps`` explicitly allowlists app launches by display label
+        and package name. ``allowed_controls`` and ``denied_controls`` restrict
+        UI/OCR/system candidate labels.
         A configured OCR provider runs only after Jev selects ``inspect_ocr``.
         A completion decision returns ``needs_verification`` for the caller to
         check independently.
@@ -603,6 +611,7 @@ class Device:
             done_threshold=done_threshold,
             action_threshold=action_threshold,
             max_candidates=max_candidates,
+            allowed_apps=allowed_apps,
             allowed_controls=allowed_controls,
             denied_controls=denied_controls,
             use_score=use_score,
