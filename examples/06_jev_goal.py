@@ -18,7 +18,7 @@ def _parser() -> argparse.ArgumentParser:
     execution.add_argument(
         "--execute",
         action="store_true",
-        help="execute actions with the default UI label allowlist",
+        help="execute actions using host-validated UI candidates",
     )
     execution.add_argument(
         "--yolo",
@@ -42,12 +42,7 @@ def _parser() -> argparse.ArgumentParser:
 
 
 def _goal_options(args: argparse.Namespace) -> tuple[tuple[str, ...] | None, bool]:
-    if args.allowed_controls:
-        allowed_controls = tuple(args.allowed_controls)
-    elif args.yolo:
-        allowed_controls = None
-    else:
-        allowed_controls = ("关于本机",)
+    allowed_controls = tuple(args.allowed_controls) if args.allowed_controls else None
     dry_run = not (args.execute or args.yolo)
     return allowed_controls, dry_run
 
@@ -91,8 +86,11 @@ def main(argv: list[str] | None = None) -> None:
         result = phone.run(
             GOAL,
             max_steps=MAX_STEPS,
+            allowed_controls=allowed_controls,
+            denied_controls=args.denied_controls,
             use_score=False,
             prefer_webview=False,
+            dry_run=dry_run,
         )
         _print_run_summary(result)
         if result.termination == "needs_verification":

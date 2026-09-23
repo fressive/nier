@@ -20,10 +20,10 @@ def test_jev_goal_example_modes_are_opt_in_and_import_safe(monkeypatch) -> None:
     options = example["_goal_options"]
 
     preview = parser.parse_args([])
-    assert options(preview) == (("关于本机",), True)
+    assert options(preview) == (None, True)
 
     execute = parser.parse_args(["--execute"])
-    assert options(execute) == (("关于本机",), False)
+    assert options(execute) == (None, False)
 
     yolo = parser.parse_args(["--yolo"])
     assert options(yolo) == (None, False)
@@ -52,6 +52,16 @@ def test_jev_goal_example_uses_a_bounded_main_action_budget(monkeypatch) -> None
 
     assert run_options["max_steps"] == 8
     assert run_options["dry_run"] is False
+    assert run_options["allowed_controls"] is None
+
+    run_options.clear()
+    example["main"]([])
+    assert run_options["dry_run"] is True
+
+    run_options.clear()
+    example["main"](["--execute", "--allow-control", "关于本机", "--deny-control", "取消"])
+    assert run_options["allowed_controls"] == ("关于本机",)
+    assert run_options["denied_controls"] == ["取消"]
 
 
 def test_jev_goal_example_reports_preview_and_unverified_completion() -> None:

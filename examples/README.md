@@ -36,30 +36,34 @@ PYTHONPATH=src python examples/03_screenshot_uidump.py
 PYTHONPATH=src python examples/04_agent.py
 PYTHONPATH=src python examples/05_remote_ocr.py
 PYTHONPATH=src python examples/06_jev_goal.py
-PYTHONPATH=src python examples/06_jev_goal.py --execute --allow-control 关于本机
+PYTHONPATH=src python examples/06_jev_goal.py --execute
+PYTHONPATH=src python examples/06_jev_goal.py --execute --allow-control 设置 --allow-control 向下滚动当前列表 --allow-control 关于本机
 PYTHONPATH=src python examples/06_jev_goal.py --yolo
 PYTHONPATH=src python examples/07_webview_uidump.py
 ```
 
 Only run device-control examples against devices and applications you are
 authorized to test. `02_control_device.py` requires `--confirm` because it taps
-a label and submits text. `06_jev_goal.py` previews by default and allowlists
-`com.android.settings` in its `allowed_apps` argument and limits UI targets to
-`关于本机` by default. When an LLM provider is configured, Jev may request
+a label and submits text. `06_jev_goal.py` previews by default; `--execute`
+explicitly enables host-validated actions without an app-launch allowlist.
+It can tap a visible Settings icon and scroll a bounded list, but cannot
+invent an app package. Add `--allow-control` for every UI or scroll label you
+want to permit when narrowing candidate choices. When an LLM provider is
+configured, Jev may request
 recovery through `call_llm` or after a failure. The LLM creates a bounded
 subgoal and executes it by selecting from host-validated safe controls; it
 cannot invent coordinates or arbitrary device actions. After success the main
 goal observes the device again and resumes. Failed subgoals may be replaced
 using a fresh observation. Assist generation is unlimited by default; pass
 `max_llm_assists` to cap it. Jev still chooses every main-goal action.
-The example caps the main goal at eight actions and 45 seconds. A Jev completion
-signal is reported as requiring verification, not as a confirmed pass.
-`--allow-control` replaces that label with the exact
-labels you pass. `--execute` runs with the default control allowlist; `--yolo`
-bypasses preview and offers all discovered UI/OCR control labels. Jev still
+The example caps the main goal at eight actions but uses the runtime's default
+unlimited wall-clock deadline. A Jev completion signal is reported as requiring
+verification, not as a confirmed pass.
+`--allow-control` limits UI, scroll, and system candidates to the exact labels
+you pass. `--yolo` is an alias for `--execute`. Jev still
 selects among host-validated candidates and the same confidence and execution
-bounds apply. App launches remain limited to the explicit allowlist. Model
-credentials stay in environment variables.
+bounds apply. App launches remain unavailable without an explicit allowlist.
+Model credentials stay in environment variables.
 
 Edit the constants at the top of each script for the target package, labels,
 remote endpoint, or whether an Agent plan should be executed. The examples
