@@ -96,9 +96,9 @@ export function ScreenPreview() {
   const previewUrl = `/api/preview/stream?session=${streamKey}`;
 
   return (
-    <Card className="flex min-h-[580px] flex-col overflow-hidden border-border/80 bg-[#10151c]/85 xl:col-span-2 2xl:col-span-1 2xl:sticky 2xl:top-[88px] 2xl:h-[calc(100vh-108px)] 2xl:min-h-[610px]">
-      <div className="flex min-h-0 flex-1 flex-col p-4">
-      <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+      <div className="flex min-h-0 flex-1 flex-col p-3 sm:p-4">
+      <div className="mb-2 flex shrink-0 flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <MonitorPlay className="h-4 w-4 text-emerald-300" />
           <span className="text-xs font-semibold text-slate-200">scrcpy 预览</span>
@@ -114,13 +114,13 @@ export function ScreenPreview() {
         </Button>
       </div>
 
-      <div className="mb-3 flex gap-2">
+      <div className="mb-2 flex shrink-0 gap-2">
         <select
           value={serial}
           onChange={(event) => setSerial(event.target.value)}
           disabled={running}
           aria-label="选择 ADB 设备"
-          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-[#0b0f14] px-2 text-[11px] text-slate-200 outline-none focus:border-emerald-400/50 disabled:opacity-60"
+          className="h-9 min-w-0 flex-1 rounded-md border border-border bg-[#0b0f14] px-2 text-[10px] text-slate-200 outline-none focus:border-emerald-400/50 disabled:opacity-60 sm:text-[11px]"
         >
           {devices.length === 0 && <option value="">未发现 ADB 设备</option>}
           {devices.map((device) => {
@@ -144,16 +144,16 @@ export function ScreenPreview() {
       </div>
 
       {missingDependencies.length > 0 && (
-        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] leading-relaxed text-amber-200/80">
+        <div className="mb-2 max-h-14 shrink-0 overflow-hidden flex items-start gap-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] leading-relaxed text-amber-200/80">
           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>缺少 {missingDependencies.join("、")}。请安装并加入 PATH 后重启 nier web。</span>
         </div>
       )}
       {state?.device_error && devices.length === 0 && (
-        <p className="mb-3 text-[10px] text-amber-200/80">{state.device_error}</p>
+        <p className="mb-2 max-h-10 shrink-0 overflow-hidden text-[10px] text-amber-200/80">{state.device_error}</p>
       )}
       {(error || state?.error) && (
-        <p className="mb-3 flex items-start gap-1.5 rounded-md border border-rose-400/20 bg-rose-400/5 px-3 py-2 text-[10px] leading-relaxed text-rose-200">
+        <p className="mb-2 max-h-14 shrink-0 overflow-hidden flex items-start gap-1.5 rounded-md border border-rose-400/20 bg-rose-400/5 px-3 py-2 text-[10px] leading-relaxed text-rose-200">
           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />{error || state?.error}
         </p>
       )}
@@ -185,7 +185,7 @@ export function ScreenPreview() {
         )}
       </div>
 
-      <p className="mt-2 text-center text-[9px] text-slate-600">
+      <p className="mt-2 shrink-0 truncate text-center text-[9px] text-slate-600">
         {running ? `当前设备：${currentDevice?.model || serial}` : "视频经本机 ADB 转发，不启动手机网络服务"}
       </p>
       </div>

@@ -43,17 +43,17 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
   const footerEvents = events.filter((event) => event.type === "console" || event.type === "run.finished").slice(-8);
 
   return (
-    <Card className="flex min-h-[580px] flex-col overflow-hidden border-border/80 bg-[#10151c]/85 xl:sticky xl:top-[88px] xl:h-[calc(100vh-108px)] xl:min-h-[610px]">
-      <CardHeader className="border-b border-border/70 py-4">
+    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+      <CardHeader className="shrink-0 space-y-0 border-b border-border/70 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-sky-400/10 text-sky-300"><Radio className="h-4 w-4" /></div>
-            <div><CardTitle className="text-sm">执行日志</CardTitle><p className="mt-1 text-[11px] text-slate-500">STEP · Request / Response</p></div>
+          <div className="flex min-w-0 items-center gap-2.5">
+            <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-sky-400/10 text-sky-300"><Radio className="h-3.5 w-3.5" /></div>
+            <div className="min-w-0"><CardTitle className="text-sm">执行日志</CardTitle><p className="mt-0.5 truncate text-[10px] text-slate-500">STEP · Request / Response</p></div>
           </div>
           <RunStatusBadge status={run.status} />
         </div>
         {selectedEvent && (
-          <div className="mt-4 flex items-start gap-2 rounded-md border border-border/70 bg-[#0e131a] px-3 py-2.5">
+          <div className="mt-2 flex items-start gap-2 rounded-md border border-border/70 bg-[#0e131a] px-2.5 py-2 sm:mt-3">
             <span className="mt-0.5 font-mono text-[10px] text-emerald-300">#{String(selectedEvent.event_id).padStart(3, "0")}</span>
             <div className="min-w-0"><p className="truncate text-xs font-medium text-slate-200">{eventTitle(selectedEvent)}</p><p className="mt-1 text-[10px] text-slate-500">{localTime(selectedEvent.timestamp)} · {eventSubtitle(selectedEvent)}</p></div>
           </div>
@@ -68,7 +68,7 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
       />
 
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex items-center justify-between border-b border-border/60 px-5 py-3">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-b border-border/60 px-3 py-2 sm:px-4">
           <div className="flex items-center gap-2 text-[10px] text-slate-500"><Clock3 className="h-3.5 w-3.5" /><span>{detailEvents.length + Number(Boolean(responsePreviewEvent))} 条请求 / 响应 / 结果</span></div>
           <span className="max-w-[180px] truncate text-[10px] text-slate-500">{selectedScript || run.script || "未选择脚本"}</span>
         </div>
@@ -107,11 +107,11 @@ export function LogSidebar({ run, connected, events, selectedEvent, selectedScri
         </ScrollArea>
       </div>
 
-      <div className="flex items-center justify-between border-t border-border/70 px-4 py-3 text-[10px] text-slate-600">
+      <div className="flex shrink-0 items-center justify-between border-t border-border/70 px-3 py-2 text-[9px] text-slate-600 sm:px-4">
         <span className="flex items-center gap-1.5"><Radio className={cn("h-3 w-3", connected && "text-emerald-400")} />实时事件流</span>
         <span className="font-mono">{events.length} events</span>
       </div>
-      {run.error && <div className="flex items-start gap-2 border-t border-rose-400/20 px-4 py-3 text-[10px] text-rose-200"><XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />{run.error}</div>}
+      {run.error && <div className="flex max-h-14 shrink-0 items-start gap-2 overflow-hidden border-t border-rose-400/20 px-3 py-2 text-[10px] text-rose-200 sm:px-4"><XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" /><span className="break-words">{run.error}</span></div>}
     </Card>
   );
 }

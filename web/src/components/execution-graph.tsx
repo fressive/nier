@@ -56,22 +56,22 @@ export function ExecutionGraph({
 }: Props) {
   const latestNode = nodes.at(-1);
   return (
-    <Card className="overflow-hidden border-border/80 bg-[#10151c]/85">
-      <CardHeader className="flex-row items-center justify-between border-b border-border/70 py-4">
+    <Card className="flex h-full min-h-0 min-w-0 flex-col overflow-hidden border-border/80 bg-[#10151c]/85">
+      <CardHeader className="shrink-0 flex-row items-center justify-between space-y-0 border-b border-border/70 px-3 py-2.5 sm:px-4 sm:py-3">
         <div className="flex items-center gap-3">
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-slate-800/70 text-slate-300"><Workflow className="h-4 w-4" /></div>
-          <div>
+          <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-slate-800/70 text-slate-300"><Workflow className="h-3.5 w-3.5" /></div>
+          <div className="min-w-0">
             <CardTitle className="text-sm">运行拓扑</CardTitle>
-            <p className="mt-1 text-[11px] text-slate-500">按实际事件顺序连接的执行轨迹</p>
+            <p className="mt-0.5 hidden truncate text-[10px] text-slate-500 sm:block">按实际事件顺序连接的执行轨迹</p>
           </div>
         </div>
         <div className="flex items-center gap-2 text-[10px] text-slate-500">
-          <span className="hidden items-center gap-1.5 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />已完成</span>
-          <span className="hidden items-center gap-1.5 sm:flex"><span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />当前节点</span>
-          <Button variant="ghost" size="icon" title="刷新页面数据" onClick={onRefresh} className="h-8 w-8 text-slate-500"><RefreshCw className="h-3.5 w-3.5" /></Button>
+          <span className="hidden items-center gap-1.5 xl:flex"><span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />已完成</span>
+          <span className="hidden items-center gap-1.5 xl:flex"><span className="h-1.5 w-1.5 rounded-full bg-cyan-400" />当前节点</span>
+          <Button variant="ghost" size="icon" title="刷新页面数据" onClick={onRefresh} className="h-7 w-7 text-slate-500"><RefreshCw className="h-3.5 w-3.5" /></Button>
         </div>
       </CardHeader>
-      <div className="relative h-[580px] min-h-[440px] lg:h-[calc(100vh-330px)] lg:min-h-[610px]">
+      <div className="relative min-h-0 flex-1">
         {nodes.length ? (
           <ReactFlow
             nodes={nodes}
