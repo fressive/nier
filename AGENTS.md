@@ -53,10 +53,18 @@ the difference in prose.
   task-sized logical change MUST be recorded in its own new commit before
   handoff; do not leave completed task changes only in the working copy.
 - Every feature MUST start in a dedicated change created with
-  `jj new <integration-target>` before editing. Keep unrelated working-copy
-  changes out of the feature change.
+  `jj new <integration-target> -m "<type>(<scope>): <imperative summary>"`
+  before editing. Every `jj new` invocation MUST include `-m`/`--message`,
+  including integration and merge changes. Keep unrelated working-copy changes
+  out of the feature change.
 - After implementation and review, commit the feature change, then create an
-  explicit merge change with `jj new <integration-target> <feature-change>`.
+  explicit merge change with a message, for example:
+
+  ```bash
+  jj new <integration-target> <feature-change> \
+    -m "chore(integration): integrate <feature>"
+  ```
+
   Resolve any conflicts, review `jj diff` and `jj status`, and commit the merge
   change, even when the feature still descends directly from the target.
 - Commit descriptions MUST use

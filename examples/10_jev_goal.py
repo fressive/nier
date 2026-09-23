@@ -22,7 +22,7 @@ def _parser() -> argparse.ArgumentParser:
     execution.add_argument(
         "--yolo",
         action="store_true",
-        help="execute actions and offer all discovered UI/OCR control labels",
+        help="execute without preview and offer all discovered UI/OCR control labels",
     )
     parser.add_argument(
         "--allow-control",

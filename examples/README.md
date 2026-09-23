@@ -39,9 +39,10 @@ authorized to test. `10_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
 `关于本机` by default. `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
-runs immediately and offers all discovered UI/OCR control labels. App launches
-remain limited to the explicit allowlist. Model credentials stay in environment
-variables.
+bypasses preview and offers all discovered UI/OCR control labels. Jev still
+selects among host-validated candidates and the same confidence and execution
+bounds apply. App launches remain limited to the explicit allowlist. Model
+credentials stay in environment variables.
 
 Edit the constants at the top of each script for the target package, labels,
 remote endpoint, or whether an Agent plan should be executed. The examples
