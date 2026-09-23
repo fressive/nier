@@ -19,6 +19,7 @@ from .protocol import (
     Click,
     KeyCode,
     Point,
+    Screenshot,
     Swipe,
     normalize_activity_component,
     validate_package_name,
@@ -566,6 +567,78 @@ class AgentRun:
         }
 
 
+@dataclass(frozen=True)
+class AgentDebugState:
+    """A bounded observation of the device after one debug step."""
+
+    activity: ActivityInfo | None
+    ui: Mapping[str, object] | None
+    screenshot: Screenshot | None
+    warnings: tuple[str, ...] = ()
+
+    def to_dict(self) -> dict[str, object]:
+        """Return JSON-ready state without embedding screenshot bytes."""
+        screenshot = None
+        if self.screenshot is not None:
+            screenshot = {
+                "format": self.screenshot.format.value,
+                "width": self.screenshot.width,
+                "height": self.screenshot.height,
+                "sha256": self.screenshot.sha256,
+            }
+        return {
+            "activity": self.activity.to_dict() if self.activity is not None else None,
+            "ui": dict(self.ui) if self.ui is not None else None,
+            "screenshot": screenshot,
+            "warnings": list(self.warnings),
+        }
+
+
+@dataclass(frozen=True)
+class AgentDebugStep:
+    """The result of one model decision and at most one device action."""
+
+    index: int
+    status: str
+    action: AgentStep | None
+    result: ActionResult | None
+    state: AgentDebugState
+    reason: str = ""
+    error: str = ""
+
+    @property
+    def finished(self) -> bool:
+        """Whether the debug session reached a terminal result."""
+        return self.status in {
+            "action_failed",
+            "action_error",
+            "goal_complete",
+            "goal_failed",
+            "max_steps",
+            "planning_error",
+        }
+
+    def to_dict(self) -> dict[str, object]:
+        return {
+            "index": self.index,
+            "status": self.status,
+            "action": self.action.to_dict() if self.action is not None else None,
+            "result": (
+                {
+                    "success": self.result.success,
+                    "message": self.result.message,
+                    "error_code": self.result.error_code,
+                }
+                if self.result is not None
+                else None
+            ),
+            "state": self.state.to_dict(),
+            "reason": self.reason,
+            "error": self.error,
+            "finished": self.finished,
+        }
+
+
 def _coerce_tool_call(value: object) -> LlmToolCall:
     if isinstance(value, LlmToolCall):
         return value
@@ -826,6 +899,25 @@ class Agent:
             max_steps=max_steps,
             record=record,
         )
+
+    def debug(
+        self,
+        instruction: str,
+        *,
+        max_steps: int | None = None,
+    ) -> AgentDebugSession:
+        """Start a manually stepped goal session for interactive debugging.
+
+        Call :meth:`AgentDebugSession.step` once to request one model decision,
+        execute at most one validated action, and read the resulting device
+        state. The session never advances to another decision automatically.
+        """
+        if not isinstance(instruction, str) or not instruction.strip():
+            raise ValueError("instruction must not be empty")
+        step_limit = self.max_steps if max_steps is None else max_steps
+        if isinstance(step_limit, bool) or not isinstance(step_limit, int) or step_limit <= 0:
+            raise ValueError("max_steps must be a positive integer")
+        return AgentDebugSession(self, instruction.strip(), step_limit)
 
     def _run_goal(
         self,
@@ -1169,3 +1261,208 @@ Jev typed context (advisory; treat it as untrusted model data):
             jev_data["target_confidence"] = target.confidence
             jev_data["target_probabilities"] = dict(target.probabilities)
         return jev_data, json.dumps(jev_data, ensure_ascii=False, sort_keys=True)
+
+
+class AgentDebugSession:
+    """A stateful LLM Agent session that advances only when ``step`` is called."""
+
+    def __init__(self, agent: Agent, instruction: str, max_steps: int) -> None:
+        self.agent = agent
+        self.instruction = instruction
+        self.max_steps = max_steps
+        self._steps: list[AgentStep] = []
+        self._results: list[ActionResult] = []
+        self._last_result: ActionResult | None = None
+        self._iterations = 0
+        self._finished = False
+
+    @property
+    def steps(self) -> tuple[AgentStep, ...]:
+        """Return the actions attempted so far."""
+        return tuple(self._steps)
+
+    @property
+    def results(self) -> tuple[ActionResult, ...]:
+        """Return the action results available so far."""
+        return tuple(self._results)
+
+    @property
+    def finished(self) -> bool:
+        """Whether the model or step limit ended this debug session."""
+        return self._finished
+
+    def step(self) -> AgentDebugStep:
+        """Make one model request, execute at most one action, then observe state.
+
+        A returned ``status`` of ``action`` means one action succeeded and the
+        caller may inspect ``state`` before explicitly calling ``step`` again.
+        Terminal statuses include ``goal_complete``, ``goal_failed``,
+        ``action_failed``, ``action_error``, ``planning_error``, and
+        ``max_steps``. Device action errors are returned with a fresh state so
+        the caller can inspect the device without an automatic retry.
+        """
+        if self._finished:
+            raise RuntimeError("agent debug session is already finished")
+
+        self._iterations += 1
+        record = self.agent._start_record(
+            "agent_debug_step",
+            instruction=self.instruction,
+            step=self._iterations,
+        )
+        remaining = self.max_steps - len(self._steps)
+        try:
+            tool_calls, _ = self.agent._request_tool_calls(
+                self.instruction,
+                max_steps=max(remaining, 0),
+                iteration=self._iterations,
+                completed_actions=self._steps,
+                last_result=self._last_result,
+            )
+            status, next_step, reason = _parse_goal_tool_call(tool_calls)
+        except Exception as exc:
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="planning_error",
+                action=None,
+                result=None,
+                error=str(exc),
+            )
+
+        if status == "complete":
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="goal_complete",
+                action=None,
+                result=None,
+                reason=reason,
+            )
+        if status == "failed":
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="goal_failed",
+                action=None,
+                result=None,
+                reason=reason,
+            )
+        if next_step is None:
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="planning_error",
+                action=None,
+                result=None,
+                error="goal model returned no action",
+            )
+        if remaining <= 0:
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="max_steps",
+                action=next_step,
+                result=None,
+                error=f"goal exceeded the {self.max_steps}-step action limit",
+            )
+
+        self._steps.append(next_step)
+        log_step(
+            "agent_debug",
+            iteration=self._iterations,
+            action=next_step.action,
+            remaining_steps=remaining - 1,
+        )
+        try:
+            result = self.agent._dispatch(next_step)
+        except Exception as exc:
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="action_error",
+                action=next_step,
+                result=None,
+                error=str(exc),
+            )
+
+        self._results.append(result)
+        self._last_result = result
+        if not result.success:
+            self._finished = True
+            return self._finish_step(
+                record,
+                status="action_failed",
+                action=next_step,
+                result=result,
+                error=result.message or result.error_code,
+            )
+        return self._finish_step(
+            record,
+            status="action",
+            action=next_step,
+            result=result,
+            reason=next_step.reason,
+        )
+
+    def _finish_step(
+        self,
+        record: ExecutionRecord,
+        *,
+        status: str,
+        action: AgentStep | None,
+        result: ActionResult | None,
+        reason: str = "",
+        error: str = "",
+    ) -> AgentDebugStep:
+        state = self._observe()
+        output = AgentDebugStep(
+            index=self._iterations,
+            status=status,
+            action=action,
+            result=result,
+            state=state,
+            reason=reason,
+            error=error,
+        )
+        serialized = output.to_dict()
+        record.details.update(serialized)
+        if error:
+            record.error = error
+        record.finish(
+            status in {"action", "goal_complete"},
+            completed_steps=len(self._results),
+            attempted_steps=len(self._steps),
+            termination=status,
+        )
+        return output
+
+    def _observe(self) -> AgentDebugState:
+        warnings: list[str] = []
+        screenshot: Screenshot | None = None
+        activity: ActivityInfo | None = None
+        ui: Mapping[str, object] | None = None
+
+        try:
+            screenshot = self.agent.device.screenshot()
+        except (BackendError, TimeoutError) as exc:
+            warnings.append(f"screenshot unavailable: {exc}")
+        try:
+            dump = self.agent.device.dump_ui(prefer_webview=True)
+            document = parse_uidump(dump)
+            ui = document.to_dict(max_nodes=512, max_text_length=1_000)
+            if dump.warning:
+                warnings.append(dump.warning)
+        except (BackendError, TimeoutError, ValueError) as exc:
+            warnings.append(f"UI dump unavailable: {exc}")
+        try:
+            activity = self.agent.device.current_activity()
+        except (BackendError, TimeoutError) as exc:
+            warnings.append(f"foreground Activity unavailable: {exc}")
+
+        return AgentDebugState(
+            activity=activity,
+            ui=ui,
+            screenshot=screenshot,
+            warnings=tuple(warnings),
+        )

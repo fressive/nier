@@ -608,7 +608,9 @@ class Device:
         ``ocr_provider`` and ``jev_provider`` are omitted. Pass a name to
         select a provider explicitly. The Agent re-observes after each action
         until the goal terminates. A direct ``jev`` client can also be
-        supplied.
+        supplied. For interactive debugging, call ``agent.debug(goal)`` and
+        explicitly invoke its ``step()`` method to execute and inspect one
+        action at a time.
         """
         from .agent import Agent
 
