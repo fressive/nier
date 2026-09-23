@@ -69,6 +69,16 @@ class _LazyLlmProvider:
             self._provider = self._create()
         return self._provider.complete(prompt, image=image)
 
+    def complete_with_tools(self, prompt: str, *, tools, image: bytes | None = None):
+        if self._provider is None:
+            self._provider = self._create()
+        complete_with_tools = getattr(self._provider, "complete_with_tools", None)
+        if not callable(complete_with_tools):
+            raise ModelError(
+                "LLM recovery actions require a provider with complete_with_tools()"
+            )
+        return complete_with_tools(prompt, tools=tools, image=image)
+
 
 def _point(value: PointLike, *, normalized: bool) -> Point:
     if isinstance(value, Point):
