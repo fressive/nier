@@ -9,8 +9,10 @@ description = "An extensible Android automated testing framework"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+  "fastapi>=0.115",
   "Pillow>=10.0",
   "PyYAML>=6.0",
+  "uvicorn>=0.30",
 ]
 
 [project.optional-dependencies]
@@ -34,6 +36,9 @@ nier = "nier.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+nier = ["web_static/*", "web_static/assets/*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

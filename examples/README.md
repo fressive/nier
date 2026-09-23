@@ -6,6 +6,16 @@ Run these scripts from the repository root after installing the package:
 python -m pip install -e '.[dev]'
 ```
 
+To browse and run them with a live execution trace, start:
+
+```bash
+nier web --scripts=./examples
+```
+
+The dashboard requires an explicit confirmation for each script run. Scripts
+execute with the current user's permissions and may access an authorized device;
+see the [web dashboard guide](../docs/web-dashboard.md).
+
 | Example | Purpose | Device required |
 | --- | --- | --- |
 | [`01_basic_session.py`](01_basic_session.py) | Connect, health-check, inspect capabilities, and record a run | Yes |

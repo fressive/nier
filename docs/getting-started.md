@@ -112,6 +112,16 @@ nier --config config/nier.yaml dump-ui
 
 Artifacts are written to `runtime.output_dir` (default: `artifacts`).
 
+To run Python scripts from the local live dashboard:
+
+```bash
+nier web --scripts=./examples
+```
+
+The dashboard lists scripts from the requested directory and shows live
+execution events without requiring a phone-side server. See the
+[web dashboard guide](web-dashboard.md).
+
 ## Errors and authorization
 
 Expected failures use typed errors:

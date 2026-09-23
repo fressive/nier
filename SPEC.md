@@ -544,3 +544,20 @@ environment-dependent and is not a prerequisite for ordinary unit tests.
   code.
 - Use `jj` for version control. Version-control operations are workflow
   concerns and do not change the runtime contract.
+
+## 12. Local web execution dashboard
+
+The `nier web --scripts=<directory>` command MUST serve a local execution
+dashboard using FastAPI and MUST bind to `127.0.0.1` by default. It MUST NOT
+change the ADB-first device topology or start a phone-side server. The dashboard
+MUST list Python scripts from the requested directory and MUST reject script
+paths that resolve outside it. Starting a script MUST require an explicit
+browser confirmation and MUST run at most one script at a time. Stopping a run
+MAY terminate the script process; script and device actions MUST NOT be
+automatically retried.
+
+The dashboard MUST visualize received STEP events in execution order and MUST
+allow the user to inspect STEP details and related request/response logs. Web
+events MUST pass through the existing bounded redaction policy before leaving
+the child script process. Static web assets MUST be bundled with the Python
+package; frontend dependencies MUST NOT be required at runtime.

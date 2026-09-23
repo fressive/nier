@@ -123,6 +123,19 @@ Remote ADB over TCP is supported through `device.remote_host` and
 
 See the [WebView DevTools guide](docs/webview-devtools.md) for hybrid apps.
 
+## Local execution dashboard
+
+Run Python scripts from a local browser dashboard to see the live execution
+path and inspect STEP, request, and response details:
+
+```bash
+nier web --scripts=./examples
+```
+
+The dashboard binds to `127.0.0.1` by default. Select a script and confirm
+each run in the browser. It streams bounded, sanitized Nier log events. See the
+[web dashboard guide](docs/web-dashboard.md) for setup and behavior.
+
 ## Disclaimer
 
 Nier is experimental software provided for authorized testing and research.
