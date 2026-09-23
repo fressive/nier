@@ -1,21 +1,27 @@
+# Python caches and environment
 __pycache__/
 *.py[cod]
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
 .venv/
+*.egg-info/
+
+# Build and generated runtime artifacts
 dist/
 build/
-*.egg-info/
 generated/
 artifacts/
-config/nier.yaml
-src/nier/v1/*_pb2.py
-src/nier/v1/*_pb2_grpc.py
-backend/nier-android/local.properties
-backend/nier-android/.gradle/
-backend/nier-android/build/
-backend/nier-android/app/build/
-backend/nier-android/app/.cxx/
+
+# Local configuration and credentials
 config/nier.yaml
 .env
+
+# Generated protobuf bindings
+src/nier/v1/*_pb2.py
+src/nier/v1/*_pb2_grpc.py
+
+# Android and Gradle output
+backend/nier-android/local.properties
+backend/nier-android/.gradle/
+backend/nier-android/app/.cxx/

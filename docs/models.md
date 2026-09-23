@@ -134,7 +134,7 @@ from nier import connect
 
 with connect("config/nier.yaml") as phone:
     run = phone.run(
-        "打开设置，进入关于手机",
+        "打开设置，进入关于本机",
         dry_run=True,
     )
     print(f"Goal: {run.plan.goal}")
@@ -248,11 +248,11 @@ decision model without an LLM planner:
 ```python
 with connect("config/nier.yaml") as phone:
     result = phone.run_jev_goal(
-        "打开设置，进入关于手机",
+        "打开设置，进入关于本机",
         max_steps=8,
         max_seconds=45,
         allowed_apps={"设置": "com.android.settings"},
-        allowed_controls=("关于手机", "返回上一页"),
+        allowed_controls=("关于本机", "返回上一页"),
         dry_run=True,
     )
 ```

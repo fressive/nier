@@ -29,15 +29,19 @@ PYTHONPATH=src python examples/07_agent.py
 TYPESAFE_API_KEY=... PYTHONPATH=src python examples/08_jev.py
 PYTHONPATH=src python examples/09_remote_ocr.py
 PYTHONPATH=src python examples/10_jev_goal.py
-PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 关于手机
+PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 关于本机
+PYTHONPATH=src python examples/10_jev_goal.py --yolo
 PYTHONPATH=src python examples/11_webview_uidump.py
 ```
 
 Only run device-control examples against devices and applications you are
 authorized to test. `10_jev_goal.py` previews by default and allowlists
-`com.android.settings` in its `allowed_apps` argument. `--allow-control` opts
-in to specific UI labels; `--execute` is required before device actions. Model
-credentials stay in environment variables.
+`com.android.settings` in its `allowed_apps` argument and limits UI targets to
+`关于本机` by default. `--allow-control` replaces that label with the exact
+labels you pass. `--execute` runs with the default control allowlist; `--yolo`
+runs immediately and offers all discovered UI/OCR control labels. App launches
+remain limited to the explicit allowlist. Model credentials stay in environment
+variables.
 
 Edit the constants at the top of each script for the target package, labels,
 remote endpoint, or whether an Agent plan should be executed. The examples
