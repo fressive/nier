@@ -64,7 +64,7 @@ from nier import connect
 
 
 with connect(remote="192.0.2.10:5555") as phone:
-    print(phone.health())
+    print(f"Device ready: {'yes' if phone.health() else 'no'}")
 ```
 
 A separately hosted ADB server can also be selected without building config
@@ -74,7 +74,9 @@ objects:
 with connect(
     remote="192.0.2.10:5555", adb_server="192.0.2.20:5038"
 ) as phone:
-    print(phone.capabilities())
+    capabilities = phone.capabilities()
+    print(f"Remote device: {capabilities.model} ({capabilities.device_id})")
+    print(f"Screen: {capabilities.screen_width} × {capabilities.screen_height}")
 ```
 
 For backend integrations, construct `DeviceConfig` directly:
@@ -92,7 +94,7 @@ config = DeviceConfig(
 )
 session = DeviceSession(AdbBackend(config))
 try:
-    print(session.health())
+    print(f"Device ready: {'yes' if session.health() else 'no'}")
 finally:
     session.close()
 ```

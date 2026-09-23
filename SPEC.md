@@ -300,7 +300,9 @@ level 2 additionally logs sanitized request metadata, and level 3 additionally
 logs bounded, sanitized response payloads. The CLI flags `-v`, `-vv`, and
 `-vvv` MUST select at least the corresponding level for that invocation.
 Authorization headers, API keys, and screenshot data URIs MUST NOT appear in
-logs.
+logs. Terminal logs and CLI command summaries MUST use labeled, human-readable
+text rather than print JSON-encoded event objects. Persisted run records and
+wire-protocol payloads remain structured data and are not changed by this rule.
 
 The model layer exposes these stable interfaces:
 

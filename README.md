@@ -81,6 +81,8 @@ for that command. `v` shows steps. `vv` adds OCR, UI dump, Jev, and LLM results.
 `vvv` adds bounded, sanitized ADB and HTTP request/response details.
 Jev answers are shown by question and type; `vvv` renders their UI summaries
 and OCR spans as readable lines.
+Terminal logs and CLI summaries use labeled text rather than JSON output;
+machine-readable run records remain saved as JSON files.
 
 Verbose terminal logs include a local `HH:MM:SS.mmm` timestamp. Steps and OCR
 results are cyan, tool calls and LLM results magenta, UI dumps yellow, Jev

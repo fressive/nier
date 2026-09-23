@@ -17,10 +17,17 @@ def main() -> int:
     config = load_config(CONFIG)
     with connect(config) as phone:
         spans = phone.screenshot().ocr()
-        print({"recognized": [span.text for span in spans]})
+        print(f"Recognized labels ({len(spans)}):")
+        for span in spans:
+            print(f"  - {span.text!r} (confidence {span.confidence:.0%})")
 
         decision = TextMatchDecisionProvider().decide(spans, INSTRUCTION)
-        print(decision)
+        print(f"Decision: {decision.action}")
+        print(f"Confidence: {decision.confidence:.0%}")
+        if decision.rationale:
+            print(f"Reason: {decision.rationale}")
+        if decision.point is not None:
+            print(f"Tap point: ({decision.point[0]:.1f}, {decision.point[1]:.1f})")
         if EXECUTE and decision.action == "tap" and decision.point is not None:
             phone.tap(*decision.point)
         phone.save_run("remote-ocr-decision.json")

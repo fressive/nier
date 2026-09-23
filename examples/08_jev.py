@@ -30,9 +30,9 @@ def main() -> int:
                 ),
             },
         )
-    print("route:", response.answer("route").choice)
-    print("urgent:", response.answer("urgent").noul)
-    print("severity:", response.answer("severity").score)
+    print(f"Route: {response.answer('route').choice}")
+    print(f"Urgency score: {response.answer('urgent').noul}")
+    print(f"Severity score: {response.answer('severity').score}")
     return 0
 
 
