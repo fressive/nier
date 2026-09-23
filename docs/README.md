@@ -17,11 +17,12 @@ are integrating.
 | [`models.md`](models.md) | OCR, decision, LLM, TypeSafe Jev, and Jev-driven goal APIs |
 
 The normal Python entry point is `from nier import connect`. It returns a
-script-friendly `Device` with `tap`, `swipe`, `text`, `key`, `list_apps`,
-`list_app_activities`, `open_app`, `start_activity`, `screenshot`, `uidump`,
-and natural-language `run` methods. `DeviceSession`, action
-dataclasses, and request dataclasses remain available as lower-level extension
-APIs for custom backends and transport adapters.
+script-friendly `Device` with `tap`, `tap_label`, `swipe`, `text`, `key`,
+`list_apps`, `list_app_activities`, `open_app`, `start_activity`, `screenshot`,
+`uidump`, and natural-language `run` methods. `tap_label` accepts exact text or
+a compiled regex. `DeviceSession`, action dataclasses, and request dataclasses
+remain available as lower-level extension APIs for custom backends and
+transport adapters.
 
 Use only authorized devices and applications, and keep provider credentials in
 environment variables.

@@ -24,6 +24,7 @@ Copy the configuration before running device examples:
 ```bash
 cp config/nier.example.yaml config/nier.yaml
 PYTHONPATH=src python examples/01_basic_session.py
+PYTHONPATH=src python examples/02_control_device.py --confirm
 PYTHONPATH=src python examples/03_screenshot_uidump.py
 PYTHONPATH=src python examples/07_agent.py
 TYPESAFE_API_KEY=... PYTHONPATH=src python examples/08_jev.py
@@ -35,7 +36,8 @@ PYTHONPATH=src python examples/11_webview_uidump.py
 ```
 
 Only run device-control examples against devices and applications you are
-authorized to test. `10_jev_goal.py` previews by default and allowlists
+authorized to test. `02_control_device.py` requires `--confirm` because it taps
+a label and submits text. `10_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
 `关于本机` by default. `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`

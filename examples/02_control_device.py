@@ -2,25 +2,30 @@
 
 from __future__ import annotations
 
+import argparse
+import re
 from pathlib import Path
 
 from nier import connect
 
 CONFIG = Path("config/nier.yaml")
-SEARCH_LABEL = "搜索"  # Change this label for the application under test.
+SEARCH_LABEL = re.compile(r"^搜索$")  # Change this label for the application under test.
 SEARCH_TEXT = "nier"
 
 
-def tap_label(phone, label: str) -> None:
-    node = phone.parse_uidump(prefer_webview=False).find(text=label)
-    if node is None or node.center is None:
-        raise RuntimeError(f"could not find a UI node with text {label!r}")
-    phone.tap(*node.center)
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--confirm",
+        action="store_true",
+        help="confirm that this example may tap and submit text on the device",
+    )
+    args = parser.parse_args(argv)
+    if not args.confirm:
+        parser.error("device actions require --confirm")
 
-
-def main() -> int:
     with connect(CONFIG) as phone:
-        tap_label(phone, SEARCH_LABEL)
+        phone.tap_label(SEARCH_LABEL)
         phone.text(SEARCH_TEXT)
         phone.enter()
         phone.save_run("search-flow.json")
