@@ -71,9 +71,10 @@ compatibility wrapper for this flow.
 `allowed_controls` and `denied_controls` can restrict visible labels, while
 `allowed_apps={"设置": "com.android.settings"}` can explicitly allow app
 launch candidates. Jev sees the app label, while the package stays host-side.
-`max_steps` and `max_seconds` bound the loop. A completion signal returns
-`needs_verification` for caller review. If Jev selects `call_llm`, the LLM
-generates a bounded recovery subgoal (up to two assists by default); a nested
+`max_steps` bounds main-goal actions. For Jev-first goals, `max_seconds` adds an
+optional overall deadline and is disabled by default. A completion signal
+returns `needs_verification` for caller review. If Jev selects `call_llm`, the
+LLM generates a bounded recovery subgoal (up to two assists by default); a nested
 Jev run carries it out using only safe, host-validated dismiss/back/home
 controls, then the main goal observes again and resumes. If a recovery subgoal
 fails, the LLM may generate a replacement from the updated UI state. The LLM

@@ -448,9 +448,10 @@ disabled. It MUST NOT inherit `allowed_apps`; its UI/OCR/system candidates MUST
 be restricted to the fixed safe dismiss/close/cancel/skip/back controls, plus
 Home only when requested by the recovery instruction, and MUST still honor the
 caller's `allowed_controls` and `denied_controls`. A recovery run MUST be
-bounded to at most three device actions and ten seconds, further limited by the
-remaining main-goal deadline. It MUST NOT repeat any control whose action
-failed or raised during the current run. On nested-goal completion, the parent
+bounded to at most three device actions and thirty seconds, further limited by
+the remaining main-goal deadline when one is set. It MUST NOT repeat any
+control whose action failed or raised during the current run. On nested-goal
+completion, the parent
 MUST take a new observation and resume the original main goal if its main
 action and time budgets permit; otherwise it MUST terminate with the applicable
 main-goal limit. The generated recovery text MUST NOT be added to the parent
@@ -487,10 +488,12 @@ compare the fresh screenshot digest with the image used for OCR, without running
 OCR again. Stale decisions MUST be bounded; after three consecutive stale
 decisions the goal MUST attempt bounded recovery and, if recovery fails, stop.
 `max_steps` bounds main-goal actions; each recovery subgoal has its own smaller
-action budget. The complete flow MUST be bounded by `max_seconds` (at most 45
-seconds), which includes recovery. The time limit MUST prevent starting a new
-action after expiry; it need not interrupt an
-in-flight provider or device call.
+action budget. `max_seconds` MUST default to `None`, which disables the overall
+wall-clock deadline. Callers MAY set it to a positive value up to 60 seconds;
+when set, it MUST include recovery. The time limit MUST prevent
+starting a new action after expiry; it need not interrupt an in-flight provider
+or device call. Recovery retains its own 30-second cap when the main deadline
+is disabled.
 The Jev goal MUST use the same `RunRecorder`, dry-run semantics, provider
 selection rule (first configured provider when omitted), and bounded action
 limit as the regular Agent.

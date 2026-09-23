@@ -151,10 +151,11 @@ class JevGoal:
 
     Decisions are checked against a fresh host observation before an action is
     dispatched. Non-action decisions and dry-run previews reuse the initial
-    observation. Main-goal actions are bounded by ``max_steps`` and all work is
-    bounded by ``max_seconds``. Each recovery subgoal has a separate cap of
-    three actions and ten seconds, limited by the main deadline. OCR runs only
-    after Jev requests it and at most once per observation.
+    observation. Main-goal actions are bounded by ``max_steps``; the overall
+    deadline is disabled when ``max_seconds`` is ``None``. Each recovery
+    subgoal has a separate cap of three actions and thirty seconds, further
+    limited by the main deadline when one is set. OCR runs only after Jev
+    requests it and at most once per observation.
     Completion returns ``needs_verification`` for the caller to review.
     Set ``prefer_webview=False`` for native screens to skip the WebView probe.
     """
@@ -167,7 +168,7 @@ class JevGoal:
         provider: str = "jev",
         ocr: OcrProvider | None = None,
         max_steps: int = 8,
-        max_seconds: float = 45.0,
+        max_seconds: float | None = None,
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
@@ -180,18 +181,22 @@ class JevGoal:
         llm_provider: str | None = None,
         max_llm_assists: int = 2,
     ) -> None:
-        """Create a bounded Jev goal runner.
+        """Create a Jev goal runner with bounded actions and recovery.
 
         ``llm`` is optional and is called if Jev selects ``call_llm`` or the
         main goal encounters a recoverable failure. Each response supplies a
         recovery subgoal to a nested Jev runner; it is not passed back as
         guidance to the main Jev goal. Failed subgoals may be revised using a
-        fresh observation until ``max_llm_assists`` is exhausted.
+        fresh observation until ``max_llm_assists`` is exhausted. The overall
+        deadline is disabled when ``max_seconds`` is ``None``; otherwise it
+        must be a positive value up to 60 seconds.
         """
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
-        if not 0.0 < max_seconds <= 45.0:
-            raise ValueError("max_seconds must be greater than 0 and at most 45")
+        if max_seconds is not None and not 0.0 < max_seconds <= 60.0:
+            raise ValueError(
+                "max_seconds must be None or greater than 0 and at most 60"
+            )
         if not 0.0 <= done_threshold <= 1.0:
             raise ValueError("done_threshold must be between 0 and 1")
         if not 0.0 <= action_threshold <= 1.0:
@@ -307,6 +312,12 @@ class JevGoal:
     ) -> AgentRun:
         started_at = monotonic()
         step_limit = self.max_steps if max_steps is None else max_steps
+
+        def remaining_seconds() -> float | None:
+            if self.max_seconds is None:
+                return None
+            return self.max_seconds - (monotonic() - started_at)
+
         if step_limit <= 0:
             record.error = "max_steps must be positive"
             record.finish(False, phase="planning")
@@ -349,8 +360,8 @@ class JevGoal:
                 for label in (*excluded_controls, *runtime_denied_controls)
             }
             while llm_assists < self.max_llm_assists:
-                remaining = self.max_seconds - (monotonic() - started_at)
-                if remaining <= 0:
+                remaining = remaining_seconds()
+                if remaining is not None and remaining <= 0:
                     return False, "main goal time limit expired before recovery"
                 llm_assists += 1
                 attempt: dict[str, object] = {
@@ -372,8 +383,8 @@ class JevGoal:
                     log_step("jev-goal-recovery-generation-failed", reason=str(exc))
                     return False, str(exc)
                 attempt["recovery_goal"] = recovery_goal
-                remaining = self.max_seconds - (monotonic() - started_at)
-                if remaining <= 0:
+                remaining = remaining_seconds()
+                if remaining is not None and remaining <= 0:
                     attempt.update({"outcome": "skipped", "reason": "time_limit"})
                     recovery_history.append(attempt)
                     return False, "main goal time limit expired before recovery actions"
@@ -391,7 +402,11 @@ class JevGoal:
                     provider=self.provider,
                     ocr=self.ocr,
                     max_steps=_MAX_RECOVERY_STEPS,
-                    max_seconds=min(_MAX_RECOVERY_SECONDS, remaining),
+                    max_seconds=(
+                        _MAX_RECOVERY_SECONDS
+                        if remaining is None
+                        else min(_MAX_RECOVERY_SECONDS, remaining)
+                    ),
                     done_threshold=self.done_threshold,
                     action_threshold=self.action_threshold,
                     max_candidates=min(self.max_candidates, 16),
@@ -521,9 +536,9 @@ class JevGoal:
             return False, "LLM recovery assist limit exhausted"
 
         def can_continue() -> bool:
-            return (
-                len(steps) < step_limit
-                and monotonic() - started_at < self.max_seconds
+            remaining = remaining_seconds()
+            return len(steps) < step_limit and (
+                remaining is None or remaining > 0
             )
 
         def finish(
@@ -572,7 +587,8 @@ class JevGoal:
         stale_decisions = 0
         consecutive_waits = 0
         while True:
-            if monotonic() - started_at >= self.max_seconds:
+            remaining = remaining_seconds()
+            if remaining is not None and remaining <= 0:
                 return finish(
                     False,
                     "time_limit",
@@ -604,7 +620,10 @@ class JevGoal:
                     and decision == "action"
                     and candidate is not None
                     and len(steps) < step_limit
-                    and monotonic() - started_at < self.max_seconds
+                    and (
+                        self.max_seconds is None
+                        or monotonic() - started_at < self.max_seconds
+                    )
                 )
                 verify_ocr_target = (
                     verify_fresh_state
@@ -654,7 +673,8 @@ class JevGoal:
                 )
                 raise
 
-            if monotonic() - started_at >= self.max_seconds:
+            remaining = remaining_seconds()
+            if remaining is not None and remaining <= 0:
                 return finish(
                     False,
                     "time_limit",
@@ -761,8 +781,12 @@ class JevGoal:
                         "loading_timeout",
                         error=error,
                     )
-                remaining_seconds = self.max_seconds - (monotonic() - started_at)
-                sleep(min(_WAIT_INTERVAL_SECONDS, max(0.0, remaining_seconds)))
+                remaining = remaining_seconds()
+                sleep(
+                    _WAIT_INTERVAL_SECONDS
+                    if remaining is None
+                    else min(_WAIT_INTERVAL_SECONDS, max(0.0, remaining))
+                )
                 continue
 
             if decision == "call_llm":

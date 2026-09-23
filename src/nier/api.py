@@ -433,7 +433,7 @@ class Device:
         llm: LlmProvider | None = None,
         llm_provider: str | None = None,
         max_steps: int = 8,
-        max_seconds: float = 45.0,
+        max_seconds: float | None = None,
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
@@ -461,18 +461,20 @@ class Device:
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;
         a fresh observation is still required immediately before a real action.
-        Main-goal actions are bounded by ``max_steps``; recovery subgoals have
-        a separate limit of three actions and ten seconds, further bounded by
-        the remaining ``max_seconds`` deadline. Jev only selects from
+        Main-goal actions are bounded by ``max_steps``. The overall time limit
+        is disabled when ``max_seconds`` is ``None``; an explicit limit may be
+        up to 60 seconds. Recovery subgoals have a separate limit of three
+        actions and thirty seconds, further bounded by the remaining main-goal
+        deadline when one is set. Jev only selects from
         host-generated candidates; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
         UI/OCR/system labels after case and whitespace normalization.
         ``allowed_apps`` maps display labels to validated Android package names;
         these app-launch candidates are omitted by default and Jev sees only
         their label and candidate ID. It cannot supply an arbitrary package.
-        ``use_score`` adds optional progress telemetry. ``max_seconds`` prevents
-        another action after its deadline, but cannot interrupt an in-flight
-        provider or device call.
+        ``use_score`` adds optional progress telemetry. An explicit
+        ``max_seconds`` prevents another action after its deadline, but cannot
+        interrupt an in-flight provider or device call.
         A Noul completion signal returns ``needs_verification`` for independent
         caller review.
         """
@@ -703,7 +705,7 @@ class Device:
         jev_provider: str | None = None,
         max_steps: int = 8,
         dry_run: bool = False,
-        max_seconds: float = 60.0,
+        max_seconds: float | None = None,
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
@@ -727,6 +729,11 @@ class Device:
         Without an available Jev provider, this preserves the LLM-planned Agent
         flow. Use :meth:`agent` explicitly when LLM-first tool planning is
         desired.
+
+        The Jev-first flow has no overall deadline by default. Pass
+        ``max_seconds`` to impose a limit of up to 60 seconds; recovery
+        subgoals keep their separate 30-second cap. ``max_steps`` continues to
+        bound main-goal actions.
         """
         if llm is not None and router is not None:
             raise ValueError("pass either llm or router, not both")
@@ -740,7 +747,7 @@ class Device:
                 or self.app_config.models.jev.api_key
             )
         jev_options_used = (
-            max_seconds != 45.0
+            max_seconds is not None
             or done_threshold != 0.85
             or action_threshold != 0.65
             or max_candidates != 32
@@ -791,7 +798,7 @@ class Device:
         jev: JevProvider | None = None,
         jev_provider: str | None = None,
         max_steps: int = 8,
-        max_seconds: float = 45.0,
+        max_seconds: float | None = None,
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
@@ -806,6 +813,9 @@ class Device:
         dry_run: bool = False,
     ) -> AgentRun:
         """Compatibility wrapper for the Jev-first :meth:`run` flow.
+
+        The overall goal deadline is disabled by default. Pass ``max_seconds``
+        to enable a positive deadline of up to 60 seconds.
 
         ``allowed_apps`` explicitly allowlists app launches by display label
         and package name. ``allowed_controls`` and ``denied_controls`` restrict
