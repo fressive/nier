@@ -25,3 +25,5 @@ src/nier/v1/*_pb2_grpc.py
 backend/nier-android/local.properties
 backend/nier-android/.gradle/
 backend/nier-android/app/.cxx/
+
+temp/

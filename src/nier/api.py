@@ -703,7 +703,7 @@ class Device:
         jev_provider: str | None = None,
         max_steps: int = 8,
         dry_run: bool = False,
-        max_seconds: float = 45.0,
+        max_seconds: float = 60.0,
         done_threshold: float = 0.85,
         action_threshold: float = 0.65,
         max_candidates: int = 32,
