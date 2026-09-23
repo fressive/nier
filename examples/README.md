@@ -11,10 +11,10 @@ python -m pip install -e '.[dev]'
 | [`01_basic_session.py`](01_basic_session.py) | Connect, health-check, inspect capabilities, and record a run | Yes |
 | [`02_control_device.py`](02_control_device.py) | Find a visible label and submit a search flow | Yes |
 | [`03_screenshot_uidump.py`](03_screenshot_uidump.py) | Capture evidence, save a structured UI tree, and inspect clickable nodes | Yes |
-| [`07_agent.py`](07_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
-| [`09_remote_ocr.py`](09_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
-| [`10_jev_goal.py`](10_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
-| [`11_webview_uidump.py`](11_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
+| [`04_agent.py`](04_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
+| [`05_remote_ocr.py`](05_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
+| [`06_jev_goal.py`](06_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
+| [`07_webview_uidump.py`](07_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
 
 Copy the configuration before running device examples:
 
@@ -23,17 +23,17 @@ cp config/nier.example.yaml config/nier.yaml
 PYTHONPATH=src python examples/01_basic_session.py
 PYTHONPATH=src python examples/02_control_device.py --confirm
 PYTHONPATH=src python examples/03_screenshot_uidump.py
-PYTHONPATH=src python examples/07_agent.py
-PYTHONPATH=src python examples/09_remote_ocr.py
-PYTHONPATH=src python examples/10_jev_goal.py
-PYTHONPATH=src python examples/10_jev_goal.py --execute --allow-control 关于本机
-PYTHONPATH=src python examples/10_jev_goal.py --yolo
-PYTHONPATH=src python examples/11_webview_uidump.py
+PYTHONPATH=src python examples/04_agent.py
+PYTHONPATH=src python examples/05_remote_ocr.py
+PYTHONPATH=src python examples/06_jev_goal.py
+PYTHONPATH=src python examples/06_jev_goal.py --execute --allow-control 关于本机
+PYTHONPATH=src python examples/06_jev_goal.py --yolo
+PYTHONPATH=src python examples/07_webview_uidump.py
 ```
 
 Only run device-control examples against devices and applications you are
 authorized to test. `02_control_device.py` requires `--confirm` because it taps
-a label and submits text. `10_jev_goal.py` previews by default and allowlists
+a label and submits text. `06_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
 `关于本机` by default. When an LLM provider is configured, Jev may request
 high-level direction through `call_llm`; Jev still chooses every action.

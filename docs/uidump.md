@@ -146,7 +146,7 @@ arbitrary application; the target app must call
 `WebViewDebugController.enable()` before creating its WebView. See the
 [WebView DevTools guide](webview-devtools.md) for setup and examples.
 
-The runnable [`11_webview_uidump.py`](../examples/11_webview_uidump.py) example
+The runnable [`07_webview_uidump.py`](../examples/07_webview_uidump.py) example
 calls `phone.uidump(..., prefer_webview=True)`, formats the parsed tree through
 `phone.format_tree(document)`, and saves both that tree and the complete raw
 HTML/XML. The formatter shortens text, shows only true-valued boolean

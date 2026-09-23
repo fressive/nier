@@ -11,7 +11,7 @@ def test_jev_goal_example_modes_are_opt_in_and_import_safe(monkeypatch) -> None:
         raise AssertionError("importing the example must not connect to a device")
 
     monkeypatch.setattr(nier, "connect", fail_if_connected)
-    example_path = Path(__file__).parents[1] / "examples" / "10_jev_goal.py"
+    example_path = Path(__file__).parents[1] / "examples" / "06_jev_goal.py"
     example = runpy.run_path(example_path, run_name="jev_goal_example_test")
     parser = example["_parser"]()
     options = example["_goal_options"]
