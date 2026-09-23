@@ -178,7 +178,7 @@ def test_format_tree_shows_text_and_only_true_boolean_attributes() -> None:
 
     tree = phone.format_tree(document, color=False)
 
-    assert tree == ("hierarchy\n└── node [text='搜索', clickable=True, enabled=True]")
+    assert tree == ("hierarchy\n└── node [text='搜索', clickable, enabled]")
     assert "resource-id" not in tree
     assert "selected" not in tree
     assert "content-desc" not in tree
