@@ -224,8 +224,10 @@ with connect("config/nier.yaml") as phone:
     print(run.plan.jev)
 ```
 
-For a custom Jev client, pass `jev=` to `phone.agent()` or `phone.run()`. An
-Agent can also make an explicit typed call from the goal flow:
+For LLM-first Agent planning with optional Jev context, use `phone.agent()` and
+pass a custom Jev client with `jev=`. `phone.run()` uses Jev as the primary
+decision-maker when Jev is configured. An explicit Agent can also make a typed
+call from the goal flow:
 
 ```python
 agent = phone.agent()
@@ -239,15 +241,15 @@ print(answer.answer("urgent").noul)
 If a configured Jev request fails, goal execution fails rather than silently
 disabling the provider or falling back to an unverified decision.
 
-### Jev-driven goals
+### Jev-first unified goals
 
-Use `run_jev_goal()` when the task can be expressed as a sequence of visible
-UI/OCR selections and small system keys, and you want Jev to be the goal
-decision model without an LLM planner:
+Use `phone.run()` when the task can be expressed as a sequence of visible
+UI/OCR selections and small system keys. With Jev configured, Jev is the primary
+decision-maker:
 
 ```python
 with connect("config/nier.yaml") as phone:
-    result = phone.run_jev_goal(
+    result = phone.run(
         "打开设置，进入关于本机",
         max_steps=8,
         max_seconds=45,
@@ -287,6 +289,14 @@ regenerated for each observation and are never valid after the page changes.
 OCR is optional; without a configured provider, UI candidates remain available
 and `inspect_ocr` is not offered. With a provider configured, Jev can request
 OCR at most once for the current observation.
+
+If an LLM is configured, `next` also offers `call_llm` (two assists per run by
+default). Jev can select it when progress is stuck; the LLM receives a bounded
+semantic summary and returns only high-level strategic guidance. That guidance
+is included in Jev's next observation, and Jev still selects every candidate
+action. The LLM cannot return an action, coordinate, package, or completion
+signal. Set `max_llm_assists=0` to disable this option. `phone.run_jev_goal()`
+remains a compatibility wrapper around the same Jev-first flow.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android
 package name to offer app-launch candidates, for example
@@ -329,9 +339,11 @@ run with an error. The caller should inspect a fresh screenshot or UI dump when
 Jev returns `needs_verification`.
 
 This keeps Jev in a mechanical selection role: it cannot type text or invent
-coordinates and operations. Use `phone.run()` when the goal needs text
-generation, free-form swipes, app discovery, or actions outside the finite
-candidate set. Only run this flow on a connected device and for a goal whose
+coordinates and operations. Use `phone.agent().run()` for LLM-first tool
+planning when the goal needs text generation, free-form swipes, app discovery,
+or actions outside the finite candidate set. If Jev is not configured,
+`phone.run()` also preserves the LLM Agent flow. Only run the Jev-first flow on
+a connected device and for a goal whose
 candidate actions you authorize; `allowed_controls` and `denied_controls` can
 narrow that set. `DeviceSession` never retries taps or other device actions.
 
@@ -340,9 +352,9 @@ narrow that set. `DeviceSession` never retries taps or other device actions.
 Jev is the typed-decision provider. Its wire API follows the TypeSafe
 [quickstart](https://docs.typesafe.ai/introduction/quickstart) and
 [primitive definitions](https://docs.typesafe.ai/primitives). It is useful when the application needs a
-bounded `choice`, `score`, or `noul` answer instead of another free-form plan.
-It is separate from the LLM used by `phone.run(...)`: an LLM can write an
-operation flow, while Jev can classify, route, or gate a decision in that flow.
+bounded `choice`, `score`, or `noul` answer. In the Jev-first
+`phone.run(...)` flow, Jev selects each action and can optionally ask an LLM for
+strategic direction; for LLM-first operation planning use `phone.agent()`.
 
 Set the key in the environment and add an optional `models.jev` section:
 

@@ -331,16 +331,22 @@ normalize the returned text, confidence, and polygon/rectangle coordinates
 into `TextSpan` values. Remote OCR failures MUST raise `ModelError` and MUST
 not silently fall back to local OCR.
 
-`Device.agent()` and `Device.run(instruction)` MUST send native tool
+`Device.agent()` MUST provide the LLM-first Agent flow: it sends native tool
 definitions with the current screenshot/UI state and natural-language goal,
-then compile the returned tool calls into validated `AgentStep` values before
-executing. The model context MUST include a bounded foreground Activity object
-when available, and an explicit unavailable warning otherwise. The same
-Activity object MUST be included in Jev state. The Agent MUST NOT require a
-free-form JSON operation-plan response. The Agent MUST re-observe the device
-after each action, accept exactly one next action or goal-control tool call per
-iteration, and stop only on `goal_complete`, `goal_failed`, an action failure,
-or the `max_steps` limit.
+then compiles returned tool calls into validated `AgentStep` values before
+executing. `Device.run(instruction)` MUST use the Jev-first goal flow whenever
+a direct Jev client, an explicit Jev provider, a Jev-containing router, or a
+configured Jev provider is available. In that flow, Jev selects from the
+host-validated finite candidate set; an optional LLM can provide direction only
+when Jev selects `call_llm`. If Jev is not configured and no Jev-specific option
+is requested, `Device.run()` MUST preserve the LLM-first Agent flow. The model
+context MUST include a bounded foreground Activity object when available, and
+an explicit unavailable warning otherwise. The same Activity object MUST be
+included in Jev state. Neither flow MUST require a free-form JSON
+operation-plan response. The Agent MUST re-observe the device after each action,
+accept exactly one next action or goal-control tool call per iteration, and
+stop only on `goal_complete`, `goal_failed`, an action failure, or the
+`max_steps` limit.
 Only the allowlisted tap, swipe, text, key, back, home, enter, list_apps,
 list_app_activities, open_app, and start_activity operations may be executed.
 The list tools are read-only; the launch tools change device state. Package
@@ -351,8 +357,8 @@ write its goal progress and outcome to the same `RunRecorder` used by the
 session.
 
 When a direct `jev` client is supplied, or when `jev_provider` is omitted and a
-configured Jev provider exists, the Agent MUST make one typed Jev observation
-call per goal iteration containing the current goal, UI state, and OCR spans.
+configured Jev provider exists, the LLM-first Agent MUST make one typed Jev
+observation call per goal iteration containing the current goal, UI state, and OCR spans.
 The Jev request MUST NOT include screenshots, screen dimensions, or spatial
 coordinates. Its bounded `ui` tree MUST preserve source/completeness metadata,
 hierarchy, semantic source attributes, text/content descriptions, resource
@@ -373,9 +379,11 @@ failure MUST fail goal execution instead of silently disabling the configured
 provider. If no Jev provider is configured and no direct client is supplied,
 the Agent proceeds without Jev context.
 
-`Device.jev_goal()` and `Device.run_jev_goal(instruction)` provide a separate
-Jev-driven goal flow. This flow MUST NOT ask Jev to generate arbitrary device
-operations. For each observation, the host MUST expose the goal, bounded
+`Device.jev_goal()` creates the Jev-first goal runner used by
+`Device.run(instruction)`. `Device.run_jev_goal(instruction)` MUST remain a
+backward-compatible wrapper to that same flow. This flow MUST NOT ask Jev to
+generate arbitrary device operations. For each observation, the host MUST
+expose the goal, bounded
 foreground Activity, a bounded semantic UI tree, optional OCR text/confidence,
 bounded recent action history, and a finite candidate list. Jev MUST NOT receive
 screenshots, screen dimensions, bounds, centers, coordinates, executable action
@@ -412,11 +420,24 @@ The Jev goal request MUST contain a `done` Noul question and a `next` Choice
 question. `done` MUST use a configurable threshold; reaching it MUST return
 `needs_verification` and MUST NOT be reported as an independently verified
 pass. The caller is responsible for checking a fresh screenshot or UI dump.
-`next` MUST contain generated candidate IDs, the `blocked` and `wait` signals,
-and `inspect_ocr` only when it is available for the current observation. An
-unknown or below-threshold answer MUST stop without dispatching an action.
+`next` MUST contain generated candidate IDs and the `blocked` and `wait`
+signals. It MUST contain `inspect_ocr` only when available for the current
+observation. If an LLM provider is configured and the `max_llm_assists` cap has
+not been reached, `next` MUST also contain `call_llm`; otherwise that option
+MUST be absent. The cap MUST be a non-negative integer and default to two
+assists per run. An unknown or below-threshold answer MUST stop without
+dispatching an action.
 `blocked` MUST return control without acting. `wait` MUST trigger a bounded wait
 and fresh observation; three consecutive waits MUST stop with a loading timeout.
+When selected, `call_llm` MUST pass the user goal and bounded semantic
+observation to `LlmProvider.complete`, then expose its bounded text guidance in
+the next Jev observation and recent history. The LLM MUST be prompted to revise
+only the high-level approach; it MUST NOT select or dispatch an action, supply
+coordinates/packages/commands, or declare completion. The LLM guidance MUST NOT
+bypass Jev candidate selection or host validation. Each response MUST be bounded
+to 1,200 characters. The call MUST count toward `max_llm_assists`; when that cap
+is exhausted Jev MUST continue without the `call_llm` option. Provider failures
+MUST fail the run rather than silently altering the route.
 The initial candidate implementation MUST limit execution to bounded UI/OCR
 taps, app launches from `allowed_apps`, and fixed safe system keys; free-form
 text, shell commands, Activity launches, and unbounded gestures MUST remain

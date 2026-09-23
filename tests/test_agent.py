@@ -262,14 +262,15 @@ def test_agent_exposes_explicit_jev_call() -> None:
     assert response.answer("ready").noul == 0.96
 
 
-def test_device_run_passes_a_direct_jev_client_to_agent() -> None:
+def test_explicit_agent_keeps_direct_jev_as_advisory_context() -> None:
     phone, backend = make_device()
     jev = FakeJev()
 
-    result = phone.run(
-        "检查当前页面",
+    result = phone.agent(
         llm=FakeLlm([tool("goal_complete", reason="当前页面无需操作")]),
         jev=jev,
+    ).run(
+        "检查当前页面",
         dry_run=True,
     )
 

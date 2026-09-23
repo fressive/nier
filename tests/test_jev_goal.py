@@ -77,6 +77,16 @@ class FakeJev:
         return self.responses.pop(0)
 
 
+class FakeLlm:
+    def __init__(self, guidance: str) -> None:
+        self.guidance = guidance
+        self.prompts: list[str] = []
+
+    def complete(self, prompt: str, *, image: bytes | None = None) -> str:
+        self.prompts.append(prompt)
+        return self.guidance
+
+
 class FakeOcr:
     def __init__(self) -> None:
         self.calls = 0
@@ -141,6 +151,64 @@ def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
     assert result.plan.jev["done"] == 0.96  # type: ignore[index]
     assert len(backend.actions) == 1
     assert len(backend.dump_ui_requests) == 3
+
+
+def test_device_run_uses_jev_and_llm_only_for_directional_assistance() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="call_llm"),
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.96, choice="blocked"),
+        ]
+    )
+    llm = FakeLlm("先检查当前页面中的登录入口，再判断是否需要打开设置。")
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert len(backend.actions) == 1
+    assert len(llm.prompts) == 1
+    assert "Do not return an action, tool call" in llm.prompts[0]
+    assert "[10,20]" not in llm.prompts[0]
+    first_state, first_questions = jev.calls[0]
+    assert "call_llm" in first_questions["next"].options  # type: ignore[index,operator]
+    second_state, _ = jev.calls[1]
+    assert second_state["llm_guidance"] == llm.guidance
+    assert second_state["llm_assists_used"] == 1
+    assert result.plan.jev["llm_assists"] == [  # type: ignore[index]
+        {
+            "iteration": 1,
+            "provider": "custom",
+            "guidance": llm.guidance,
+        }
+    ]
+
+
+def test_jev_goal_removes_call_llm_after_assist_limit() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="call_llm"),
+            _response(done=0.10, choice="call_llm"),
+        ]
+    )
+    llm = FakeLlm("换一个页面入口继续查找。")
+
+    result = phone.run(
+        "进入登录页面",
+        jev=jev,
+        llm=llm,
+        max_llm_assists=1,
+    )
+
+    assert result.success is False
+    assert result.termination == "blocked"
+    assert len(llm.prompts) == 1
+    assert "call_llm" in jev.calls[0][1]["next"].options  # type: ignore[index,operator]
+    assert "call_llm" not in jev.calls[1][1]["next"].options  # type: ignore[index,operator]
+    assert backend.actions == []
 
 
 def test_jev_goal_runs_ocr_only_after_jev_requests_it() -> None:

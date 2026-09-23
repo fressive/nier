@@ -9,6 +9,7 @@ from nier import Device, connect
 from nier.config import from_mapping
 from nier.errors import ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, TextSpan
+from nier.models.jev import JevAnswer, JevResponse
 from nier.protocol import (
     Action,
     ActionResult,
@@ -330,6 +331,56 @@ def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> Non
     assert goal.ocr is not None
     assert goal.ocr.recognize(b"image") == []
     assert created == ["local"]
+
+
+def test_device_run_routes_to_configured_jev_without_eagerly_loading_llm(monkeypatch) -> None:
+    config = from_mapping(
+        {
+            "models": {
+                "llm_providers": {"primary": {"model": "primary-model"}},
+                "jev_providers": {"typed": {"model": "typed-model"}},
+            }
+        }
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    created_jev: list[str] = []
+    jev_calls: list[tuple[object, object]] = []
+
+    class FakeJev:
+        def ask(self, state, questions):
+            jev_calls.append((state, questions))
+            return JevResponse(
+                answers={
+                    "done": JevAnswer(type="noul", noul=0.96),
+                    "next": JevAnswer(
+                        type="choice",
+                        choice="blocked",
+                        confidence=0.99,
+                        probabilities={"blocked": 0.99},
+                    ),
+                },
+                model="fake",
+            )
+
+    monkeypatch.setattr(
+        phone,
+        "_configured_jev",
+        lambda provider: created_jev.append(provider) or FakeJev(),
+    )
+    monkeypatch.setattr(
+        phone,
+        "_configured_llm",
+        lambda provider: pytest.fail(f"LLM loaded eagerly: {provider}"),
+    )
+
+    result = phone.run("检查当前页面", dry_run=True)
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert result.plan.provider == "typed"
+    assert created_jev == ["typed"]
+    assert len(jev_calls) == 1
+    assert "call_llm" in jev_calls[0][1]["next"].options  # type: ignore[index,operator]
 
 
 def test_unbound_screenshot_rejects_ocr() -> None:

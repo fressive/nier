@@ -155,6 +155,13 @@ class JevGoal:
         llm_provider: str | None = None,
         max_llm_assists: int = 2,
     ) -> None:
+        """Create a bounded Jev goal runner.
+
+        ``llm`` is optional and is called only if Jev selects ``call_llm``.
+        Each response supplies high-level guidance to a later Jev observation;
+        Jev remains responsible for choosing the next validated candidate.
+        ``max_llm_assists`` caps those calls and defaults to two per run.
+        """
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
         if not 0.0 < max_seconds <= 45.0:

@@ -428,10 +428,11 @@ class Device:
         Jev chooses among a bounded UI/OCR/app candidate list and the host
         executes only its selected, validated candidate. If an LLM is available,
         Jev may choose ``call_llm`` to get a bounded strategic adjustment; the
-        LLM cannot choose or execute device actions. The first configured Jev,
-        LLM, and OCR providers are selected when names are omitted. A configured
-        OCR provider runs only after Jev selects ``inspect_ocr`` and at most once
-        per observation.
+        LLM cannot choose or execute device actions. ``max_llm_assists`` limits
+        this to two calls per run by default; set it to zero to disable the
+        option. The first configured Jev, LLM, and OCR providers are selected
+        when names are omitted. A configured OCR provider runs only after Jev
+        selects ``inspect_ocr`` and at most once per observation.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;
@@ -692,6 +693,7 @@ class Device:
         When a Jev provider is supplied or configured, Jev chooses among
         host-validated candidates. If Jev selects ``call_llm``, the optional
         LLM returns strategic guidance only; Jev still selects every action.
+        ``max_llm_assists`` bounds such calls and defaults to two per run.
         Without an available Jev provider, this preserves the LLM-planned Agent
         flow. Use :meth:`agent` explicitly when LLM-first tool planning is
         desired.

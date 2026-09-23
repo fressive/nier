@@ -59,13 +59,17 @@ The current foundation includes:
   while retaining shell input as the default;
 - OCR, deterministic text-match decisions, TypeSafe Jev typed decisions,
   provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
-- a natural-language Agent that compiles native LLM tool calls into a bounded
-  iterative goal loop, optionally enriches each observation with TypeSafe Jev
-  typed decisions, and records it with ordinary device actions.
+- a unified `Device.run()` goal flow that uses TypeSafe Jev as the primary
+  decision-maker when configured, selecting only host-validated actions and
+  optionally asking an LLM for high-level direction when Jev requests help;
+- an explicit LLM-first Agent API for goals that need free-form text or actions
+  outside Jev's bounded candidate set, with validated native tool calls.
 
 The following are intentionally outside the completed foundation:
 
-- continuous post-action verification, recovery, and stuck/failure monitoring;
+- automatic stuck/failure detection and recovery; Jev may explicitly request a
+  bounded LLM strategy adjustment, but neither model silently retries actions;
+- continuous post-action verification;
 - autonomous WebView interaction beyond DOM extraction; the optional root
   Frida hook and cooperative non-root integration now enable WebView DevTools
   DOM dumps. Root mode also has an explicit, best-effort configuration for

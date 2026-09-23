@@ -76,7 +76,7 @@ def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     allowed_controls, dry_run = _goal_options(args)
     with connect(CONFIG) as phone:
-        result = phone.run_jev_goal(
+        result = phone.run(
             GOAL,
             max_steps=100,
             max_seconds=45,

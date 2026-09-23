@@ -16,7 +16,7 @@ python -m pip install -e '.[dev]'
 | [`07_agent.py`](07_agent.py) | Run a UI goal with an LLM and Jev | Yes; requires configured models |
 | [`08_jev.py`](08_jev.py) | Ask a typed TypeSafe Jev decision | No device action; requires `TYPESAFE_API_KEY` |
 | [`09_remote_ocr.py`](09_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
-| [`10_jev_goal.py`](10_jev_goal.py) | Preview or run a bounded UI goal with Jev candidate selection | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
+| [`10_jev_goal.py`](10_jev_goal.py) | Preview or run `phone.run()` with Jev-first candidate selection and optional LLM direction help | Yes; requires configured Jev; the Settings app is allowlisted, and UI actions require explicit labels |
 | [`11_webview_uidump.py`](11_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
 
 Copy the configuration before running device examples:
@@ -39,7 +39,9 @@ Only run device-control examples against devices and applications you are
 authorized to test. `02_control_device.py` requires `--confirm` because it taps
 a label and submits text. `10_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
-`关于本机` by default. `--allow-control` replaces that label with the exact
+`关于本机` by default. When an LLM provider is configured, Jev may request
+high-level direction through `call_llm`; Jev still chooses every action.
+`--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
 bypasses preview and offers all discovered UI/OCR control labels. Jev still
 selects among host-validated candidates and the same confidence and execution
