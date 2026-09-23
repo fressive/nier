@@ -6,9 +6,11 @@ from collections import deque
 import os
 from pathlib import Path
 import queue
+import re
+import secrets
 import shutil
+import socket
 import subprocess
-import tempfile
 import threading
 import time
 from typing import Any, BinaryIO
@@ -23,7 +25,9 @@ class PreviewRequestError(ValueError):
 
 
 class ScrcpyPreview:
-    """Capture one authorized ADB device through scrcpy and serve JPEG frames."""
+    """Capture an authorized ADB device through scrcpy and serve JPEG frames."""
+
+    _DEVICE_SERVER_PATH = "/data/local/tmp/scrcpy-server.jar"
 
     def __init__(self) -> None:
         self._lock = threading.RLock()
@@ -33,11 +37,14 @@ class ScrcpyPreview:
         self._error: str | None = None
         self._active = False
         self._connected = False
-        self._scrcpy: subprocess.Popen[bytes] | None = None
+        self._server: subprocess.Popen[bytes] | None = None
         self._ffmpeg: subprocess.Popen[bytes] | None = None
-        self._pending_scrcpy: subprocess.Popen[bytes] | None = None
+        self._pending_server: subprocess.Popen[bytes] | None = None
         self._pending_ffmpeg: subprocess.Popen[bytes] | None = None
-        self._fifo_directory: str | None = None
+        self._video_socket: socket.socket | None = None
+        self._adb_path: str | None = None
+        self._forward_serial: str | None = None
+        self._forward_port: int | None = None
         self._latest_frame: bytes | None = None
         self._subscribers: set[queue.Queue[bytes | None]] = set()
         self._stderr: dict[str, deque[str]] = {
@@ -47,6 +54,7 @@ class ScrcpyPreview:
 
     def status(self) -> dict[str, Any]:
         adb_path = shutil.which("adb")
+        scrcpy_path = shutil.which("scrcpy")
         devices, device_error = self._list_devices(adb_path)
         with self._lock:
             return {
@@ -58,9 +66,9 @@ class ScrcpyPreview:
                 "device_error": device_error,
                 "dependencies": {
                     "adb": adb_path is not None,
-                    "scrcpy": shutil.which("scrcpy") is not None,
+                    "scrcpy": scrcpy_path is not None,
+                    "scrcpy_server": self._find_server_path(scrcpy_path) is not None,
                     "ffmpeg": shutil.which("ffmpeg") is not None,
-                    "fifo": hasattr(os, "mkfifo"),
                 },
                 "devices": devices,
             }
@@ -75,8 +83,14 @@ class ScrcpyPreview:
         missing = [name for name, path in (("adb", adb_path), ("scrcpy", scrcpy_path), ("ffmpeg", ffmpeg_path)) if path is None]
         if missing:
             raise PreviewUnavailable(f"缺少预览依赖：{', '.join(missing)}。请安装后重新启动 nier web。")
-        if not hasattr(os, "mkfifo"):
-            raise PreviewUnavailable("当前平台缺少 FIFO 管道支持，暂时无法运行嵌入式 scrcpy 预览")
+        assert adb_path is not None and scrcpy_path is not None and ffmpeg_path is not None
+
+        server_path = self._find_server_path(scrcpy_path)
+        if server_path is None:
+            raise PreviewUnavailable(
+                "找不到 scrcpy-server 文件。请安装完整的 scrcpy 软件包，或通过 SCRCPY_SERVER_PATH 指定它。"
+            )
+        version = self._get_scrcpy_version(scrcpy_path)
 
         devices, device_error = self._list_devices(adb_path)
         device = next((item for item in devices if item["serial"] == serial), None)
@@ -98,18 +112,20 @@ class ScrcpyPreview:
                 try:
                     self._start_processes(
                         serial,
-                        scrcpy_path=scrcpy_path,
+                        adb_path=adb_path,
                         ffmpeg_path=ffmpeg_path,
+                        server_path=server_path,
+                        version=version,
                     )
-                except (OSError, subprocess.SubprocessError) as exc:
+                except (OSError, subprocess.SubprocessError, RuntimeError) as exc:
                     message = f"无法启动 scrcpy 预览：{exc}"
                     self._shutdown_locked(status="error", error=message, bump_generation=False)
                     raise PreviewUnavailable(message) from exc
 
                 self._active = True
-                self._scrcpy = self._pending_scrcpy
+                self._server = self._pending_server
                 self._ffmpeg = self._pending_ffmpeg
-                self._pending_scrcpy = None
+                self._pending_server = None
                 self._pending_ffmpeg = None
                 self._start_readers_locked(generation)
         return self.status()
@@ -119,7 +135,7 @@ class ScrcpyPreview:
         return self.status()
 
     def close(self) -> None:
-        """Stop preview subprocesses without querying ADB during shutdown."""
+        """Stop preview processes and remove the temporary ADB forward."""
         with self._lock:
             self._shutdown_locked(status="idle", error=None, bump_generation=True)
 
@@ -199,79 +215,134 @@ class ScrcpyPreview:
         self,
         serial: str,
         *,
-        scrcpy_path: str,
+        adb_path: str,
         ffmpeg_path: str,
+        server_path: str,
+        version: str,
     ) -> None:
-        self._fifo_directory = tempfile.mkdtemp(prefix="nier-scrcpy-")
-        os.chmod(self._fifo_directory, 0o700)
-        fifo_path = str(Path(self._fifo_directory) / "video.mkv")
-        os.mkfifo(fifo_path, 0o600)
-        fifo_fd = os.open(fifo_path, os.O_RDWR)
-        try:
-            self._pending_ffmpeg = subprocess.Popen(
-                [
-                    ffmpeg_path,
-                    "-hide_banner",
-                    "-loglevel",
-                    "error",
-                    "-fflags",
-                    "nobuffer",
-                    "-f",
-                    "matroska",
-                    "-i",
-                    "pipe:0",
-                    "-an",
-                    "-vf",
-                    "fps=12",
-                    "-q:v",
-                    "8",
-                    "-f",
-                    "image2pipe",
-                    "-vcodec",
-                    "mjpeg",
-                    "pipe:1",
-                ],
-                stdin=fifo_fd,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                bufsize=0,
-            )
-        finally:
-            os.close(fifo_fd)
+        push = subprocess.run(
+            [adb_path, "-s", serial, "push", server_path, self._DEVICE_SERVER_PATH],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=20,
+        )
+        if push.returncode != 0:
+            detail = (push.stderr or push.stdout).strip()[-600:]
+            raise RuntimeError(f"adb push scrcpy-server 失败：{detail or push.returncode}")
 
-        self._pending_scrcpy = subprocess.Popen(
+        scid = secrets.randbits(31)
+        socket_name = f"scrcpy_{scid:08x}"
+        forward = subprocess.run(
+            [adb_path, "-s", serial, "forward", "tcp:0", f"localabstract:{socket_name}"],
+            check=False,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=8,
+        )
+        if forward.returncode != 0:
+            detail = (forward.stderr or forward.stdout).strip()[-600:]
+            raise RuntimeError(f"创建临时 ADB 转发失败：{detail or forward.returncode}")
+        try:
+            port = int(forward.stdout.strip().splitlines()[-1])
+        except (IndexError, ValueError) as exc:
+            raise RuntimeError(f"adb forward 没有返回本地端口：{forward.stdout.strip()!r}") from exc
+        if not 1 <= port <= 65535:
+            raise RuntimeError(f"adb forward 返回了无效端口：{port}")
+
+        self._adb_path = adb_path
+        self._forward_serial = serial
+        self._forward_port = port
+
+        self._pending_ffmpeg = subprocess.Popen(
             [
-                scrcpy_path,
-                "--serial",
-                serial,
-                "--no-audio",
-                "--no-control",
-                "--no-playback",
-                "--max-size",
-                "1280",
-                "--video-bit-rate",
-                "4M",
-                "--record-format",
-                "mkv",
-                "--record",
-                fifo_path,
+                ffmpeg_path,
+                "-hide_banner",
+                "-loglevel",
+                "error",
+                "-probesize",
+                "32",
+                "-analyzeduration",
+                "0",
+                "-f",
+                "h264",
+                "-i",
+                "pipe:0",
+                "-an",
+                "-q:v",
+                "8",
+                "-vcodec",
+                "mjpeg",
+                "-pix_fmt",
+                "yuvj420p",
+                "-threads:v",
+                "1",
+                "-flush_packets",
+                "1",
+                "-f",
+                "image2pipe",
+                "pipe:1",
             ],
-            stdin=subprocess.DEVNULL,
-            stdout=subprocess.DEVNULL,
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             bufsize=0,
         )
 
+        self._pending_server = subprocess.Popen(
+            [
+                adb_path,
+                "-s",
+                serial,
+                "shell",
+                f"CLASSPATH={self._DEVICE_SERVER_PATH}",
+                "app_process",
+                "/",
+                "com.genymobile.scrcpy.Server",
+                version,
+                f"scid={scid:08x}",
+                "log_level=info",
+                "video=true",
+                "video_bit_rate=4000000",
+                "video_codec=h264",
+                "audio=false",
+                "control=false",
+                "max_size=1280",
+                "tunnel_forward=true",
+                # Keep the video socket as a raw H.264 byte stream. The single
+                # startup marker lets the host distinguish a ready server from
+                # an ADB forward that accepted too early.
+                "send_device_meta=false",
+                "send_frame_meta=false",
+                "send_stream_meta=false",
+                "send_dummy_byte=true",
+            ],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            bufsize=0,
+        )
+
     def _start_readers_locked(self, generation: int) -> None:
-        assert self._scrcpy is not None and self._ffmpeg is not None
-        for label, process in (("scrcpy", self._scrcpy), ("ffmpeg", self._ffmpeg)):
-            if process.stderr is not None:
-                threading.Thread(
-                    target=self._read_stderr,
-                    args=(generation, label, process.stderr),
-                    name=f"nier-preview-{label}",
-                    daemon=True,
-                ).start()
+        assert self._server is not None and self._ffmpeg is not None
+        if self._server.stdout is not None:
+            threading.Thread(
+                target=self._read_output,
+                args=(generation, "scrcpy", self._server.stdout),
+                name="nier-preview-scrcpy",
+                daemon=True,
+            ).start()
+        if self._ffmpeg.stderr is not None:
+            threading.Thread(
+                target=self._read_output,
+                args=(generation, "ffmpeg", self._ffmpeg.stderr),
+                name="nier-preview-ffmpeg",
+                daemon=True,
+            ).start()
         if self._ffmpeg.stdout is not None:
             threading.Thread(
                 target=self._read_frames,
@@ -279,6 +350,13 @@ class ScrcpyPreview:
                 name="nier-preview-frames",
                 daemon=True,
             ).start()
+        assert self._forward_port is not None and self._ffmpeg.stdin is not None
+        threading.Thread(
+            target=self._read_video,
+            args=(generation, self._forward_port, self._ffmpeg.stdin.fileno()),
+            name="nier-preview-video",
+            daemon=True,
+        ).start()
         threading.Thread(
             target=self._watch_processes,
             args=(generation,),
@@ -286,7 +364,7 @@ class ScrcpyPreview:
             daemon=True,
         ).start()
 
-    def _read_stderr(self, generation: int, label: str, stream: BinaryIO) -> None:
+    def _read_output(self, generation: int, label: str, stream: BinaryIO) -> None:
         try:
             for line in stream:
                 value = line.decode("utf-8", errors="replace").strip()
@@ -297,6 +375,78 @@ class ScrcpyPreview:
                         self._stderr[label].append(value[:500])
         except OSError:
             return
+
+    def _read_video(self, generation: int, port: int, ffmpeg_stdin: int) -> None:
+        deadline = time.monotonic() + 20
+        video_socket: socket.socket | None = None
+        while time.monotonic() < deadline:
+            with self._lock:
+                if generation != self._generation or not self._active:
+                    return
+            candidate: socket.socket | None = None
+            try:
+                candidate = socket.create_connection(("127.0.0.1", port), timeout=1)
+                candidate.settimeout(1)
+                # adb forward may accept the host connection before the device
+                # has bound its abstract socket. scrcpy's client distinguishes
+                # that early close from a ready server with this one-byte marker.
+                marker = candidate.recv(1)
+                if marker == b"\0":
+                    video_socket = candidate
+                    video_socket.settimeout(1)
+                    break
+            except OSError:
+                pass
+            if candidate is not None:
+                try:
+                    candidate.close()
+                except OSError:
+                    pass
+            time.sleep(0.2)
+
+        if video_socket is None:
+            self._fail(generation, "等待 scrcpy 视频连接超时")
+            return
+
+        with self._lock:
+            if generation != self._generation or not self._active:
+                video_socket.close()
+                return
+            self._video_socket = video_socket
+            self._connected = True
+
+        try:
+            while True:
+                with self._lock:
+                    if generation != self._generation or not self._active:
+                        return
+                try:
+                    chunk = video_socket.recv(64 * 1024)
+                except socket.timeout:
+                    continue
+                if not chunk:
+                    self._fail(generation, "scrcpy 视频连接已断开")
+                    return
+                self._write_all(ffmpeg_stdin, chunk)
+        except (BrokenPipeError, OSError) as exc:
+            self._fail(generation, f"向 FFmpeg 传送 H.264 视频失败：{exc}")
+        finally:
+            with self._lock:
+                if self._video_socket is video_socket:
+                    self._video_socket = None
+            try:
+                video_socket.close()
+            except OSError:
+                pass
+
+    @staticmethod
+    def _write_all(fd: int, data: bytes) -> None:
+        view = memoryview(data)
+        while view:
+            written = os.write(fd, view)
+            if written <= 0:
+                raise BrokenPipeError("FFmpeg stdin 已关闭")
+            view = view[written:]
 
     def _read_frames(self, generation: int, stream: BinaryIO) -> None:
         buffer = bytearray()
@@ -346,13 +496,13 @@ class ScrcpyPreview:
             with self._lock:
                 if generation != self._generation or not self._active:
                     return
-                scrcpy_process = self._scrcpy
+                server_process = self._server
                 ffmpeg_process = self._ffmpeg
-            if scrcpy_process is not None and scrcpy_process.poll() is not None:
-                self._fail(generation, "scrcpy 已退出")
+            if server_process is not None and server_process.poll() is not None:
+                self._fail(generation, "scrcpy server 已退出")
                 return
             if ffmpeg_process is not None and ffmpeg_process.poll() is not None:
-                self._fail(generation, "ffmpeg 视频转换已退出")
+                self._fail(generation, "FFmpeg 视频转换已退出")
                 return
             time.sleep(0.5)
 
@@ -390,18 +540,86 @@ class ScrcpyPreview:
                 pass
         self._subscribers.clear()
 
-        for process in (self._scrcpy, self._ffmpeg, getattr(self, "_pending_ffmpeg", None), getattr(self, "_pending_scrcpy", None)):
+        video_socket = self._video_socket
+        self._video_socket = None
+        if video_socket is not None:
+            try:
+                video_socket.shutdown(socket.SHUT_RDWR)
+            except OSError:
+                pass
+            try:
+                video_socket.close()
+            except OSError:
+                pass
+
+        for process in (self._server, self._ffmpeg, self._pending_server, self._pending_ffmpeg):
+            if process is self._ffmpeg or process is self._pending_ffmpeg:
+                if process is not None and process.stdin is not None:
+                    try:
+                        process.stdin.close()
+                    except OSError:
+                        pass
             self._terminate(process)
-        self._scrcpy = None
+        self._server = None
         self._ffmpeg = None
-        self._pending_scrcpy = None
+        self._pending_server = None
         self._pending_ffmpeg = None
 
-        if self._fifo_directory is not None:
-            shutil.rmtree(self._fifo_directory, ignore_errors=True)
-            self._fifo_directory = None
+        adb_path, serial, port = self._adb_path, self._forward_serial, self._forward_port
+        self._adb_path = None
+        self._forward_serial = None
+        self._forward_port = None
+        if adb_path is not None and serial is not None and port is not None:
+            try:
+                subprocess.run(
+                    [adb_path, "-s", serial, "forward", "--remove", f"tcp:{port}"],
+                    check=False,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    timeout=4,
+                )
+            except (OSError, subprocess.SubprocessError):
+                pass
+
         if status == "idle":
             self._serial = None
+
+    @staticmethod
+    def _find_server_path(scrcpy_path: str | None) -> str | None:
+        configured = os.environ.get("SCRCPY_SERVER_PATH")
+        if configured:
+            path = Path(configured).expanduser()
+            return str(path) if path.is_file() else None
+        if scrcpy_path is None:
+            return None
+
+        executable = Path(scrcpy_path).resolve()
+        candidates = (
+            executable.parent.parent / "share" / "scrcpy" / "scrcpy-server",
+            executable.parent / "scrcpy-server",
+            Path("/usr/share/scrcpy/scrcpy-server"),
+            Path.cwd() / "scrcpy-server",
+        )
+        return next((str(path) for path in candidates if path.is_file()), None)
+
+    @staticmethod
+    def _get_scrcpy_version(scrcpy_path: str) -> str:
+        try:
+            result = subprocess.run(
+                [scrcpy_path, "--version"],
+                check=True,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=5,
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise PreviewUnavailable(f"无法读取 scrcpy 版本：{exc}") from exc
+        match = re.search(r"(?m)^scrcpy\s+([^\s]+)", result.stdout or result.stderr)
+        if match is None:
+            raise PreviewUnavailable("无法从 scrcpy --version 读取服务端版本")
+        return match.group(1)
 
     @staticmethod
     def _terminate(process: subprocess.Popen[bytes] | None) -> None:

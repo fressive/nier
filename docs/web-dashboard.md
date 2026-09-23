@@ -25,8 +25,8 @@ host and make them available in `PATH`. Select a device reported as `device`,
 then start the preview. The dashboard disables scrcpy control and audio; the
 stream is view-only and stops when you stop it or shut down the dashboard. The
 preview uses ADB's temporary local socket forwarding and does not open a device
-network listener. Embedded streaming currently requires a POSIX host with FIFO
-support.
+network listener. It reads scrcpy's H.264 stream directly and converts frames
+to MJPEG locally; FIFO support is not required.
 
 The interface lists each script using its module docstring. Press **运行脚本**
 and confirm the prompt to start it. A script runs with the same Python
@@ -81,10 +81,12 @@ scripts and data you are authorized to inspect.
 
 ## Device access and failures
 
-The dashboard binds to `127.0.0.1` by default and does not start a phone-side
-server or change Nier's ADB-first device topology. Running a script can perform
-the same device actions, provider calls, and filesystem writes as launching it
-from a terminal. Only run scripts you trust and have permission to execute.
+The dashboard binds to `127.0.0.1` by default. While preview is active, scrcpy
+runs a temporary capture process reached through ADB's temporary local socket
+forward; the dashboard does not expose a device-side network listener or change
+Nier's ADB-first device topology. Running a script can perform the same device
+actions, provider calls, and filesystem writes as launching it from a terminal.
+Only run scripts you trust and have permission to execute.
 
 Device access still uses the configuration loaded by the script. Connect only
 to an authorized device, and install optional model dependencies and configure

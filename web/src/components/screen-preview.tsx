@@ -19,15 +19,15 @@ type PreviewState = {
   frame_ready: boolean;
   error: string | null;
   device_error: string | null;
-  dependencies: { adb: boolean; scrcpy: boolean; ffmpeg: boolean; fifo: boolean };
+  dependencies: { adb: boolean; scrcpy: boolean; scrcpy_server: boolean; ffmpeg: boolean };
   devices: PreviewDevice[];
 };
 
 const dependencyLabels: Record<keyof PreviewState["dependencies"], string> = {
   adb: "ADB",
   scrcpy: "scrcpy",
+  scrcpy_server: "scrcpy server",
   ffmpeg: "FFmpeg",
-  fifo: "FIFO",
 };
 
 export function ScreenPreview({ active }: { active: boolean }) {
@@ -89,10 +89,9 @@ export function ScreenPreview({ active }: { active: boolean }) {
   const devices = state?.devices ?? [];
   const missingDependencies = state
     ? (Object.entries(state.dependencies) as [keyof PreviewState["dependencies"], boolean][])
-      .filter(([name, installed]) => name !== "fifo" && !installed)
+      .filter(([, installed]) => !installed)
       .map(([name]) => dependencyLabels[name])
     : [];
-  const fifoAvailable = state?.dependencies.fifo ?? true;
   const currentDevice = devices.find((device) => device.serial === serial);
   const previewUrl = `/api/preview/stream?session=${streamKey}`;
 
@@ -137,7 +136,7 @@ export function ScreenPreview({ active }: { active: boolean }) {
             <Square className="h-3 w-3" />停止
           </Button>
         ) : (
-          <Button size="sm" onClick={() => void start()} disabled={!serial || missingDependencies.length > 0 || !fifoAvailable} className="h-9 shrink-0 px-3 text-[11px]">
+          <Button size="sm" onClick={() => void start()} disabled={!serial || missingDependencies.length > 0} className="h-9 shrink-0 px-3 text-[11px]">
             <Play className="h-3 w-3" />开始预览
           </Button>
         )}
@@ -147,12 +146,6 @@ export function ScreenPreview({ active }: { active: boolean }) {
         <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] leading-relaxed text-amber-200/80">
           <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
           <span>缺少 {missingDependencies.join("、")}。请安装并加入 PATH 后重启 nier web。</span>
-        </div>
-      )}
-      {!fifoAvailable && (
-        <div className="mb-3 flex items-start gap-2 rounded-md border border-amber-400/20 bg-amber-400/5 px-3 py-2 text-[10px] leading-relaxed text-amber-200/80">
-          <AlertCircle className="mt-0.5 h-3 w-3 shrink-0" />
-          <span>当前平台不支持预览所需的 FIFO 管道。</span>
         </div>
       )}
       {state?.device_error && devices.length === 0 && (
