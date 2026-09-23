@@ -1,0 +1,151 @@
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+
+from nier import Device
+from nier.models.jev import JevAnswer, JevResponse
+from nier.protocol import Action, ActionResult, ActivityInfo, Capabilities, ImageFormat, KeyCode, Screenshot, UiDump, UiSource
+from nier.session import DeviceSession
+
+
+@dataclass
+class FakeBackend:
+    actions: list[Action] = field(default_factory=list)
+
+    def health(self) -> bool:
+        return True
+
+    def capabilities(self) -> Capabilities:
+        return Capabilities("v1", "fake", "fake", 100, 200, False, False, True, False)
+
+    def execute(self, action: Action) -> ActionResult:
+        self.actions.append(action)
+        return ActionResult(True, "ok")
+
+    def screenshot(self, request=None) -> Screenshot:
+        return Screenshot(b"image", ImageFormat.PNG, 100, 200, "digest")
+
+    def dump_ui(self, request=None) -> UiDump:
+        return UiDump(
+            '<hierarchy><node text="登录" resource-id="app:id/login" '
+            'bounds="[10,20][30,40]" clickable="true" /></hierarchy>',
+            UiSource.UIAUTOMATOR,
+        )
+
+    def current_activity(self) -> ActivityInfo:
+        return ActivityInfo(
+            package="com.android.settings",
+            activity="com.android.settings.Settings",
+            component="com.android.settings/com.android.settings.Settings",
+            source="resumed_activity",
+        )
+
+    def close(self) -> None:
+        pass
+
+
+class FakeJev:
+    def __init__(self, responses: list[JevResponse]) -> None:
+        self.responses = list(responses)
+        self.calls: list[tuple[object, object]] = []
+
+    def ask(self, state, questions):
+        self.calls.append((state, questions))
+        return self.responses.pop(0)
+
+
+def _response(*, done: float, choice: str, confidence: float = 0.95, progress=None) -> JevResponse:
+    answers = {
+        "done": JevAnswer(type="noul", noul=done),
+        "next": JevAnswer(
+            type="choice",
+            choice=choice,
+            confidence=confidence,
+            probabilities={choice: confidence, "none": 1.0 - confidence},
+        ),
+    }
+    if progress is not None:
+        answers["progress"] = JevAnswer(type="score", score=progress)
+    return JevResponse(answers=answers, model="jev-test")
+
+
+def make_device() -> tuple[Device, FakeBackend]:
+    backend = FakeBackend()
+    return Device(DeviceSession(backend)), backend
+
+
+def test_jev_goal_selects_host_validated_ui_candidate_and_reobserves() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="ui_0"),
+            _response(done=0.96, choice="none", confidence=0.10),
+        ]
+    )
+
+    result = phone.run_jev_goal("点击登录", jev=jev, max_steps=2)
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert result.completed_steps == 1
+    assert len(jev.calls) == 2
+    first_state, first_questions = jev.calls[0]
+    assert first_state["goal"] == "点击登录"
+    assert first_state["activity"]["component"] == "com.android.settings/com.android.settings.Settings"  # type: ignore[index]
+    assert first_state["candidates"][0]["id"] == "ui_0"  # type: ignore[index]
+    assert first_state["candidates"][0]["source"] == "ui"  # type: ignore[index]
+    assert "action" not in first_state["candidates"][0]  # type: ignore[index]
+    assert not {"bounds", "center", "box", "x", "y", "width", "height"} & set(
+        first_state["candidates"][0]["metadata"]  # type: ignore[index]
+    )
+    assert set(first_questions) == {"done", "next"}
+    assert result.plan.jev["done"] == 0.96  # type: ignore[index]
+    assert len(backend.actions) == 1
+
+
+def test_jev_goal_dispatches_fixed_back_candidate_as_key() -> None:
+    phone, backend = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.10, choice="back"),
+            _response(done=0.96, choice="blocked", confidence=0.95),
+        ]
+    )
+
+    result = phone.run_jev_goal(
+        "返回上一页",
+        jev=jev,
+        allowed_controls=("返回上一页",),
+        max_steps=1,
+    )
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert len(backend.actions) == 1
+    assert backend.actions[0].key_code == KeyCode.BACK  # type: ignore[union-attr]
+
+
+def test_jev_goal_score_is_optional_progress_telemetry() -> None:
+    phone, _ = make_device()
+    jev = FakeJev(
+        [
+            _response(done=0.96, choice="none", confidence=0.10, progress=3.0),
+        ]
+    )
+
+    result = phone.run_jev_goal("检查当前页面", jev=jev, use_score=True, dry_run=True)
+
+    assert result.success is True
+    assert result.plan.jev["progress"] == 3.0  # type: ignore[index]
+    assert set(jev.calls[0][1]) == {"done", "next", "progress"}
+
+
+def test_jev_goal_does_not_dispatch_low_confidence_or_unknown_choice() -> None:
+    phone, backend = make_device()
+    jev = FakeJev([_response(done=0.10, choice="unknown", confidence=0.99)])
+
+    result = phone.run_jev_goal("点击登录", jev=jev, dry_run=True)
+
+    assert result.success is False
+    assert result.termination == "blocked"
+    assert backend.actions == []

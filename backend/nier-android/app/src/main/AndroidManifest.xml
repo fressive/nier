@@ -1,0 +1,26 @@
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <application
+        android:label="Nier Backend"
+        android:theme="@style/Theme.NierBackend">
+        <service
+            android:name=".NierInputMethodService"
+            android:label="@string/nier_ime_name"
+            android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/ime_method" />
+        </service>
+
+        <!-- The provider is exported for adb shell content call, but its
+             implementation accepts only shell/root or this app's UID. -->
+        <provider
+            android:name=".NierInputCommandProvider"
+            android:authorities="icu.rina.nier.backend.input"
+            android:exported="true"
+            android:grantUriPermissions="false" />
+    </application>
+</manifest>

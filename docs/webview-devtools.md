@@ -1,0 +1,79 @@
+# WebView DevTools
+
+Nier can dump the DOM of a debug-enabled Android WebView through Chrome
+DevTools Protocol (CDP). The result is returned by the normal
+`dump_ui(prefer_webview=True)` API with source `WEBVIEW_DEVTOOLS`.
+
+## Configuration
+
+Set the target application package in `config/nier.yaml`:
+
+```yaml
+hook:
+  mode: auto
+  target_package: com.example.authorized.app
+  spawn: false
+  force_system_back: false
+  timeout_seconds: 10
+```
+
+`auto` selects root mode only when ADB can execute a root shell. Set `mode:
+root` to require Frida injection, or `mode: non-root` to require cooperative
+application integration.
+
+## Root mode
+
+Install the optional host dependency and run a matching root-capable
+`frida-server` on the authorized device:
+
+```bash
+python -m pip install -e '.[hook]'
+```
+
+Nier can attach to an existing process or spawn the package before resume. The
+Frida agent enables `WebView.setWebContentsDebuggingEnabled(true)`. The host
+then finds `webview_devtools_remote_<pid>`, temporarily forwards it through
+ADB, and queries the CDP page target.
+
+For an authorized rooted target whose app consumes Back callbacks, set
+`force_system_back: true`. This installs the same Frida session before a Back
+action, blocks common platform/AndroidX callback registrations, and redirects
+loaded Java activity handlers to the platform default. Use `spawn: true` when
+possible so the hook is installed before the app registers callbacks. This is
+best-effort and does not guarantee behavior for native or application-specific
+navigation code; it is unavailable in non-root mode.
+
+## Non-root mode
+
+Non-root mode does not inject into arbitrary applications. The target app must
+call the supplied helper before constructing its first WebView:
+
+```kotlin
+WebViewDebugController.enable()
+```
+
+Once the app has opted in, the host uses the exact same CDP and DOM extraction
+path as root mode. No phone-side network service is started.
+
+## Python API
+
+```python
+from nier.backends.adb import AdbBackend
+from nier.config import load_config
+from nier.session import DeviceSession
+
+config = load_config("config/nier.yaml")
+backend = AdbBackend(config.device, hook_config=config.hook)
+session = DeviceSession(backend)
+try:
+    dump = session.dump_ui(prefer_webview=True)
+    print(dump.source, dump.complete, dump.warning)
+    print(dump.xml)
+finally:
+    session.close()
+```
+
+If the target is not running, debugging is not enabled, the WebView has not
+created its DevTools socket yet, or CDP fails, Nier returns UIAutomator XML
+with source `UIAUTOMATOR_FALLBACK` and a warning. The temporary ADB forward is
+removed on both success and failure.

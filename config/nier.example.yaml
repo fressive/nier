@@ -1,0 +1,96 @@
+device:
+  serial: null
+  adb_path: adb
+  # For ADB over TCP, set remote_host/remote_port. Nier runs `adb connect`
+  # automatically unless auto_connect is false. Do not set serial together
+  # with remote_host.
+  remote_host: null
+  remote_port: 5555
+  auto_connect: true
+  # Optional host running the ADB server. Leave null for the local server.
+  adb_server_host: null
+  adb_server_port: 5037
+  # Build backend/nier-uinput for Android and push it to this path when root
+  # touch injection is desired. The ADB backend falls back to `input` when it
+  # is unavailable.
+  uinput_binary: /data/local/tmp/nier-uinput
+  uinput_device: /dev/uinput
+  use_uinput: true
+  connect_timeout_seconds: 10
+
+runtime:
+  action_timeout_seconds: 15
+  retries: 2
+  output_dir: artifacts
+
+# Accepts 0/quiet, 1/v (steps), 2/vv (+requests), or 3/vvv (+responses).
+logging:
+  verbosity: 0
+
+# WebView instrumentation is opt-in. Root mode uses Frida; non-root mode
+# requires the target app to call WebViewDebugController.enable() itself.
+hook:
+  mode: auto  # auto, root, or non-root
+  target_package: null
+  spawn: false
+  frida_server_path: /data/local/tmp/frida-server
+  auto_start_frida_server: false
+  timeout_seconds: 10
+  # Root Frida only: bypass common app-owned Back callbacks and use the
+  # platform default behavior. Keep false unless the target app is authorized.
+  force_system_back: false
+
+# Text input remains ADB shell input by default. The optional IME backend
+# supports Unicode/Chinese text through NierInputMethodService.
+input_text:
+  mode: shell  # shell or ime
+  ime_component: icu.rina.nier.backend/.NierInputMethodService
+  provider_authority: icu.rina.nier.backend.input
+  auto_enable: false
+  restore_previous: true
+  timeout_seconds: 5
+
+models:
+  # phone.screenshot().ocr() loads this provider automatically.
+  ocr:
+    provider: paddleocr
+    lang: ch
+  ocr_providers:
+    default:
+      provider: paddleocr
+      lang: ch
+    # To use PaddleOCR's hosted API instead, configure a separate provider:
+    # cloud:
+    #   provider: paddleocr-api
+    #   api_key: put-your-token-here  # local-only alternative to api_key_env
+    #   api_key_env: PADDLEOCR_ACCESS_TOKEN
+    #   base_url: null  # or a compatible proxy URL
+    #   model: PP-OCRv6
+    #   request_timeout_seconds: 300
+    #   poll_timeout_seconds: 600
+  llm:
+    provider: openai-compatible
+    base_url: https://api.openai.com/v1
+    api_key_env: OPENAI_API_KEY
+    model: gpt-4o-mini
+    timeout_seconds: 60
+  llm_providers:
+    planner:
+      provider: openai-compatible
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-4o-mini
+      timeout_seconds: 60
+    monitor:
+      provider: openai-compatible
+      base_url: https://api.openai.com/v1
+      api_key_env: OPENAI_API_KEY
+      model: gpt-4o-mini
+      timeout_seconds: 60
+  jev:
+    provider: typesafe
+    base_url: https://api.typesafe.ai/v1/systemone
+    api_key_env: TYPESAFE_API_KEY
+    model: jev-latest
+    timeout_seconds: 30
+    confidence_threshold: 0.75

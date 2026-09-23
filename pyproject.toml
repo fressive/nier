@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nier"
+version = "0.1.0"
+description = "An extensible Android automated testing framework"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "Pillow>=10.0",
+  "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+models = [
+  "paddleocr>=2.7",
+  "paddlepaddle>=3.3,<3.4",
+  "openai>=1.30",
+]
+models-online = [
+  "paddleocr>=3.0",
+]
+hook = [
+  "frida>=16.0,<17",
+]
+dev = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+nier = "nier.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+pythonpath = ["src"]
