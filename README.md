@@ -32,8 +32,10 @@ from nier import connect
 with connect("config/nier.yaml") as phone:
     phone.tap(0.5, 0.5, normalized=True)
     phone.text("hello")
-    print(phone.list_apps())
-    print(phone.list_app_activities("com.android.settings"))
+    apps = phone.list_apps()
+    print(f"Installed apps: {len(apps)}")
+    activities = phone.list_app_activities("com.android.settings")
+    print(f"Settings activities: {len(activities)}")
     phone.open_app("com.android.settings")
     phone.start_activity("com.android.settings", ".Settings")
     screenshot = phone.screenshot("artifacts/screen.png")

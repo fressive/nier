@@ -9,10 +9,14 @@ from nier import connect
 
 with connect("config/nier.yaml") as phone:
     packages = phone.list_apps()
-    print(packages)
+    print(f"Installed packages ({len(packages)}):")
+    for package in packages:
+        print(f"  - {package}")
 
     activities = phone.list_app_activities("com.example.authorized.app")
-    print(activities)
+    print(f"Activities in com.example.authorized.app ({len(activities)}):")
+    for activity in activities:
+        print(f"  - {activity}")
 ```
 
 `list_apps()` returns package names such as `com.android.settings`.
@@ -27,13 +31,17 @@ declared Activity:
 ```python
 with connect("config/nier.yaml") as phone:
     result = phone.open_app("com.example.authorized.app")
-    print(result.success, result.message)
+    print(f"App launch: {'succeeded' if result.success else 'failed'}")
+    if result.message:
+        print(f"Details: {result.message}")
 
     result = phone.start_activity(
         "com.example.authorized.app",
         ".SettingsActivity",
     )
-    print(result.success, result.message)
+    print(f"Activity launch: {'succeeded' if result.success else 'failed'}")
+    if result.message:
+        print(f"Details: {result.message}")
 ```
 
 `start_activity()` accepts a short class name (`SettingsActivity`), a relative

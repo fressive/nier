@@ -30,35 +30,15 @@ parser.add_argument(
     default=[],
     help="exact UI/OCR label to exclude; repeat to deny multiple labels",
 )
-parser.add_argument(
-    "--allow-app",
-    action="append",
-    dest="allowed_app_specs",
-    metavar="LABEL=PACKAGE",
-    help="explicitly allow launching an app; repeat to allow multiple apps",
-)
 args = parser.parse_args()
-allowed_apps = {}
-for spec in args.allowed_app_specs or []:
-    label, separator, package = spec.partition("=")
-    if not separator or not label.strip() or not package.strip():
-        parser.error("--allow-app must use LABEL=PACKAGE")
-    if label.strip() in allowed_apps:
-        parser.error(f"duplicate --allow-app label: {label.strip()!r}")
-    allowed_apps[label.strip()] = package.strip()
-if args.execute and not (args.allowed_controls or allowed_apps):
-    parser.error("--execute requires at least one --allow-control or --allow-app")
-allowed_controls = args.allowed_controls
-if allowed_apps and allowed_controls is None:
-    # An app-only grant in this example must not also enable discovered UI taps.
-    allowed_controls = ()
+allowed_controls = args.allowed_controls or ()
 
 with connect(CONFIG) as phone:
     result = phone.run_jev_goal(
         GOAL,
         max_steps=8,
         max_seconds=45,
-        allowed_apps=allowed_apps,
+        allowed_apps={"设置": "com.android.settings"},
         allowed_controls=allowed_controls,
         denied_controls=args.denied_controls,
         dry_run=not args.execute,
