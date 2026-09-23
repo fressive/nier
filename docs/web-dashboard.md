@@ -51,7 +51,8 @@ separate completion node. Nodes show a short response preview; selecting one
 shows the associated response or result details in the sidebar alongside its
 STEP details and recent script output.
 `dump_ui` results appear as an expandable UI hierarchy with element attributes,
-text, resource IDs, and bounds.
+text, resource IDs, and bounds. Use **全屏预览** to inspect the tree across the
+full viewport; the tree remains independently scrollable and expandable.
 
 Debug events also travel over the dashboard event stream. The runner pauses
 inside the STEP logger before execution continues past that event, then waits
