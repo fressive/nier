@@ -56,6 +56,19 @@ class _LazyOcrProvider:
         return self._provider.recognize(image)
 
 
+class _LazyLlmProvider:
+    """Create the optional LLM only if Jev requests strategic assistance."""
+
+    def __init__(self, create: Callable[[], LlmProvider]) -> None:
+        self._create = create
+        self._provider: LlmProvider | None = None
+
+    def complete(self, prompt: str, *, image: bytes | None = None) -> str:
+        if self._provider is None:
+            self._provider = self._create()
+        return self._provider.complete(prompt, image=image)
+
+
 def _point(value: PointLike, *, normalized: bool) -> Point:
     if isinstance(value, Point):
         return value
@@ -361,6 +374,8 @@ class Device:
         ocr_provider: str | None = None,
         jev: JevProvider | None = None,
         jev_provider: str | None = None,
+        llm: LlmProvider | None = None,
+        llm_provider: str | None = None,
         max_steps: int = 8,
         max_seconds: float = 45.0,
         done_threshold: float = 0.85,
@@ -371,15 +386,17 @@ class Device:
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
         prefer_webview: bool = True,
+        max_llm_assists: int = 2,
     ) -> JevGoal:
-        """Create a bounded goal runner driven directly by Jev.
+        """Create a bounded goal runner driven primarily by Jev.
 
-        Unlike :meth:`agent`, this flow does not ask an LLM to invent device
-        operations.  It exposes a bounded UI/OCR/app candidate list to Jev and
-        executes only the selected, host-validated candidate.  The first
-        configured Jev and OCR providers are selected when names are omitted.
-        A configured OCR provider is called only if Jev selects ``inspect_ocr``;
-        OCR is limited to once per observation.
+        Jev chooses among a bounded UI/OCR/app candidate list and the host
+        executes only its selected, validated candidate. If an LLM is available,
+        Jev may choose ``call_llm`` to get a bounded strategic adjustment; the
+        LLM cannot choose or execute device actions. The first configured Jev,
+        LLM, and OCR providers are selected when names are omitted. A configured
+        OCR provider runs only after Jev selects ``inspect_ocr`` and at most once
+        per observation.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;
@@ -401,6 +418,8 @@ class Device:
 
         if jev is not None and jev_provider is not None:
             raise ValueError("pass either jev= or jev_provider=, not both")
+        if llm is not None and llm_provider is not None:
+            raise ValueError("pass either llm= or llm_provider=, not both")
 
         selected_jev_provider = jev_provider
         if jev is None:
@@ -424,6 +443,42 @@ class Device:
                 jev = self._cached_jev(selected_jev_provider)
         elif selected_jev_provider is None:
             selected_jev_provider = "custom"
+
+        selected_llm_provider = llm_provider
+        if llm is None:
+            if router is not None:
+                if selected_llm_provider is None:
+                    selected_llm_provider = next(iter(router.llm_providers), None)
+                if selected_llm_provider is not None:
+                    try:
+                        llm = router.llm_providers[selected_llm_provider]
+                    except KeyError as exc:
+                        available = ", ".join(sorted(router.llm_providers))
+                        raise ModelError(
+                            f"unknown LLM provider {selected_llm_provider!r}; "
+                            f"available: {available or 'none'}"
+                        ) from exc
+            elif self.app_config is not None:
+                named_llm = self.app_config.models.llm_providers
+                if selected_llm_provider is None and named_llm:
+                    selected_llm_provider = next(iter(named_llm))
+                if selected_llm_provider is not None:
+                    provider_name = selected_llm_provider
+                    llm = _LazyLlmProvider(
+                        lambda: self._configured_llm(provider_name)
+                    )
+                elif self.app_config.models.llm.api_key is not None:
+                    selected_llm_provider = "default"
+                    llm = _LazyLlmProvider(
+                        lambda: self._configured_llm("default")
+                    )
+            elif selected_llm_provider is not None:
+                provider_name = selected_llm_provider
+                llm = _LazyLlmProvider(
+                    lambda: self._configured_llm(provider_name)
+                )
+        elif selected_llm_provider is None:
+            selected_llm_provider = "custom"
 
         ocr: OcrProvider | None = None
         selected_ocr_provider = ocr_provider
@@ -465,6 +520,9 @@ class Device:
             denied_controls=denied_controls,
             use_score=use_score,
             prefer_webview=prefer_webview,
+            llm=llm,
+            llm_provider=selected_llm_provider,
+            max_llm_assists=max_llm_assists,
         )
 
     def agent(
@@ -583,8 +641,70 @@ class Device:
         jev_provider: str | None = None,
         max_steps: int = 8,
         dry_run: bool = False,
+        max_seconds: float = 45.0,
+        done_threshold: float = 0.85,
+        action_threshold: float = 0.65,
+        max_candidates: int = 32,
+        allowed_apps: Mapping[str, str] | None = None,
+        allowed_controls: Sequence[str] | None = None,
+        denied_controls: Sequence[str] = (),
+        use_score: bool = False,
+        prefer_webview: bool = True,
+        max_llm_assists: int = 2,
     ) -> AgentRun:
-        """Execute a natural-language device goal through iterative actions."""
+        """Run one goal with Jev-first decisions and bounded LLM assistance.
+
+        When a Jev provider is supplied or configured, Jev chooses among
+        host-validated candidates. If Jev selects ``call_llm``, the optional
+        LLM returns strategic guidance only; Jev still selects every action.
+        Without an available Jev provider, this preserves the LLM-planned Agent
+        flow. Use :meth:`agent` explicitly when LLM-first tool planning is
+        desired.
+        """
+        if llm is not None and router is not None:
+            raise ValueError("pass either llm or router, not both")
+
+        jev_configured = jev is not None or jev_provider is not None
+        if router is not None:
+            jev_configured = jev_configured or bool(router.jev_providers)
+        elif self.app_config is not None:
+            jev_configured = jev_configured or bool(
+                self.app_config.models.jev_providers
+                or self.app_config.models.jev.api_key
+            )
+        jev_options_used = (
+            max_seconds != 45.0
+            or done_threshold != 0.85
+            or action_threshold != 0.65
+            or max_candidates != 32
+            or allowed_apps is not None
+            or allowed_controls is not None
+            or bool(denied_controls)
+            or use_score
+            or not prefer_webview
+            or max_llm_assists != 2
+        )
+        if jev_configured or jev_options_used:
+            return self.jev_goal(
+                router=router,
+                ocr_provider=ocr_provider,
+                jev=jev,
+                jev_provider=jev_provider,
+                llm=llm,
+                llm_provider=provider if llm is None else None,
+                max_steps=max_steps,
+                max_seconds=max_seconds,
+                done_threshold=done_threshold,
+                action_threshold=action_threshold,
+                max_candidates=max_candidates,
+                allowed_apps=allowed_apps,
+                allowed_controls=allowed_controls,
+                denied_controls=denied_controls,
+                use_score=use_score,
+                prefer_webview=prefer_webview,
+                max_llm_assists=max_llm_assists,
+            ).run(instruction, dry_run=dry_run)
+
         return self.agent(
             provider=provider,
             llm=llm,
@@ -613,14 +733,19 @@ class Device:
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
         prefer_webview: bool = True,
+        llm: LlmProvider | None = None,
+        provider: str | None = None,
+        max_llm_assists: int = 2,
         dry_run: bool = False,
     ) -> AgentRun:
-        """Run a bounded Jev goal and return its next-action or handoff status.
+        """Compatibility wrapper for the Jev-first :meth:`run` flow.
 
         ``allowed_apps`` explicitly allowlists app launches by display label
         and package name. ``allowed_controls`` and ``denied_controls`` restrict
         UI/OCR/system candidate labels.
         A configured OCR provider runs only after Jev selects ``inspect_ocr``.
+        Jev may select ``call_llm`` for a high-level strategy adjustment; the
+        LLM does not choose or execute device actions.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;
@@ -633,6 +758,8 @@ class Device:
             ocr_provider=ocr_provider,
             jev=jev,
             jev_provider=jev_provider,
+            llm=llm,
+            llm_provider=provider if llm is None else None,
             max_steps=max_steps,
             max_seconds=max_seconds,
             done_threshold=done_threshold,
@@ -643,6 +770,7 @@ class Device:
             denied_controls=denied_controls,
             use_score=use_score,
             prefer_webview=prefer_webview,
+            max_llm_assists=max_llm_assists,
         ).run(instruction, dry_run=dry_run)
 
     def _configured_llm(self, provider: str) -> LlmProvider:
