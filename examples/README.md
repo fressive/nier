@@ -6,6 +6,16 @@ Run these scripts from the repository root after installing the package:
 python -m pip install -e '.[dev]'
 ```
 
+To browse and run them with a live execution trace, start:
+
+```bash
+nier web --scripts=./examples
+```
+
+The dashboard requires an explicit confirmation for each script run. Scripts
+execute with the current user's permissions and may access an authorized device;
+see the [web dashboard guide](../docs/web-dashboard.md).
+
 | Example | Purpose | Device required |
 | --- | --- | --- |
 | [`01_basic_session.py`](01_basic_session.py) | Connect, health-check, inspect capabilities, and record a run | Yes |
@@ -39,8 +49,8 @@ a label and submits text. `06_jev_goal.py` previews by default and allowlists
 recovery through `call_llm` or after a failure. The LLM creates a bounded
 subgoal that a nested Jev run executes using safe controls; after success the
 main goal observes the device again and resumes. Failed subgoals may be
-replaced using a fresh observation, within the configured assist limit.
-Jev still chooses every action.
+replaced using a fresh observation. Assist generation is unlimited by default;
+pass `max_llm_assists` to cap it. Jev still chooses every action.
 `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
 bypasses preview and offers all discovered UI/OCR control labels. Jev still

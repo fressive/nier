@@ -28,6 +28,32 @@ def _parser() -> argparse.ArgumentParser:
     subparsers.add_parser("capabilities")
     subparsers.add_parser("screenshot")
     subparsers.add_parser("dump-ui")
+    web_parser = subparsers.add_parser(
+        "web",
+        help="open the local execution dashboard for Python scripts",
+    )
+    web_parser.add_argument(
+        "--scripts",
+        type=Path,
+        required=True,
+        help="directory containing scripts available to the dashboard",
+    )
+    web_parser.add_argument(
+        "--host",
+        default="127.0.0.1",
+        help="dashboard bind address (default: 127.0.0.1)",
+    )
+    web_parser.add_argument(
+        "--port",
+        type=int,
+        default=8765,
+        help="dashboard port (default: 8765)",
+    )
+    web_parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="print the dashboard URL without opening a browser",
+    )
     return parser
 
 
@@ -51,6 +77,20 @@ def _print_capabilities(capabilities: Capabilities) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
+    if args.command == "web":
+        from .web import serve_web
+
+        try:
+            serve_web(
+                args.scripts,
+                host=args.host,
+                port=args.port,
+                open_browser=not args.no_browser,
+            )
+        except (OSError, RuntimeError, ValueError) as exc:
+            raise SystemExit(f"nier web: {exc}") from exc
+        return 0
+
     config = load_config(args.config)
     if args.verbose > 3:
         raise SystemExit("nier: at most -vvv is supported")

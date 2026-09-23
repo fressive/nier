@@ -5,6 +5,8 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 .venv/
+web/node_modules/
+web/tsconfig.tsbuildinfo
 *.egg-info/
 
 # Build and generated runtime artifacts

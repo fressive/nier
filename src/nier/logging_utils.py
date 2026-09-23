@@ -7,6 +7,8 @@ import logging
 import os
 import re
 import sys
+import threading
+from datetime import datetime, timezone
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlsplit, urlunsplit
@@ -20,6 +22,8 @@ _SENSITIVE_KEY = re.compile(
 _DATA_URI = re.compile(r"^data:[^,]*,", re.IGNORECASE)
 _LOGGER = logging.getLogger("nier")
 _VERBOSITY = 0
+_WEB_EVENT_PREFIX = "\x1eNIER_EVENT "
+_WEB_EVENT_LOCK = threading.Lock()
 _RESET = "\x1b[0m"
 _CATEGORY_COLORS = {
     "STEP": "\x1b[36;1m",
@@ -86,6 +90,11 @@ def configure_logging(verbosity: int) -> None:
         raise ValueError("logging verbosity must be an integer from 0 to 3")
     if not 0 <= verbosity <= 3:
         raise ValueError("logging verbosity must be between 0 and 3")
+    # The web runner asks child scripts for the same bounded, sanitized
+    # request/response detail available at -vvv, regardless of the script's
+    # terminal logging configuration.
+    if os.environ.get("NIER_WEB_EVENT_STREAM") == "1":
+        verbosity = max(verbosity, 3)
     _VERBOSITY = verbosity
 
     # Keep the dedicated Nier logger deterministic. In particular, pytest and
@@ -216,6 +225,7 @@ def block(
 
 
 def _emit(level: str, category: str, message: str, fields: Mapping[str, Any]) -> None:
+    safe_fields = _safe_mapping(fields)
     details = _format_fields(fields)
     output = f"[nier {level}] {category} {message}"
     if details:
@@ -225,6 +235,35 @@ def _emit(level: str, category: str, message: str, fields: Mapping[str, Any]) ->
         output,
         extra={"nier_verbosity": level, "nier_category": category},
     )
+    _publish_web_event(level, category, message, safe_fields)
+
+
+def _publish_web_event(
+    level: str,
+    category: str,
+    message: str,
+    fields: Mapping[str, Any],
+) -> None:
+    """Send a sanitized structured event to a parent Nier web process."""
+    if os.environ.get("NIER_WEB_EVENT_STREAM") != "1":
+        return
+    event = {
+        "type": "log",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "level": level,
+        "category": category,
+        "message": message,
+        "details": fields,
+    }
+    try:
+        with _WEB_EVENT_LOCK:
+            sys.stdout.write(_WEB_EVENT_PREFIX)
+            sys.stdout.write(json.dumps(event, ensure_ascii=False, separators=(",", ":")))
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+    except (OSError, UnicodeError):
+        # Logging must not interrupt a device action if the dashboard closes.
+        return
 
 
 def _format_fields(fields: Mapping[str, Any]) -> str:

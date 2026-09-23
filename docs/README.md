@@ -15,6 +15,7 @@ are integrating.
 | [`uidump.md`](uidump.md) | UIAutomator/WebView dump APIs and fallback behavior |
 | [`webview-devtools.md`](webview-devtools.md) | Root/non-root WebView DevTools setup and CDP DOM dumps |
 | [`models.md`](models.md) | OCR, decision, LLM, TypeSafe Jev, and Jev-driven goal APIs |
+| [`web-dashboard.md`](web-dashboard.md) | Local script runner, live execution path, and request/response log panel |
 
 The normal Python entry point is `from nier import connect`. It returns a
 script-friendly `Device` with `tap`, `tap_label`, `swipe`, `text`, `key`,

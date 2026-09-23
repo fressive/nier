@@ -227,6 +227,31 @@ def test_jev_goal_removes_call_llm_after_assist_limit() -> None:
     assert backend.actions == []
 
 
+def test_jev_goal_default_allows_more_than_two_llm_assists() -> None:
+    phone, _ = make_device()
+    responses = []
+    for _ in range(3):
+        responses.extend(
+            [
+                _response(done=0.10, choice="call_llm"),
+                _response(done=0.10, choice="back"),
+                _response(done=0.96, choice="blocked"),
+            ]
+        )
+    responses.append(_response(done=0.96, choice="blocked"))
+    jev = FakeJev(responses)
+    llm = FakeLlm(["返回上一页"] * 3)
+
+    result = phone.run("进入登录页面", jev=jev, llm=llm, max_steps=1)
+
+    assert result.success is True
+    assert result.termination == "needs_verification"
+    assert len(llm.prompts) == 3
+    for index in (0, 3, 6):
+        _, questions = jev.calls[index]
+        assert "call_llm" in questions["next"].options  # type: ignore[index,operator]
+
+
 def test_failed_recovery_subgoal_causes_llm_to_generate_return_subgoal() -> None:
     phone, backend = make_device()
     jev = FakeJev(

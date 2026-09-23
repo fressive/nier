@@ -442,7 +442,7 @@ class Device:
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
         prefer_webview: bool = True,
-        max_llm_assists: int = 2,
+        max_llm_assists: int | None = None,
     ) -> JevGoal:
         """Create a bounded goal runner driven primarily by Jev.
 
@@ -452,9 +452,9 @@ class Device:
         recovery subgoal. A nested Jev runner executes that subgoal using only
         safe, host-validated dismiss/cancel/skip/back/home controls; the LLM cannot choose
         or execute device actions. If a recovery subgoal fails, the LLM may
-        generate a replacement using a fresh observation, up to
-        ``max_llm_assists`` calls per run (two by default). Set this to zero to
-        disable recovery assistance. The first configured Jev, LLM, and OCR
+        generate a replacement using a fresh observation. The default has no
+        assist-count limit; pass a non-negative ``max_llm_assists`` to cap it,
+        or zero to disable LLM recovery. The first configured Jev, LLM, and OCR
         providers are selected when names are omitted. A configured OCR provider runs only after Jev
         selects ``inspect_ocr`` and at most once per observation.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
@@ -714,16 +714,17 @@ class Device:
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
         prefer_webview: bool = True,
-        max_llm_assists: int = 2,
+        max_llm_assists: int | None = None,
     ) -> AgentRun:
-        """Run one goal with Jev-first decisions and bounded LLM assistance.
+        """Run one goal with Jev-first decisions and LLM recovery assistance.
 
         When a Jev provider is supplied or configured, Jev chooses among
         host-validated candidates. If Jev selects ``call_llm`` or a recoverable
         failure occurs, the optional LLM generates a bounded cleanup subgoal.
         A nested Jev run executes it from safe host-validated controls. Failed
-        subgoals can be revised after a fresh observation until
-        ``max_llm_assists`` is exhausted; the default cap is two calls per run.
+        subgoals can be revised after a fresh observation. By default, there is
+        no assist-count limit; pass a non-negative ``max_llm_assists`` to cap
+        it, or zero to disable LLM recovery.
         Recovery guidance is never passed back as strategic text to the main
         Jev goal.
         Without an available Jev provider, this preserves the LLM-planned Agent
@@ -756,7 +757,7 @@ class Device:
             or bool(denied_controls)
             or use_score
             or not prefer_webview
-            or max_llm_assists != 2
+            or max_llm_assists is not None
         )
         if jev_configured or jev_options_used:
             return self.jev_goal(
@@ -809,7 +810,7 @@ class Device:
         prefer_webview: bool = True,
         llm: LlmProvider | None = None,
         provider: str | None = None,
-        max_llm_assists: int = 2,
+        max_llm_assists: int | None = None,
         dry_run: bool = False,
     ) -> AgentRun:
         """Compatibility wrapper for the Jev-first :meth:`run` flow.
