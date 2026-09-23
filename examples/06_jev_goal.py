@@ -91,13 +91,8 @@ def main(argv: list[str] | None = None) -> None:
         result = phone.run(
             GOAL,
             max_steps=MAX_STEPS,
-            max_seconds=45,
-            allowed_apps={"设置": "com.android.settings"},
-            allowed_controls=allowed_controls,
-            denied_controls=args.denied_controls,
             use_score=False,
             prefer_webview=False,
-            dry_run=dry_run,
         )
         _print_run_summary(result)
         if result.termination == "needs_verification":
