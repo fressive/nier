@@ -142,6 +142,12 @@ arbitrary application; the target app must call
 `WebViewDebugController.enable()` before creating its WebView. See the
 [WebView DevTools guide](webview-devtools.md) for setup and examples.
 
+The runnable [`11_webview_uidump.py`](../examples/11_webview_uidump.py) example
+calls `phone.uidump(..., prefer_webview=True)`, prints an indented node tree,
+and saves both that tree and the complete raw HTML/XML. Long attribute values
+and text are shortened in displayed fields; use the raw dump for exact source
+data. Use `dump_ui()` when source and fallback warnings are needed.
+
 The `include_invisible` field is part of the domain contract. The ADB
 implementation currently accepts it but does not yet alter its dump command
 based on that flag.
