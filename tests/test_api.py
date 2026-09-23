@@ -8,7 +8,7 @@ import pytest
 from nier import Device, connect
 from nier.config import from_mapping
 from nier.errors import ProtocolError, UiElementNotFound
-from nier.models.base import BoundingBox, TextSpan
+from nier.models.base import BoundingBox, LlmToolCall, TextSpan
 from nier.models.jev import JevAnswer, JevResponse
 from nier.protocol import (
     Action,
@@ -321,7 +321,8 @@ def test_omitted_provider_names_use_the_first_configured_entries(monkeypatch) ->
             }
         }
     )
-    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    backend = FakeBackend()
+    phone = Device(DeviceSession(backend), app_config=config)
     selected: dict[str, list[str]] = {"ocr": [], "llm": [], "jev": []}
 
     class FakeOcr:
@@ -433,6 +434,61 @@ def test_device_run_routes_to_configured_jev_without_eagerly_loading_llm(monkeyp
     assert created_jev == ["typed"]
     assert len(jev_calls) == 1
     assert "call_llm" in jev_calls[0][1]["next"].options  # type: ignore[index,operator]
+
+
+def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
+    config = from_mapping(
+        {
+            "models": {
+                "llm_providers": {"primary": {"model": "primary-model"}},
+                "jev_providers": {"typed": {"model": "typed-model"}},
+            }
+        }
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+    llm_created: list[str] = []
+    tool_requests: list[object] = []
+    choices = iter(["call_llm", "blocked"])
+
+    class FakeJev:
+        def ask(self, state, questions):
+            choice = next(choices)
+            return JevResponse(
+                answers={
+                    "done": JevAnswer(type="noul", noul=0.10 if choice == "call_llm" else 0.96),
+                    "next": JevAnswer(
+                        type="choice",
+                        choice=choice,
+                        confidence=0.99,
+                        probabilities={choice: 0.99},
+                    ),
+                },
+                model="fake",
+            )
+
+    class FakeLlm:
+        def complete(self, prompt: str, *, image: bytes | None = None) -> str:
+            return "返回上一页"
+
+        def complete_with_tools(self, prompt: str, *, tools, image: bytes | None = None):
+            tool_requests.append(tools)
+            if len(tool_requests) == 1:
+                return [LlmToolCall("recovery_action", {"candidate_id": "back"})]
+            return [LlmToolCall("recovery_complete", {})]
+
+    monkeypatch.setattr(phone, "_configured_jev", lambda provider: FakeJev())
+    monkeypatch.setattr(
+        phone,
+        "_configured_llm",
+        lambda provider: llm_created.append(provider) or FakeLlm(),
+    )
+
+    result = phone.run("继续操作", max_llm_assists=1)
+
+    assert result.success is True
+    assert llm_created == ["primary"]
+    assert len(tool_requests) == 2
+    assert backend.actions == [Key(KeyCode.BACK)]
 
 
 def test_unbound_screenshot_rejects_ocr() -> None:

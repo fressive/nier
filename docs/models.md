@@ -317,18 +317,21 @@ OCR at most once for the current observation.
 If an LLM is configured, `next` offers `call_llm` by default without an
 assist-count limit. Jev can select it when progress is stuck; failed runs can also
 request recovery. The LLM receives bounded semantic state and returns one
-concise recovery subgoal—not advice to inject into the main Jev loop. A nested
-Jev goal executes that subgoal using only allowlisted safe dismiss/cancel,
-Back, and explicitly requested Home controls, with at most three actions and
-thirty seconds (never beyond the main goal's deadline when one is set). On
+concise recovery subgoal—not advice to inject into the main Jev loop. It then
+executes the subgoal through native tool calls that select only current,
+host-validated safe dismiss/cancel, Back, and explicitly requested Home
+controls. Coordinates and arbitrary actions are never accepted. Recovery is
+limited to three actions and thirty seconds (never beyond the main goal's
+deadline when one is set). On
 successful recovery,
 the main goal re-observes the device and resumes. If a recovery subgoal fails,
 the LLM can generate a different one from a fresh observation. Set
 `max_llm_assists` to a non-negative integer to cap recovery-goal generations;
 zero disables LLM recovery. Each generated subgoal remains limited to three
 actions and thirty seconds. Failed controls are excluded so device actions are
-not retried automatically. The LLM cannot return an executable action,
-coordinate, package, or completion signal. `phone.run_jev_goal()` remains a
+not retried automatically. The LLM may mark only its recovery subgoal complete
+or failed; Jev remains responsible for the main goal. It cannot provide
+coordinates, text, packages, or arbitrary operations. `phone.run_jev_goal()` remains a
 compatibility wrapper around the same Jev-first flow.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android

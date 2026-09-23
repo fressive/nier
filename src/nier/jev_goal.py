@@ -5,7 +5,7 @@ generator. The host builds a finite set of validated candidate actions from
 the current UI observation, and Jev returns the id of one candidate. If the
 accessibility tree is insufficient, Jev can request one OCR read for that
 observation. When it needs help or the run fails, Jev may ask an optional LLM
-for a bounded recovery subgoal. A nested JevGoal executes the subgoal using
+for a bounded recovery subgoal. The LLM executes that subgoal by selecting
 only host-validated safe controls, then the main goal observes and resumes.
 """
 
@@ -27,8 +27,8 @@ from .agent import (
     AgentPlan,
     AgentRun,
     AgentStep,
-    _coerce_tool_call,
     _activity_context,
+    _coerce_tool_call,
     _jsonable,
     _semantic_ui,
     _structured_ui,
@@ -37,7 +37,7 @@ from .agent import (
 from .errors import BackendError, ModelError
 from .logging_utils import step as log_step
 from .logging_utils import tool_call as log_tool_call
-from .models.base import LlmProvider, LlmToolCall, OcrProvider, TextSpan
+from .models.base import LlmProvider, OcrProvider, TextSpan
 from .models.jev import JevAnswer, JevProvider, JevQuestion
 from .protocol import ActionResult, ActivityInfo, validate_package_name
 from .results import ExecutionRecord
@@ -144,8 +144,9 @@ class JevGoal:
 
     Jev is the primary decision-maker. If configured, the LLM is called when
     Jev selects ``call_llm`` or the goal encounters a recoverable failure. It
-    returns a bounded recovery subgoal, never a device action. A nested Jev
-    runner executes that subgoal using safe host-validated controls.
+    returns a bounded recovery subgoal and executes it by selecting only safe,
+    host-validated controls. It cannot provide coordinates or arbitrary device
+    operations.
 
     Optional ``progress`` is a Score question intended for telemetry and
     stuck detection.  It is disabled by default because a score is less
@@ -187,7 +188,7 @@ class JevGoal:
 
         ``llm`` is optional and is called if Jev selects ``call_llm`` or the
         main goal encounters a recoverable failure. Each response supplies a
-        recovery subgoal to a nested Jev runner; it is not passed back as
+        recovery subgoal for bounded LLM execution; it is not passed back as
         guidance to the main Jev goal. Failed subgoals may be revised using a
         fresh observation until ``max_llm_assists`` is exhausted. By default,
         there is no assist-count limit; pass a non-negative integer to cap it
@@ -449,7 +450,11 @@ class JevGoal:
                         instruction,
                         recovery_goal,
                         prior_attempts=recovery_history[-3:],
-                        main_remaining_seconds=remaining,
+                        main_deadline=(
+                            None
+                            if self.max_seconds is None
+                            else started_at + self.max_seconds
+                        ),
                     )
                 except Exception as exc:
                     attempt.update({"outcome": "exception", "error": str(exc)})
@@ -1091,8 +1096,8 @@ class JevGoal:
             )
         if can_call_llm:
             criteria["call_llm"] = (
-                "Ask the LLM for a bounded recovery subgoal; a nested Jev goal executes "
-                "it using only safe host-validated controls"
+                "Ask the LLM for a bounded recovery subgoal and let it select only "
+                "safe host-validated controls"
             )
         criteria["blocked"] = "No permitted candidate action can safely advance the goal"
         criteria["wait"] = "The screen is loading or transitioning; wait and observe again"
@@ -1105,7 +1110,8 @@ class JevGoal:
                 "Choose inspect_ocr only when the accessibility tree does not expose "
                 "enough visible text to decide. OCR is read-only and is available at most "
                 "once for this observation. If the current approach is stuck, choose "
-                "call_llm to request a bounded recovery subgoal for nested Jev execution. "
+                "call_llm to request a bounded recovery subgoal that the LLM executes "
+                "using safe host-validated controls. "
                 "Choose wait only for a visible loading or transition state. Choose blocked "
                 "when no permitted candidate is safe or useful. An app candidate launches "
                 "only an app from the caller's explicit allowlist.",
@@ -1185,10 +1191,10 @@ class JevGoal:
         }
         prompt = f"""You are generating a recovery subgoal for a bounded Android UI agent.
 Return exactly one concise imperative subgoal for restoring a safe, stable UI
-state from which the original main goal can continue. A nested Jev runner will
-choose and execute only host-validated safe controls (dismiss/close/cancel,
-Back, or Home when the subgoal explicitly calls for the home screen). Do not
-return advice, an action/tool call, coordinates, a package name, shell command,
+state from which the original main goal can continue. You will execute it in a
+separate bounded step by selecting only host-validated safe controls
+(dismiss/close/cancel, Back, or Home when the subgoal explicitly calls for the
+home screen). Do not return advice, coordinates, a package name, shell command,
 text to enter, or a claim that either goal is complete. Do not request a
 purchase, submission, deletion, permission change, or other task operation.
 If a previous recovery subgoal failed, choose a different approach that avoids
@@ -1219,7 +1225,7 @@ Previous recovery attempts:
         recovery_goal: str,
         *,
         prior_attempts: Sequence[Mapping[str, object]],
-        main_remaining_seconds: float | None,
+        main_deadline: float | None,
     ) -> dict[str, object]:
         """Let the LLM choose only among freshly host-validated recovery controls."""
         if self.llm is None:
@@ -1231,12 +1237,9 @@ Previous recovery attempts:
             )
 
         started_at = monotonic()
-        allowed_seconds = (
-            _MAX_RECOVERY_SECONDS
-            if main_remaining_seconds is None
-            else min(_MAX_RECOVERY_SECONDS, max(0.0, main_remaining_seconds))
-        )
-        deadline = started_at + allowed_seconds
+        deadline = started_at + _MAX_RECOVERY_SECONDS
+        if main_deadline is not None:
+            deadline = min(deadline, main_deadline)
         action_count = 0
         stale_decisions = 0
         history: list[dict[str, object]] = []
@@ -1388,7 +1391,15 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 continue
             if monotonic() >= deadline:
                 return result("failed", "recovery subgoal time limit expired")
-            action_result = child._dispatch(candidate.action)
+            try:
+                action_result = child._dispatch(candidate.action)
+            except Exception as exc:  # noqa: BLE001 - do not retry a dispatched device action
+                action_count += 1
+                return result(
+                    "failed",
+                    f"recovery action raised {type(exc).__name__}: {exc}",
+                    candidate.label,
+                )
             action_count += 1
             history.append(
                 {
@@ -1403,7 +1414,14 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                     action_result.message or action_result.error_code or "recovery action failed",
                     candidate.label,
                 )
-            observation = child._observe(recovery_goal, history)
+            try:
+                observation = child._observe(recovery_goal, history)
+            except Exception as exc:  # noqa: BLE001 - device reads can fail via backend adapters
+                return result(
+                    "failed",
+                    f"recovery observation after action failed: {exc}",
+                    candidate.label,
+                )
 
         return result("failed", "recovery subgoal exceeded its decision limit")
 

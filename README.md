@@ -75,12 +75,12 @@ launch candidates. Jev sees the app label, while the package stays host-side.
 optional overall deadline and is disabled by default. A completion signal
 returns `needs_verification` for caller review. If Jev selects `call_llm`, the
 LLM generates a bounded recovery subgoal (with no assist-count limit by
-default); a nested Jev run carries it out using only safe, host-validated
-dismiss/back/home controls, then the main goal observes again and resumes. Set
+default), then executes it by selecting only safe, host-validated
+dismiss/back/home controls; the main goal observes again and resumes. It cannot
+provide coordinates or arbitrary operations. Set
 `max_llm_assists` to a non-negative integer to cap generation, or to zero to
 disable LLM recovery. If a recovery subgoal fails, the LLM may generate a
-replacement from the updated UI state. The LLM
-cannot choose or execute actions directly. Use `phone.agent().run(...)` when
+replacement from the updated UI state. Use `phone.agent().run(...)` when
 the goal needs free-form text or LLM-generated actions.
 
 `connect(remote="192.168.1.20:5555")` connects to an authorized device over

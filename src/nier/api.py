@@ -459,10 +459,10 @@ class Device:
         Jev chooses among a bounded UI/OCR/app candidate list and the host
         executes only its selected, validated candidate. If an LLM is available,
         Jev may choose ``call_llm`` or a failed run may request a bounded
-        recovery subgoal. A nested Jev runner executes that subgoal using only
-        safe, host-validated dismiss/cancel/skip/back/home controls; the LLM cannot choose
-        or execute device actions. If a recovery subgoal fails, the LLM may
-        generate a replacement using a fresh observation. The default has no
+        recovery subgoal. The LLM executes it by selecting only safe,
+        host-validated dismiss/cancel/skip/back/home controls; it cannot supply
+        coordinates or arbitrary device operations. If a recovery subgoal fails,
+        the LLM may generate a replacement using a fresh observation. The default has no
         assist-count limit; pass a non-negative ``max_llm_assists`` to cap it,
         or zero to disable LLM recovery. The first configured Jev, LLM, and OCR
         providers are selected when names are omitted. A configured OCR provider runs only after Jev
@@ -732,8 +732,8 @@ class Device:
 
         When a Jev provider is supplied or configured, Jev chooses among
         host-validated candidates. If Jev selects ``call_llm`` or a recoverable
-        failure occurs, the optional LLM generates a bounded cleanup subgoal.
-        A nested Jev run executes it from safe host-validated controls. Failed
+        failure occurs, the optional LLM generates and executes a bounded cleanup
+        subgoal by choosing from safe host-validated controls. Failed
         subgoals can be revised after a fresh observation. By default, there is
         no assist-count limit; pass a non-negative ``max_llm_assists`` to cap
         it, or zero to disable LLM recovery.
@@ -835,8 +835,8 @@ class Device:
         UI/OCR/system candidate labels.
         A configured OCR provider runs only after Jev selects ``inspect_ocr``.
         Jev may select ``call_llm`` or a failed run may request a bounded
-        recovery subgoal. A nested Jev run chooses only safe host-validated
-        controls, and the LLM never chooses or executes device actions.
+        recovery subgoal. The LLM can execute it only by choosing from safe,
+        host-validated controls; it cannot supply arbitrary device actions.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
         Dry-run previews and non-action decisions do not make a second UI dump;

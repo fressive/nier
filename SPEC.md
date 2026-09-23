@@ -337,10 +337,10 @@ then compiles returned tool calls into validated `AgentStep` values before
 executing. `Device.run(instruction)` MUST use the Jev-first goal flow whenever
 a direct Jev client, an explicit Jev provider, a Jev-containing router, or a
 configured Jev provider is available. In that flow, Jev selects from the
-host-validated finite candidate set; an optional LLM can provide a bounded
-recovery subgoal when Jev selects `call_llm` or failure recovery is needed.
-The nested recovery goal does not return free-form strategy text to the main
-Jev loop. If Jev is not configured and no Jev-specific option
+host-validated finite candidate set; an optional LLM can provide and execute
+a bounded recovery subgoal when Jev selects `call_llm` or failure recovery is
+needed. Recovery execution selects only safe host-generated candidate IDs and
+does not return free-form strategy text to the main Jev loop. If Jev is not configured and no Jev-specific option
 is requested, `Device.run()` MUST preserve the LLM-first Agent flow. The model
 context MUST include a bounded foreground Activity object when available, and
 an explicit unavailable warning otherwise. The same Activity object MUST be
@@ -439,26 +439,30 @@ observation, and stop reason to `LlmProvider.complete`. The response MUST be one
 bounded recovery subgoal, not strategic text returned to the main Jev loop.
 Recoverable blocked, low-confidence, stale-state, loading-timeout, action
 failure, and action/planning exception outcomes MUST also request a recovery
-subgoal when an LLM is configured and time remains. The LLM MUST NOT select or
-dispatch an action, supply coordinates/packages/commands, request task
-submission/deletion/purchase/permission changes, or declare completion. Each
-response MUST be bounded to 1,200 characters.
+subgoal when an LLM is configured and time remains. Each generated subgoal
+MUST be bounded to 1,200 characters.
 
-Every recovery subgoal MUST run as a nested Jev goal with LLM assistance
-disabled. It MUST NOT inherit `allowed_apps`; its UI/OCR/system candidates MUST
-be restricted to the fixed safe dismiss/close/cancel/skip/back controls, plus
-Home only when requested by the recovery instruction, and MUST still honor the
-caller's `allowed_controls` and `denied_controls`. A recovery run MUST be
-bounded to at most three device actions and thirty seconds, further limited by
-the remaining main-goal deadline when one is set. It MUST NOT repeat any
-control whose action failed or raised during the current run. On nested-goal
-completion, the parent
+The LLM MUST execute a recovery subgoal only through
+`LlmProvider.complete_with_tools`, selecting a current host-generated safe
+candidate by ID. It MUST NOT provide coordinates, text, package names,
+commands, app launches, or arbitrary action objects. The candidates MUST be
+restricted to the fixed safe dismiss/close/cancel/skip/back controls, plus Home
+only when requested by the recovery instruction, and MUST still honor the
+caller's `allowed_controls` and `denied_controls`. The recovery action tool
+MUST be omitted when no action slots or safe candidates remain. Candidate IDs
+MUST be revalidated against a fresh pre-action observation; changed state
+requires a new model decision rather than dispatching a stale candidate. The
+LLM MAY declare only that the recovery subgoal is complete or failed; it MUST
+NOT declare the main goal complete. A recovery run MUST be bounded to at most
+three device actions and thirty seconds, further limited by the remaining
+main-goal deadline when one is set. It MUST NOT repeat any control whose action
+failed or raised during the current run. On recovery completion, the parent
 MUST take a new observation and resume the original main goal if its main
 action and time budgets permit; otherwise it MUST terminate with the applicable
 main-goal limit. The generated recovery text MUST NOT be added to the parent
 Jev context as strategy advice.
 
-If a nested recovery subgoal fails, the host MUST pass its outcome and a fresh
+If an LLM-executed recovery subgoal fails, the host MUST pass its outcome and a fresh
 bounded semantic observation to the LLM to generate a different subgoal while
 the `max_llm_assists` cap has remaining allowance, or without a count limit
 when it is `None`. Exhausting a configured cap MUST terminate recovery as

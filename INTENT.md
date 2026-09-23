@@ -61,8 +61,8 @@ The current foundation includes:
   provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
 - a unified `Device.run()` goal flow that uses TypeSafe Jev as the primary
   decision-maker when configured, selecting only host-validated actions and
-  optionally asking an LLM to generate bounded recovery subgoals that a nested
-  Jev runner executes through safe, host-validated controls;
+  optionally asking an LLM to generate and execute bounded recovery subgoals
+  by selecting only safe, host-validated controls;
 - an explicit LLM-first Agent API for goals that need free-form text or actions
   outside Jev's bounded candidate set, with validated native tool calls.
 
@@ -81,8 +81,10 @@ These are future extensions, not reasons to change the default ADB topology.
 
 Jev recovery may generate any number of recovery subgoals by default, with each
 subgoal still restricted to safe controls and bounded to three actions and
-thirty seconds. Callers can cap the number of LLM assists or set an overall
-goal deadline.
+thirty seconds. The LLM cannot provide arbitrary coordinates, text, app
+launches, or task operations; the host executes only a current candidate from
+the safe-control allowlist. Callers can cap the number of LLM assists or set
+an overall goal deadline.
 
 ## Documentation map
 

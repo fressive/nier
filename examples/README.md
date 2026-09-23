@@ -47,10 +47,11 @@ a label and submits text. `06_jev_goal.py` previews by default and allowlists
 `com.android.settings` in its `allowed_apps` argument and limits UI targets to
 `关于本机` by default. When an LLM provider is configured, Jev may request
 recovery through `call_llm` or after a failure. The LLM creates a bounded
-subgoal that a nested Jev run executes using safe controls; after success the
-main goal observes the device again and resumes. Failed subgoals may be
-replaced using a fresh observation. Assist generation is unlimited by default;
-pass `max_llm_assists` to cap it. Jev still chooses every action.
+subgoal and executes it by selecting from host-validated safe controls; it
+cannot invent coordinates or arbitrary device actions. After success the main
+goal observes the device again and resumes. Failed subgoals may be replaced
+using a fresh observation. Assist generation is unlimited by default; pass
+`max_llm_assists` to cap it. Jev still chooses every main-goal action.
 `--allow-control` replaces that label with the exact
 labels you pass. `--execute` runs with the default control allowlist; `--yolo`
 bypasses preview and offers all discovered UI/OCR control labels. Jev still
