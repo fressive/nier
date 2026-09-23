@@ -24,6 +24,14 @@ and confirm the prompt to start it. A script runs with the same Python
 interpreter and working directory as `nier web`. **停止运行** sends a process
 termination request.
 
+Choose **调试运行** to pause at the first Nier `STEP` event. The sidebar then
+provides **继续**, **步入**, **单步**, and **步出** controls, plus the current
+STEP details and call path. **单步** runs through exactly one STEP event and
+pauses at the next one. **步入** waits for a STEP event at a deeper call level;
+**步出** waits for one at a shallower level. These controls follow Nier STEP
+events rather than Python source lines. Normal script runs keep their existing
+uninterrupted behavior.
+
 To rebuild the frontend from a source checkout:
 
 ```bash
@@ -41,6 +49,12 @@ The graph shows STEP events and model results in the order they occur. It
 follows the selected run as it proceeds, marks the active step, and shows the
 final script exit state. The log panel contains the selected STEP details and
 its associated HTTP request/response details, plus recent script output.
+
+Debug events also travel over the dashboard event stream. The runner pauses
+inside the STEP logger before execution continues past that event, then waits
+for the selected control command. Stopping the run terminates the paused
+process. STEP details and call paths reuse the structured event's redacted
+fields.
 
 The dashboard enables the existing `vvv` request/response logging level in the
 child script and streams structured Nier events after applying the existing

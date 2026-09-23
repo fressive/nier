@@ -35,7 +35,7 @@ class RunRequest(BaseModel):
 
 
 class DebugRequest(BaseModel):
-    command: Literal["continue", "step_into", "step_over", "step_out"]
+    command: Literal["continue", "step", "step_into", "step_out"]
 
 
 def _timestamp() -> str:
@@ -150,6 +150,8 @@ class _DashboardState:
         environment = os.environ.copy()
         environment["NIER_WEB_EVENT_STREAM"] = "1"
         environment["NIER_WEB_SCRIPT_ROOT"] = str(self.scripts)
+        if debug:
+            environment["NIER_WEB_DEBUG"] = "1"
         source_root = str(Path(__file__).resolve().parent.parent)
         existing_pythonpath = environment.get("PYTHONPATH")
         environment["PYTHONPATH"] = (
@@ -254,6 +256,8 @@ class _DashboardState:
             if self.run_state["status"] not in {"starting", "running"}:
                 return self.snapshot_locked()
             self.run_state["status"] = "stopping"
+            if self.run_state.get("debug"):
+                self.run_state["debug_state"] = "running"
             process = self.process
             self._publish_locked(
                 {
@@ -345,19 +349,21 @@ class _DashboardState:
         event = dict(event)
         event["event_id"] = self.sequence
         event.setdefault("timestamp", _timestamp())
-        if event.get("type") == "debug.paused":
-            self.run_state["debug_state"] = "paused"
-            self.run_state["debug_location"] = {
-                key: event.get(key)
-                for key in ("file", "line", "function", "source", "stack")
-            }
-        elif event.get("type") == "debug.resumed":
-            self.run_state["debug_state"] = "running"
         if event.get("type") == "log" and event.get("category") == "STEP":
             self.current_step_id = self.sequence
             event["step_id"] = self.sequence
         elif event.get("type") == "log":
             event["step_id"] = self.current_step_id
+        elif str(event.get("type", "")).startswith("debug."):
+            event["step_id"] = self.current_step_id
+        if event.get("type") == "debug.paused":
+            self.run_state["debug_state"] = "paused"
+            self.run_state["debug_location"] = {
+                key: event.get(key)
+                for key in ("step_id", "category", "message", "details", "depth", "file", "line", "function", "stack")
+            }
+        elif event.get("type") == "debug.resumed":
+            self.run_state["debug_state"] = "running"
         self.history.append(event)
         for subscriber in tuple(self.subscribers):
             try:
