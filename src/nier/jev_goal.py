@@ -4,11 +4,13 @@ Jev is deliberately used as a selector here, not as a free-form action
 generator. The host builds a finite set of validated candidate actions from
 the current UI observation, and Jev returns the id of one candidate. If the
 accessibility tree is insufficient, Jev can request one OCR read for that
-observation.
+observation. When it needs a strategy change, Jev may ask an optional LLM for
+directional guidance; Jev remains responsible for selecting every action.
 """
 
 from __future__ import annotations
 
+import json
 from collections import Counter
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
@@ -32,7 +34,7 @@ from .agent import (
 )
 from .errors import BackendError, ModelError
 from .logging_utils import step as log_step
-from .models.base import OcrProvider, TextSpan
+from .models.base import LlmProvider, OcrProvider, TextSpan
 from .models.jev import JevAnswer, JevProvider, JevQuestion
 from .protocol import ActionResult, ActivityInfo, validate_package_name
 from .results import ExecutionRecord
@@ -42,6 +44,7 @@ from .ui import UiDocument, UiNode, parse_uidump
 _WAIT_INTERVAL_SECONDS = 0.75
 _MAX_CONSECUTIVE_WAITS = 3
 _MAX_STALE_DECISIONS = 3
+_MAX_LLM_GUIDANCE_CHARS = 1_200
 
 
 @dataclass(frozen=True)
@@ -112,7 +115,12 @@ class JevGoal:
 
     * ``done`` is a Noul predicate for whether the user goal is satisfied;
     * ``next`` is a Choice over host-generated, validated candidate actions,
-      plus bounded ``inspect_ocr``, ``wait``, and ``blocked`` options.
+      plus bounded ``inspect_ocr``, ``call_llm``, ``wait``, and ``blocked``
+      options.
+
+    Jev is the primary decision-maker. If configured, the LLM is called only
+    when Jev selects ``call_llm``; it returns a short strategic adjustment,
+    never a device action. Jev then chooses the next host-validated candidate.
 
     Optional ``progress`` is a Score question intended for telemetry and
     stuck detection.  It is disabled by default because a score is less
@@ -143,6 +151,9 @@ class JevGoal:
         denied_controls: Sequence[str] = (),
         use_score: bool = False,
         prefer_webview: bool = True,
+        llm: LlmProvider | None = None,
+        llm_provider: str | None = None,
+        max_llm_assists: int = 2,
     ) -> None:
         if max_steps <= 0:
             raise ValueError("max_steps must be positive")
@@ -154,6 +165,12 @@ class JevGoal:
             raise ValueError("action_threshold must be between 0 and 1")
         if max_candidates <= 0:
             raise ValueError("max_candidates must be positive")
+        if (
+            isinstance(max_llm_assists, bool)
+            or not isinstance(max_llm_assists, int)
+            or max_llm_assists < 0
+        ):
+            raise ValueError("max_llm_assists must be a non-negative integer")
         if allowed_apps is not None and not isinstance(allowed_apps, Mapping):
             raise TypeError("allowed_apps must map display labels to Android package names")
         if isinstance(allowed_controls, (str, bytes, bytearray)):
@@ -206,6 +223,9 @@ class JevGoal:
         )
         self.use_score = use_score
         self.prefer_webview = prefer_webview
+        self.llm = llm
+        self.llm_provider = llm_provider or ("custom" if llm is not None else "")
+        self.max_llm_assists = max_llm_assists
 
     def run(
         self,
@@ -221,9 +241,11 @@ class JevGoal:
             dry_run=dry_run,
             done_threshold=self.done_threshold,
             action_threshold=self.action_threshold,
-        max_candidates=self.max_candidates,
-        max_seconds=self.max_seconds,
-        prefer_webview=self.prefer_webview,
+            max_candidates=self.max_candidates,
+            max_seconds=self.max_seconds,
+            prefer_webview=self.prefer_webview,
+            llm_assist_provider=self.llm_provider or None,
+            max_llm_assists=self.max_llm_assists,
             allowed_apps=[
                 {"label": label, "package": package}
                 for label, package in self.allowed_apps
@@ -265,13 +287,19 @@ class JevGoal:
         results: list[ActionResult] = []
         history: list[dict[str, object]] = []
         jev_data: dict[str, object] | None = None
+        llm_guidance = ""
+        llm_assists = 0
+        llm_assist_history: list[dict[str, object]] = []
 
         def finish(success: bool, termination: str, *, error: str = "") -> AgentRun:
+            plan_jev = None if jev_data is None else dict(jev_data)
+            if plan_jev is not None and llm_assist_history:
+                plan_jev["llm_assists"] = [dict(item) for item in llm_assist_history]
             plan = AgentPlan(
                 goal=instruction,
                 steps=tuple(steps),
                 provider=self.provider,
-                jev=jev_data,
+                jev=plan_jev,
             )
             record.details["plan"] = plan.to_dict()
             if error:
@@ -310,6 +338,8 @@ class JevGoal:
                         instruction,
                         history,
                         recognize_ocr=pending_recognize_ocr,
+                        llm_guidance=llm_guidance,
+                        llm_assists_used=llm_assists,
                     )
                 else:
                     observation = pending_observation
@@ -318,6 +348,9 @@ class JevGoal:
                 jev_data, candidate, done, decision = self._decide(
                     observation,
                     instruction,
+                    can_call_llm=(
+                        self.llm is not None and llm_assists < self.max_llm_assists
+                    ),
                 )
                 verify_fresh_state = (
                     not dry_run
@@ -427,6 +460,41 @@ class JevGoal:
                     )
                 remaining_seconds = self.max_seconds - (monotonic() - started_at)
                 sleep(min(_WAIT_INTERVAL_SECONDS, max(0.0, remaining_seconds)))
+                continue
+
+            if decision == "call_llm":
+                try:
+                    llm_guidance = self._request_direction(instruction, observation.state)
+                except Exception as exc:
+                    record.error = str(exc)
+                    record.finish(
+                        False,
+                        completed_steps=len(results),
+                        planned_steps=len(steps),
+                        phase="planning",
+                    )
+                    raise
+                llm_assists += 1
+                assist = {
+                    "iteration": iteration,
+                    "provider": self.llm_provider or "llm",
+                    "guidance": llm_guidance,
+                }
+                llm_assist_history.append(assist)
+                history.append({"decision": "call_llm", "guidance": llm_guidance})
+                del history[:-8]
+                log_step(
+                    "jev-goal-llm-assist",
+                    iteration=iteration,
+                    assist=llm_assists,
+                    max_assists=self.max_llm_assists,
+                )
+                if monotonic() - started_at >= self.max_seconds:
+                    return finish(
+                        False,
+                        "time_limit",
+                        error=f"goal exceeded the {self.max_seconds:g}-second time limit",
+                    )
                 continue
 
             consecutive_waits = 0
