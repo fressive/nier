@@ -213,16 +213,21 @@ lowercase SHA-256 digest of the returned bytes.
   respected.
 - An empty or malformed image payload MUST raise a backend/protocol error.
 
-`Device.locate_icon(template, *, min_score=0.85, region=None)` MUST locate a
-known image template in one fresh screenshot without performing a device
-action. `template` is a local image path or encoded image bytes. The optional
-`region` is `(x, y, width, height)` in screenshot pixels; returned match
-coordinates remain relative to the full screenshot. `ImageMatch` MUST expose
-the matched rectangle, center, and normalized-correlation score. The method
-returns `None` when no match meets `min_score`; scores are similarity values,
-not calibrated probabilities. Invalid thresholds, regions, or image data MUST
-raise `ValueError`. The implementation MUST use the optional `vision` extra,
-load OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
+`Device.locate_icon(template, *, min_score=0.85, region=None,
+scale_range=(0.5, 2.0), scale_steps=21)` MUST locate a known image template in
+one fresh screenshot without performing a device action. `template` is a local
+image path or encoded image bytes. The optional `region` is
+`(x, y, width, height)` in screenshot pixels; returned match coordinates remain
+relative to the full screenshot. The implementation MUST test logarithmically
+spaced template scales across the inclusive `scale_range`, plus the original
+size when it falls inside that range, using `scale_steps` from 2 to 41. Scale
+range values MUST be finite and within `[0.1, 4.0]`, and the minimum MUST NOT
+exceed the maximum. `ImageMatch` MUST expose the matched rectangle, center, and
+normalized-correlation score. The method returns `None` when no match meets
+`min_score`; scores are similarity values, not calibrated probabilities.
+Invalid thresholds, regions, scale options, or image data MUST raise
+`ValueError`. The implementation MUST use the optional `vision` extra, load
+OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
 guidance if either dependency is missing. Screenshot acquisition follows the
 read retry policy; matching MUST NOT tap or otherwise mutate the device.
 

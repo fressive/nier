@@ -38,7 +38,7 @@ from .results import RunRecorder
 from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
-from .vision import ImageMatch, SwipeDirection, locate_template
+from .vision import ImageMatch, ImageScaleRange, SwipeDirection, locate_template
 from .widgets import Widget, WidgetList
 
 if TYPE_CHECKING:
@@ -462,18 +462,23 @@ class Device:
         *,
         min_score: float = 0.85,
         region: tuple[int, int, int, int] | None = None,
+        scale_range: ImageScaleRange = (0.5, 2.0),
+        scale_steps: int = 21,
     ) -> ImageMatch | None:
-        """Locate an icon template in a fresh screenshot without tapping it.
+        """Locate an icon template at multiple sizes in a fresh screenshot.
 
         ``template`` is a path or encoded image bytes, preferably cropped from
         this device's screenshot. ``region`` optionally limits matching to an
-        ``(x, y, width, height)`` screen-pixel rectangle. ``min_score`` is the
-        normalized OpenCV matching threshold, not a probability. Returns
-        ``None`` when the best match is below the threshold. Install
-        ``nier[vision]`` to enable matching.
+        ``(x, y, width, height)`` screen-pixel rectangle. ``scale_range`` sets
+        the minimum and maximum template size relative to the supplied image;
+        ``scale_steps`` controls the number of logarithmically spaced sizes
+        tested (2–41). ``min_score`` is the normalized OpenCV matching
+        threshold, not a probability. Returns ``None`` when no match meets the
+        threshold. Install ``nier[vision]`` to enable matching.
 
         The screenshot read follows the session's read retry policy. Locating
-        an icon is read-only and never performs a device action.
+        an icon is read-only and never performs a device action. Matching more
+        than one scale takes longer than an exact-size comparison.
         """
         screenshot = self.screenshot()
         match = locate_template(
@@ -481,6 +486,8 @@ class Device:
             template,
             min_score=min_score,
             region=region,
+            scale_range=scale_range,
+            scale_steps=scale_steps,
         )
         return (
             None

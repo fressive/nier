@@ -14,7 +14,11 @@ from .protocol import ActionResult
 
 TemplateImage: TypeAlias = str | Path | bytes
 ImageRegion: TypeAlias = tuple[int, int, int, int]
+ImageScaleRange: TypeAlias = tuple[float, float]
 SwipeDirection: TypeAlias = Literal["up", "down", "left", "right"]
+
+_DEFAULT_SCALE_RANGE: ImageScaleRange = (0.5, 2.0)
+_DEFAULT_SCALE_STEPS = 21
 
 
 def _validate_jitter(jitter: float) -> float:
@@ -171,11 +175,16 @@ def locate_template(
     *,
     min_score: float = 0.85,
     region: ImageRegion | None = None,
+    scale_range: ImageScaleRange = _DEFAULT_SCALE_RANGE,
+    scale_steps: int = _DEFAULT_SCALE_STEPS,
 ) -> ImageMatch | None:
-    """Find ``template`` in an encoded screenshot using normalized correlation.
+    """Find ``template`` in an encoded screenshot using multi-scale correlation.
 
     ``region`` is an optional ``(x, y, width, height)`` crop in full-screen
-    pixels. The returned match is always relative to the full screenshot.
+    pixels. ``scale_range`` gives the smallest and largest template scale to
+    search relative to the supplied image; ``scale_steps`` controls the number
+    of logarithmically spaced sizes tested. The original size is tested when it
+    falls inside the range. Returned bounds are relative to the full screenshot.
     OpenCV and NumPy are imported only when this function is called.
     """
     if (
@@ -185,6 +194,13 @@ def locate_template(
         or not 0.0 <= min_score <= 1.0
     ):
         raise ValueError("min_score must be a finite number between 0 and 1")
+    minimum_scale, maximum_scale = _validate_scale_range(scale_range)
+    if (
+        isinstance(scale_steps, bool)
+        or not isinstance(scale_steps, int)
+        or not 2 <= scale_steps <= 41
+    ):
+        raise ValueError("scale_steps must be an integer between 2 and 41")
     if not isinstance(screenshot, bytes) or not screenshot:
         raise ValueError("screenshot must contain encoded image bytes")
     template_data = _read_template(template)
@@ -218,26 +234,87 @@ def locate_template(
 
     template_height, template_width = template_image.shape[:2]
     search_height, search_width = search_image.shape[:2]
-    if template_width > search_width or template_height > search_height:
-        return None
 
-    result = cv2.matchTemplate(
-        search_image,
-        template_image,
-        cv2.TM_CCOEFF_NORMED,
-    )
-    _, max_score, _, max_location = cv2.minMaxLoc(result)
-    score = float(max_score)
-    if not isfinite(score) or score < min_score:
-        return None
+    scales = [
+        float(scale)
+        for scale in np.geomspace(
+            minimum_scale,
+            maximum_scale,
+            num=scale_steps,
+        )
+    ]
+    if minimum_scale <= 1.0 <= maximum_scale:
+        scales.append(1.0)
+    scales.sort(key=lambda scale: abs(scale - 1.0))
 
-    return ImageMatch(
-        x=offset_x + int(max_location[0]),
-        y=offset_y + int(max_location[1]),
-        width=template_width,
-        height=template_height,
-        score=score,
-    )
+    best: ImageMatch | None = None
+    tested_sizes: set[tuple[int, int]] = set()
+    for scale in scales:
+        scaled_width = max(1, round(template_width * scale))
+        scaled_height = max(1, round(template_height * scale))
+        size = (scaled_width, scaled_height)
+        if size in tested_sizes:
+            continue
+        tested_sizes.add(size)
+        if scaled_width > search_width or scaled_height > search_height:
+            continue
+
+        if size == (template_width, template_height):
+            scaled_template = template_image
+        else:
+            interpolation = (
+                cv2.INTER_AREA
+                if scale < 1.0
+                else cv2.INTER_CUBIC
+            )
+            scaled_template = cv2.resize(
+                template_image,
+                size,
+                interpolation=interpolation,
+            )
+
+        result = cv2.matchTemplate(
+            search_image,
+            scaled_template,
+            cv2.TM_CCOEFF_NORMED,
+        )
+        _, max_score, _, max_location = cv2.minMaxLoc(result)
+        score = float(max_score)
+        if not isfinite(score):
+            continue
+        if best is None or score > best.score:
+            best = ImageMatch(
+                x=offset_x + int(max_location[0]),
+                y=offset_y + int(max_location[1]),
+                width=scaled_width,
+                height=scaled_height,
+                score=score,
+            )
+
+        # Preserve the fast path for an exact-size, effectively exact match.
+        if size == (template_width, template_height) and score >= 0.9999:
+            return best
+
+    if best is None or best.score < min_score:
+        return None
+    return best
+
+
+def _validate_scale_range(scale_range: ImageScaleRange) -> tuple[float, float]:
+    if not isinstance(scale_range, tuple) or len(scale_range) != 2:
+        raise ValueError("scale_range must be a (minimum, maximum) tuple")
+    if any(
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not isfinite(value)
+        or not 0.1 <= value <= 4.0
+        for value in scale_range
+    ):
+        raise ValueError("scale_range values must be finite and between 0.1 and 4.0")
+    minimum, maximum = (float(value) for value in scale_range)
+    if minimum > maximum:
+        raise ValueError("scale_range minimum must not exceed its maximum")
+    return minimum, maximum
 
 
 def _read_template(template: TemplateImage) -> bytes:
@@ -284,4 +361,10 @@ def _validate_region(
     return x, y, width, height
 
 
-__all__ = ["ImageMatch", "ImageRegion", "TemplateImage", "locate_template"]
+__all__ = [
+    "ImageMatch",
+    "ImageRegion",
+    "ImageScaleRange",
+    "TemplateImage",
+    "locate_template",
+]
