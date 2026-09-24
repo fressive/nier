@@ -3,12 +3,19 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Mapping
+from dataclasses import replace
+import json
 from pathlib import Path
 
+from .adb import AdbClient
 from .backends.adb import AdbBackend
-from .config import load_config
+from .config import HookMode, load_config
+from .errors import NierError
+from .hooks import RootFridaIntentHook
+from .intent_codegen import generate_intent_code
 from .logging_utils import configure_logging
-from .protocol import Capabilities
+from .protocol import Capabilities, validate_package_name
 from .results import RunRecorder
 from .session import DeviceSession
 
@@ -54,6 +61,40 @@ def _parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print the dashboard URL without opening a browser",
     )
+    intent_parser = subparsers.add_parser(
+        "intent-hook",
+        help="capture Activity Intents from a rooted Android app",
+    )
+    intent_parser.add_argument(
+        "--package",
+        help="target Android package (defaults to hook.target_package)",
+    )
+    spawn_group = intent_parser.add_mutually_exclusive_group()
+    spawn_group.add_argument(
+        "--spawn",
+        dest="spawn",
+        action="store_true",
+        default=None,
+        help="spawn the target with the hook installed before resume",
+    )
+    spawn_group.add_argument(
+        "--attach",
+        dest="spawn",
+        action="store_false",
+        default=None,
+        help="attach to the already running target process",
+    )
+    intent_parser.add_argument(
+        "--format",
+        choices=("kotlin", "java"),
+        default="kotlin",
+        help="language for the reusable startActivity helper (default: kotlin)",
+    )
+    intent_parser.add_argument(
+        "--once",
+        action="store_true",
+        help="exit after capturing the first Activity Intent",
+    )
     return parser
 
 
@@ -75,6 +116,69 @@ def _print_capabilities(capabilities: Capabilities) -> None:
     print(f"  Actions: {', '.join(capabilities.action_names) or 'none'}")
 
 
+def _run_intent_hook(args: argparse.Namespace) -> int:
+    if args.verbose > 3:
+        raise SystemExit("nier: at most -vvv is supported")
+    try:
+        config = load_config(args.config)
+    except (NierError, OSError, ValueError) as exc:
+        raise SystemExit(f"nier intent-hook: {exc}") from exc
+    configure_logging(max(config.logging.verbosity, args.verbose))
+    if config.hook.mode is HookMode.NON_ROOT:
+        raise SystemExit(
+            "nier intent-hook: hook.mode is non-root; set hook.mode: root to use Frida"
+        )
+
+    try:
+        package = validate_package_name(args.package or config.hook.target_package or "")
+        hook_config = replace(
+            config.hook,
+            mode=HookMode.ROOT,
+            target_package=package,
+        )
+        hook = RootFridaIntentHook(AdbClient(config.device), hook_config)
+        session = hook.attach(package, spawn=args.spawn)
+    except (NierError, OSError, ValueError) as exc:
+        raise SystemExit(f"nier intent-hook: {exc}") from exc
+
+    print(f"Intent hook attached to {package} (pid {session.pid}). Press Ctrl-C to stop.", flush=True)
+    captured = 0
+    try:
+        while True:
+            event = session.next_event(timeout=0.5)
+            if event is None:
+                continue
+            if event.type == "error":
+                raise SystemExit(
+                    f"nier intent-hook: {event.payload.get('error', 'Frida agent failed')}"
+                )
+            if event.type == "intent_hook_warning":
+                print(
+                    f"Intent hook warning: {event.payload.get('error', event.payload)}",
+                    flush=True,
+                )
+                continue
+            if event.type != "intent_started":
+                continue
+
+            intent = event.payload.get("intent")
+            if not isinstance(intent, Mapping):
+                print("Intent hook warning: received an invalid Intent payload", flush=True)
+                continue
+            captured += 1
+            print(f"\nActivity launch #{captured} ({event.payload.get('source', 'unknown')}):")
+            print(json.dumps(dict(intent), ensure_ascii=False, indent=2))
+            print(f"\nReusable {args.format} startActivity code:")
+            print(generate_intent_code(intent, args.format), end="", flush=True)
+            if args.once:
+                return 0
+    except KeyboardInterrupt:
+        print("\nIntent hook stopped.", flush=True)
+        return 0
+    finally:
+        session.close()
+
+
 def main(argv: list[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     if args.command == "web":
@@ -90,6 +194,8 @@ def main(argv: list[str] | None = None) -> int:
         except (OSError, RuntimeError, ValueError) as exc:
             raise SystemExit(f"nier web: {exc}") from exc
         return 0
+    if args.command == "intent-hook":
+        return _run_intent_hook(args)
 
     config = load_config(args.config)
     if args.verbose > 3:

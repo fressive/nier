@@ -254,6 +254,35 @@ The hook enables `WebView.setWebContentsDebuggingEnabled(true)`, and
 `src/nier/webview.py` performs the separate CDP extraction. Root and non-root
 therefore share the same DOM extraction path after debugging is enabled.
 
+### Root Activity Intent hook CLI
+
+`nier intent-hook` MUST use root Frida injection and MUST NOT silently fall
+back to non-root mode. It MUST require a rooted device, the optional host
+`frida` dependency, and a compatible root-capable `frida-server`. The target
+package comes from `--package` or `hook.target_package`; `--spawn` installs the
+agent before the process resumes and `--attach` selects an existing process.
+Without either flag, `hook.spawn` applies. An explicit `hook.mode: non-root`
+configuration MUST be rejected.
+
+The agent MUST observe app-process Activity launches through Android's
+`Instrumentation` and `ContextImpl` Java entry points without changing their
+arguments or return values. Each captured Intent MUST include its component,
+action, data URI, MIME type, package, flags, categories, and bounded extras.
+String values MUST be limited to 4096 characters, extras to 100 keys, and
+arrays to 64 values. Primitive and string extras SHOULD be represented with
+their Java type so generated code can restore them. Unsupported Parcelable or
+custom Serializable values MUST be reported by type and MUST NOT be invoked or
+serialized through arbitrary application methods. The agent MUST NOT force a
+still-parcelled Bundle to expand; it MUST report that those extras were not
+read.
+
+The CLI MUST print captured Intent data and a reusable Activity
+`startActivity` helper in Kotlin by default, with Java available through
+`--format java`. Unsupported extras MUST produce TODO comments in generated
+code. The command MUST continue listening until Ctrl-C, except with `--once`,
+and MUST detach the Frida session when it exits. It MUST NOT persist captured
+Intents or retry any device action.
+
 ## 7. Rooted uinput helper
 
 `backend/nier-uinput` is a root-only standalone executable. It MUST:
