@@ -8,6 +8,7 @@ from pathlib import Path
 import queue
 import sys
 import threading
+from time import monotonic
 from typing import Any, Callable
 
 from .logging_utils import _WEB_EVENT_LOCK
@@ -19,6 +20,66 @@ _commands: queue.Queue[str] = queue.Queue()
 _step_lock = threading.Lock()
 _mode = "step"
 _target_depth = 0
+_LINE_TRACE_INTERVAL = 0.05
+
+
+class _ScriptLineTracer:
+    """Publish sampled source locations for files inside the script root."""
+
+    def __init__(self, script_root: Path) -> None:
+        self.script_root = script_root.resolve()
+        self.last_location: tuple[str, int, str] | None = None
+        self.last_published_at = 0.0
+
+    def __call__(self, frame, event: str, _arg):
+        if event == "call":
+            return self if self._relative_file(frame) is not None else None
+        if event == "line":
+            self._publish_location(frame)
+        elif event == "return" and frame.f_code.co_name == "<module>":
+            self._publish_location(frame, force=True)
+        return self
+
+    def _relative_file(self, frame) -> str | None:
+        try:
+            filename = Path(frame.f_code.co_filename).resolve()
+            if not filename.is_relative_to(self.script_root):
+                return None
+            return filename.relative_to(self.script_root).as_posix()
+        except (OSError, RuntimeError, ValueError):
+            return None
+
+    def _publish_location(self, frame, *, force: bool = False) -> None:
+        filename = self._relative_file(frame)
+        if filename is None:
+            return
+        location = (filename, frame.f_lineno, frame.f_code.co_name)
+        if location == self.last_location:
+            return
+        now = monotonic()
+        if not force and now - self.last_published_at < _LINE_TRACE_INTERVAL:
+            return
+        self.last_location = location
+        self.last_published_at = now
+        _publish_event(
+            "execution.location",
+            file=filename,
+            line=frame.f_lineno,
+            function=frame.f_code.co_name,
+        )
+
+
+def install_line_tracing() -> bool:
+    """Trace script-relative Python lines when enabled by the web runner."""
+    root_value = os.environ.get("NIER_WEB_SCRIPT_ROOT")
+    if os.environ.get("NIER_WEB_TRACE") != "1" or not root_value:
+        return False
+    try:
+        script_root = Path(root_value).resolve()
+    except (OSError, RuntimeError, ValueError):
+        return False
+    sys.settrace(_ScriptLineTracer(script_root))
+    return True
 
 
 def submit_command(command: str) -> None:

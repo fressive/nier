@@ -73,6 +73,7 @@ class _DashboardState:
             "debug": False,
             "debug_state": "inactive",
             "debug_location": None,
+            "execution_location": None,
         }
 
     def list_scripts(self) -> list[dict[str, str]]:
@@ -137,6 +138,7 @@ class _DashboardState:
                 "debug": debug,
                 "debug_state": "running" if debug else "inactive",
                 "debug_location": None,
+                "execution_location": None,
             }
             self._publish_locked(
                 {
@@ -159,6 +161,8 @@ class _DashboardState:
         environment = os.environ.copy()
         environment["NIER_WEB_EVENT_STREAM"] = "1"
         environment["NIER_WEB_SCRIPT_ROOT"] = str(self.scripts)
+        environment["NIER_WEB_TRACE"] = "1"
+        environment.pop("NIER_WEB_DEBUG", None)
         if debug:
             environment["NIER_WEB_DEBUG"] = "1"
         source_root = str(Path(__file__).resolve().parent.parent)
@@ -169,11 +173,7 @@ class _DashboardState:
             else os.pathsep.join((source_root, existing_pythonpath))
         )
         try:
-            command = (
-                [sys.executable, "-u", "-m", "nier.web_runner", str(script)]
-                if debug
-                else [sys.executable, str(script)]
-            )
+            command = [sys.executable, "-u", "-m", "nier.web_runner", str(script)]
             process = subprocess.Popen(
                 command,
                 cwd=self.cwd,
@@ -239,6 +239,7 @@ class _DashboardState:
                 if isinstance(event, dict) and (
                     event.get("type") == "log"
                     or event.get("type") in {"debug.paused", "debug.resumed"}
+                    or event.get("type") == "execution.location"
                 ):
                     event["run_id"] = run_id
                     self.publish(event)
@@ -377,7 +378,12 @@ class _DashboardState:
             }
         elif event.get("type") == "debug.resumed":
             self.run_state["debug_state"] = "running"
-        self.history.append(event)
+        elif event.get("type") == "execution.location":
+            self.run_state["execution_location"] = {
+                key: event.get(key) for key in ("file", "line", "function")
+            }
+        if event.get("type") != "execution.location":
+            self.history.append(event)
         for subscriber in tuple(self.subscribers):
             try:
                 subscriber.put_nowait(event)
