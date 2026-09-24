@@ -3,9 +3,11 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass, field
 from pathlib import Path
+from types import SimpleNamespace
 
 from nier import cli
-from nier.config import AppConfig, DeviceConfig, RuntimeConfig
+from nier.config import AppConfig, DeviceConfig, HookConfig, HookMode, RuntimeConfig
+from nier.intent_hook import IntentHookEvent
 from nier.protocol import ImageFormat, Screenshot, UiDump, UiSource
 from nier.ui import parse_uidump
 
@@ -29,6 +31,10 @@ def test_cli_parses_device_tool_options_and_adb_remainder() -> None:
     locate = parser.parse_args(
         ["locate", "icon", "icon.png", "--region", "1", "2", "3", "4"]
     )
+    intent_hook = parser.parse_args(
+        ["intent-hook", "--package", "com.example.app", "--spawn",
+         "--activity", ".DetailActivity", "--once"]
+    )
     adb = parser.parse_args(["adb", "exec-out", "screencap", "-p"])
 
     assert (screenshot.command, screenshot.quality, screenshot.max_width) == (
@@ -43,7 +49,89 @@ def test_cli_parses_device_tool_options_and_adb_remainder() -> None:
     )
     assert legacy_uidump.command == "dump-ui"
     assert locate.region == [1, 2, 3, 4]
+    assert (
+        intent_hook.command,
+        intent_hook.package,
+        intent_hook.spawn,
+        intent_hook.activity,
+        intent_hook.once,
+    ) == ("intent-hook", "com.example.app", True, ".DetailActivity", True)
     assert adb.adb_args == ["exec-out", "screencap", "-p"]
+
+
+def test_intent_hook_uses_lsposed_events_without_frida(monkeypatch, tmp_path, capsys) -> None:
+    config_path = tmp_path / "nier.yaml"
+    config = AppConfig(
+        hook=HookConfig(
+            mode=HookMode.NON_ROOT,
+            target_package="com.example.app",
+        )
+    )
+    monkeypatch.setattr(cli, "load_config", lambda _path: config)
+    monkeypatch.setattr(cli, "configure_logging", lambda _level: None)
+
+    class FakeSession:
+        def __init__(self):
+            self.events = [
+                IntentHookEvent("module_ready", {"pid": 123}),
+                IntentHookEvent(
+                    "intent",
+                    {
+                        "source": "execStartActivity",
+                        "intent": {
+                            "component": {
+                                "package": "com.example.app",
+                                "class": "com.example.app.DetailActivity",
+                            },
+                            "action": "com.example.OPEN",
+                            "data": None,
+                            "type": None,
+                            "package": None,
+                            "flags": 0,
+                            "categories": [],
+                            "extras": {},
+                        },
+                    },
+                ),
+            ]
+            self.closed = False
+
+        def next_event(self, timeout=None):
+            del timeout
+            return self.events.pop(0) if self.events else None
+
+        def close(self):
+            self.closed = True
+
+    session = FakeSession()
+    hook_calls = []
+
+    class FakeLsposedIntentHook:
+        def __init__(self, adb, *, timeout_seconds):
+            hook_calls.append(("init", timeout_seconds))
+
+        def attach(self, package, *, spawn, activity):
+            hook_calls.append(("attach", package, spawn, activity))
+            return session
+
+    monkeypatch.setattr(cli, "LsposedIntentHook", FakeLsposedIntentHook)
+    args = SimpleNamespace(
+        verbose=0,
+        config=config_path,
+        package=None,
+        spawn=None,
+        activity=None,
+        once=True,
+    )
+
+    assert cli._run_intent_hook(args) == 0
+
+    output = capsys.readouterr().out
+    assert "Listening for LSPosed Intent events from com.example.app" in output
+    assert "Reusable Nier Python launch code:" in output
+    assert "phone.start_intent(intent)" in output
+    assert hook_calls == [("init", 10.0), ("attach", "com.example.app", False, None)]
+    assert session.closed
 
 
 def test_adb_passthrough_inherits_streams_and_uses_configured_target(

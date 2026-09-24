@@ -111,8 +111,12 @@ def normalize_intent(intent: Mapping[str, object]) -> dict[str, object]:
     if intent.get("data_truncated") and data is not None:
         raise ValueError("captured Intent data URI was truncated; remove it before launch")
     mime_type = _optional_intent_text(intent.get("type"), "MIME type")
+    if intent.get("type_truncated") and mime_type is not None:
+        raise ValueError("captured Intent MIME type was truncated; remove it before launch")
 
     package_value = intent.get("package")
+    if intent.get("package_truncated") and package_value is not None:
+        raise ValueError("captured Intent package was truncated; remove it before launch")
     package = (
         None
         if package_value is None
@@ -140,6 +144,8 @@ def normalize_intent(intent: Mapping[str, object]) -> dict[str, object]:
     categories = [
         _intent_text(category, "category") for category in raw_categories
     ]
+    if intent.get("categories_truncated"):
+        raise ValueError("captured Intent categories were truncated; review them before launch")
 
     raw_extras = intent.get("extras", {})
     if not isinstance(raw_extras, Mapping):

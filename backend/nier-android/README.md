@@ -5,13 +5,19 @@ server. It communicates through ADB directly. Rooted touch injection is kept
 in the standalone `backend/nier-uinput` executable, which the host invokes in
 persistent stdin/stdout session mode.
 
-This module remains available for optional Android/JNI experiments and is not
-needed for the default ADB backend. Build it with an Android SDK and Gradle if
-you need the JNI uinput library:
+This module contains the LSPosed Activity Intent capture module, the optional
+IME, and Android/JNI experiments. It is not required by the default ADB
+backend. Build the APK with an Android SDK and Gradle:
 
 ```bash
-./gradlew :app:assembleDebug
+gradle :app:assembleDebug
 ```
+
+Install `app/build/outputs/apk/debug/app-debug.apk`, enable **Nier Backend**
+in LSPosed Manager, and add only authorized target packages to its scope.
+LSPosed loads the module when each scoped application process starts. The
+nier intent-hook CLI reads its bounded, chunked Intent events from the
+configured ADB logcat stream.
 
 For the default flow, build and push the standalone helper instead:
 
@@ -27,8 +33,8 @@ adb shell su -M -c 'chmod 755 /data/local/tmp/nier-uinput'
 The optional `WebViewDebugController` is a cooperative non-root integration
 for an application that owns the WebView. Call
 `WebViewDebugController.enable()` before constructing the first WebView. It
-does not inject into arbitrary applications; root-mode injection is provided by
-the separate `backend/nier-frida` component.
+does not inject into arbitrary applications; root-mode WebView injection is
+provided by the separate `backend/nier-frida` component.
 
 The module also packages the optional `NierInputMethodService`. Set
 `input_text.mode: ime` in the host configuration after installing the APK. The

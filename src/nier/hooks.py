@@ -542,25 +542,6 @@ class RootFridaWebViewHook:
         )
 
 
-class RootFridaIntentHook:
-    """Capture app-originated Activity Intents through root Frida injection."""
-
-    def __init__(self, adb: AdbClient, config: HookConfig) -> None:
-        self._adb = adb
-        self._config = config
-
-    def attach(self, package: str | None = None, *, spawn: bool | None = None) -> HookSession:
-        target = (package or self._config.target_package or "").strip()
-        return _attach_root_frida_agent(
-            self._adb,
-            self._config,
-            target,
-            spawn=spawn,
-            source=_load_intent_script(),
-            agent_name="Intent",
-        )
-
-
 def _find_process_pid(adb: AdbClient, device: Any, package: str, *, timeout: float) -> int:
     """Resolve an Android package to a PID before asking Frida to attach.
 
@@ -646,12 +627,3 @@ def _load_webview_script(
         1,
     )
     return script
-
-
-def _load_intent_script() -> str:
-    """Load the packaged Frida Java agent for Activity Intent capture."""
-    script_path = Path(__file__).with_name("intent_hook.js")
-    try:
-        return script_path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise HookUnavailable(f"Frida Intent agent is missing: {exc}") from exc
