@@ -185,15 +185,16 @@ bounded JSON UI tree. Each element keeps its hierarchy and may include
 requiring it to parse XML or HTML. The Agent sends native function/tool
 definitions for `tap`, `swipe`, `text`, `key`, `back`, `home`, `enter`,
 `list_apps`, `list_app_activities`, `open_app`, `start_activity`,
-`goal_complete`, and `goal_failed`; the model returns exactly one tool call per
-iteration. There is no JSON operation-plan response to parse. Package names
+`goal_complete`, and `goal_failed`; when an OCR provider is configured it also
+offers the read-only `inspect_ocr` tool. The model returns exactly one tool call
+per iteration. There is no JSON operation-plan response to parse. Package names
 and Activity targets, coordinates, key names, gesture durations, and the
-maximum step count are validated before any device operation is sent. The list
-tools are read-only and may use the session read retry policy; app and Activity
-launches are state-changing device actions and are never retried. Device
-actions are recorded in the same `RunRecorder` stream
-as ordinary calls; goal failures and failed actions are recorded as
-unsuccessful Agent records.
+maximum step count are validated before any device operation is sent. Read-only
+tools, including `inspect_ocr`, return data for the next planning iteration;
+app and Activity launches are state-changing device actions and are never
+retried. Device actions are recorded in the same `RunRecorder` stream as
+ordinary calls; goal failures and failed actions are recorded as unsuccessful
+Agent records.
 
 The foreground Activity is collected from ADB `dumpsys` output and is supplied
 as bounded structured data in both the LLM prompt and SysOne state:
@@ -202,8 +203,13 @@ field used (`resumed_activity`, `current_focus`, or similar). If the backend
 cannot report it, the model receives an explicit unavailable warning instead
 of a fabricated Activity.
 
-To add OCR text and coordinates to the planner context, provide a configured
-router:
+OCR is not run automatically. When a provider is configured, the LLM can call
+`inspect_ocr` if it needs text or text bounds that are missing or unclear in
+the screenshot and UI tree. The tool reads the screenshot from that observation
+and returns bounded spans, confidence, screen bounds, and the screenshot digest
+to the next planning iteration. A failed OCR request is reported to the LLM and
+the tool is disabled for the rest of that run. Configure a provider to make the
+tool available:
 
 ```python
 from nier.config import load_config
@@ -233,12 +239,13 @@ SysOne providers are not queried implicitly by the LLM Agent. The Agent sends on
 batched SysOne request on each goal observation when explicitly enabled. Its
 `state["ui"]` field contains the bounded semantic UI tree, while
 `state["ui_summary"]` contains a compact text summary. SysOne receives no screenshot,
-screen dimensions, UI bounds,
-or OCR boxes. OCR entries contain span IDs, text, and confidence. A Noul
-question checks whether the current state is actionable, and when OCR is
-enabled a Choice question picks the most relevant span. The typed result is
-recorded in `run.plan.sysone` and provided to the LLM as advisory context; every
-action still goes through normal validation.
+screen dimensions, UI bounds, or OCR boxes. The `state["ocr"]` field is empty
+until the LLM has called `inspect_ocr` for the current screenshot; then OCR
+entries contain span IDs, text, and confidence. A Noul question checks whether
+the current state is actionable, and a Choice question picks the most relevant
+span when OCR spans are available. The typed result is recorded in
+`run.plan.sysone` and provided to the LLM as advisory context; every action
+still goes through normal validation.
 
 ```python
 with connect("config/nier.yaml") as phone:

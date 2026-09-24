@@ -354,28 +354,39 @@ the Agent MUST record the failure and continue using the LLM and device
 observation. `Device.llm()` MUST NOT fall back to a different model flow when
 the LLM is unavailable. SysOne-specific tuning options and the explicit
 `Device.sysone()` entry point MUST select the bounded SysOne goal flow.
-When an optional OCR provider fails during an Agent observation, the host MUST
-record the error and continue without OCR spans; standalone OCR API calls MUST
+When an OCR provider is configured, the Agent MUST offer a read-only
+`inspect_ocr` tool and MUST NOT invoke OCR automatically during an observation.
+The tool MUST recognize the screenshot used for that model decision and return
+at most 64 text spans, each clipped to 240 characters, with confidence,
+screen-space bounds, and the screenshot digest. OCR results MAY be reused in a
+later prompt or SysOne advisory only when its screenshot digest still matches
+the current screenshot. If no OCR provider is configured, `inspect_ocr` MUST
+not be offered. If OCR fails after the tool is called, the host MUST record and
+return the error, continue without OCR spans, and stop offering the tool for
+that run; it MUST NOT retry OCR automatically. Standalone OCR API calls MUST
 continue to surface provider failures.
 The model context MUST include a bounded foreground Activity object when
 available, and an explicit unavailable warning otherwise. The same Activity
 object MUST be included in SysOne state. Neither flow MUST require a free-form
 JSON operation-plan response. The Agent MUST re-observe the device after each
-action, accept exactly one next action or goal-control tool call per iteration,
+action or read-only tool call, accept exactly one next action or goal-control
+tool call per iteration,
 and stop only on `goal_complete`, `goal_failed`, an action failure, or the
 `max_steps` limit.
 Only the allowlisted tap, swipe, text, key, back, home, enter, list_apps,
-list_app_activities, open_app, and start_activity operations may be executed.
-The list tools are read-only; the launch tools change device state. Package
-names, Activity targets, coordinates, key names, durations, and the maximum
-step count MUST be validated before dispatch. `dry_run=True` MUST return a
-validated next-action `AgentPlan` without dispatching actions. The Agent MUST
-write its goal progress and outcome to the same `RunRecorder` used by the
-session.
+list_app_activities, inspect_ocr, open_app, and start_activity tools may be
+called. The list and OCR tools are read-only; the launch tools change device
+state. `inspect_ocr` MUST consume one `max_steps` tool slot and MUST NOT dispatch
+a device action. Package names, Activity targets, coordinates, key names,
+durations, and the maximum step count MUST be validated before dispatch.
+`dry_run=True` MUST return a validated next-tool `AgentPlan` without running
+read tools or dispatching device actions. The Agent MUST write its goal
+progress and outcome to the same `RunRecorder` used by the session.
 
 When a direct `sysone` client is supplied or a SysOne provider is selected explicitly
 with `sysone_provider`, the LLM-first Agent SHOULD make one typed SysOne observation
-call per goal iteration containing the current goal, UI state, and OCR spans.
+call per goal iteration containing the current goal, UI state, and OCR spans
+only when the LLM has requested OCR for the same screenshot.
 The SysOne request MUST NOT include screenshots, screen dimensions, or spatial
 coordinates. Its bounded `ui` tree MUST preserve source/completeness metadata,
 hierarchy, semantic source attributes, text/content descriptions, resource

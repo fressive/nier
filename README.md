@@ -53,8 +53,9 @@ UI, then selects one validated tool action per step. Pass `sysone=` or
 `sysone_provider=` when you want SysOne to supply advisory context. Use
 `phone.sysone(...)` to explicitly request TypeSafe SysOne selection from
 host-validated UI/OCR candidates. The two entry points are separate; `llm()`
-does not fall back to SysOne. Use `dry_run=True` to preview the next validated
-action. See the
+does not fall back to SysOne. When an OCR provider is configured, the LLM can
+request OCR with the read-only `inspect_ocr` tool; OCR does not run automatically.
+Use `dry_run=True` to preview the next validated tool call. See the
 [model and Agent guide](docs/models.md).
 
 Typed decisions from the TypeSafe SysOne provider are available through

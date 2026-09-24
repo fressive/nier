@@ -18,6 +18,7 @@ from nier.protocol import (
     ImageFormat,
     InputText,
     KeyCode,
+    Point,
     Screenshot,
     UiDump,
     UiSource,
@@ -103,7 +104,11 @@ class FakeLlm:
 
 
 class FakeOcr:
+    def __init__(self) -> None:
+        self.calls: list[bytes] = []
+
     def recognize(self, image: bytes) -> list[TextSpan]:
+        self.calls.append(image)
         return [
             TextSpan(
                 text="登录",
@@ -227,16 +232,53 @@ def test_agent_dry_run_previews_the_next_goal_action() -> None:
     assert backend.actions == []
 
 
-def test_agent_can_call_sysone_for_typed_planning_context() -> None:
+def test_agent_offers_ocr_tool_without_running_ocr_automatically() -> None:
     phone, _ = make_device()
-    llm = FakeLlm([tool("tap", x=30, y=40)])
+    ocr = FakeOcr()
+    llm = FakeLlm([tool("goal_complete", reason="UI state is sufficient")])
+
+    result = Agent(phone, llm, ocr=ocr).run("检查当前页面", dry_run=True)
+
+    assert result.termination == "goal_complete"
+    assert ocr.calls == []
+    assert "inspect_ocr" in {item["function"]["name"] for item in llm.tools}
+    assert "available by request; not run for this screenshot" in llm.prompt
+
+
+def test_agent_rejects_ocr_tool_when_no_provider_is_configured() -> None:
+    phone, _ = make_device()
+    llm = FakeLlm([tool("inspect_ocr", reason="need visible text")])
+
+    with pytest.raises(ModelError, match="no OCR provider is available"):
+        phone.llm("读取屏幕文字", llm=llm)
+
+    assert "inspect_ocr" not in {item["function"]["name"] for item in llm.tools}
+
+
+def test_agent_can_call_sysone_for_typed_planning_context() -> None:
+    phone, backend = make_device()
+    llm = FakeLlm(
+        [],
+        responses=[
+            [tool("inspect_ocr", reason="find the visible sign-in label")],
+            [tool("tap", x=30, y=40)],
+            [tool("goal_complete", reason="login screen handled")],
+        ],
+    )
+    ocr = FakeOcr()
     sysone = FakeSysOne()
 
-    result = Agent(phone, llm, ocr=FakeOcr(), sysone=sysone).run("点击登录", dry_run=True)
+    result = Agent(phone, llm, ocr=ocr, sysone=sysone).run("点击登录", max_steps=2)
     plan = result.plan
 
-    assert len(sysone.calls) == 1
-    state, questions = sysone.calls[0]
+    assert result.success is True
+    assert [step.action for step in plan.steps] == ["inspect_ocr", "tap"]
+    assert ocr.calls == [b"image"]
+    assert len(sysone.calls) == 3
+    initial_state, initial_questions = sysone.calls[0]
+    assert initial_state["ocr"] == []
+    assert set(initial_questions) == {"ready"}
+    state, questions = sysone.calls[1]
     assert state["goal"] == "点击登录"
     assert state["activity"]["component"] == "com.android.settings/com.android.settings.Settings"  # type: ignore[index]
     assert state["ui"]["root"]["children"][0]["resource_id"] == "app:id/login"  # type: ignore[index]
@@ -253,6 +295,9 @@ def test_agent_can_call_sysone_for_typed_planning_context() -> None:
         "target_probabilities": {"span_0": 0.91, "none": 0.09},
     }
     assert '"target": "span_0"' in llm.prompt
+    assert "OCR spans:\n- '登录' confidence=0.980 box=(10,20,50,60)" in llm.prompts[1]
+    assert backend.actions == [Click(Point(30, 40), 80)]
+    assert "inspect_ocr" in {item["function"]["name"] for item in llm.tool_history[0]}
 
 
 def test_agent_exposes_explicit_sysone_call() -> None:
@@ -284,22 +329,33 @@ def test_explicit_agent_keeps_direct_sysone_as_advisory_context() -> None:
 
 def test_agent_continues_when_sysone_advisory_and_optional_ocr_fail() -> None:
     phone, backend = make_device()
-    llm = FakeLlm([tool("goal_complete", reason="UI state is sufficient")])
+    llm = FakeLlm(
+        [],
+        responses=[
+            [tool("inspect_ocr", reason="read a screen label")],
+            [tool("goal_complete", reason="UI state is sufficient")],
+        ],
+    )
 
     class UnavailableSysOne:
         def ask(self, state, questions):
             raise ModelError("SysOne service unavailable")
 
     class UnavailableOcr:
+        def __init__(self) -> None:
+            self.calls: list[bytes] = []
+
         def recognize(self, image: bytes):
+            self.calls.append(image)
             raise ModelError("PaddleOCR is not installed")
 
+    unavailable_ocr = UnavailableOcr()
     result = Agent(
         phone,
         llm,
         sysone=UnavailableSysOne(),
-        ocr=UnavailableOcr(),
-    ).run("检查当前页面", dry_run=True)
+        ocr=unavailable_ocr,
+    ).run("检查当前页面")
 
     assert result.termination == "goal_complete"
     assert result.success is True
@@ -309,7 +365,10 @@ def test_agent_continues_when_sysone_advisory_and_optional_ocr_fail() -> None:
         "ocr_error": "PaddleOCR is not installed",
     }
     assert "advisory is unavailable" in llm.prompt
-    assert "OCR status: PaddleOCR is not installed" in llm.prompt
+    assert "OCR status: unavailable after provider error: PaddleOCR is not installed" in llm.prompt
+    assert unavailable_ocr.calls == [b"image"]
+    assert "inspect_ocr" in {item["function"]["name"] for item in llm.tool_history[0]}
+    assert "inspect_ocr" not in {item["function"]["name"] for item in llm.tool_history[1]}
     assert backend.actions == []
 
 

@@ -21,7 +21,7 @@ see the [web dashboard guide](../docs/web-dashboard.md).
 | [`01_basic_session.py`](01_basic_session.py) | Connect, health-check, inspect capabilities, and record a run | Yes |
 | [`02_control_device.py`](02_control_device.py) | Find a visible label and submit a search flow | Yes |
 | [`03_screenshot_uidump.py`](03_screenshot_uidump.py) | Capture evidence, save a structured UI tree, and inspect clickable nodes | Yes |
-| [`04_agent.py`](04_agent.py) | Preview or execute an LLM-driven UI goal with validated tool calls | Yes; requires an LLM provider; `--execute` opts into actions |
+| [`04_agent.py`](04_agent.py) | Preview or execute an LLM-driven UI goal with validated actions and optional on-demand OCR | Yes; requires an LLM provider; `--execute` opts into actions |
 | [`05_remote_ocr.py`](05_remote_ocr.py) | Use the configured OCR provider to recognize and tap a label | Yes; API provider required |
 | [`06_sysone.py`](06_sysone.py) | Preview or run `phone.sysone()` with SysOne-first candidate selection and bounded LLM recovery subgoals | Yes; requires configured SysOne; actions require explicit opt-in |
 | [`07_webview_uidump.py`](07_webview_uidump.py) | Print and save a readable node tree plus the raw dump, preferring WebView DOM extraction | Yes; requires a configured WebView target |
@@ -67,7 +67,8 @@ bounds apply. App launches remain unavailable without an explicit allowlist.
 Model credentials stay in environment variables.
 
 `04_agent.py` also previews by default; pass `--execute` to let the LLM Agent
-perform validated actions on the connected device.
+perform validated actions on the connected device. If OCR is configured, the
+Agent exposes it as a read-only tool and only runs it when the LLM requests it.
 
 Edit the constants at the top of each script for the target package, labels,
 remote endpoint, or whether an Agent plan should be executed. The examples

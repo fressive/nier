@@ -572,9 +572,7 @@ def test_device_run_uses_llm_without_implicit_sysone_call(monkeypatch) -> None:
     assert created_sysone == []
     assert created_llm == ["primary"]
     assert sysone_calls == []
-    assert result.plan.sysone == {
-        "ocr_error": "PaddleOCR is not installed; install the models extra"
-    }
+    assert result.plan.sysone is None
     assert len(llm_calls) == 1
 
 
@@ -608,10 +606,7 @@ def test_device_run_adds_sysone_only_when_explicitly_requested(monkeypatch) -> N
     result = phone.llm("检查当前页面", sysone_provider="typed", dry_run=True)
 
     assert result.termination == "goal_complete"
-    assert result.plan.sysone == {
-        "ready": 0.96,
-        "ocr_error": "PaddleOCR is not installed; install the models extra",
-    }
+    assert result.plan.sysone == {"ready": 0.96}
     assert len(sysone_calls) == 1
 
 

@@ -1,4 +1,4 @@
-"""Run a real UI goal with the LLM Agent."""
+"""Run an LLM UI goal with validated actions and optional on-demand OCR."""
 
 from __future__ import annotations
 
