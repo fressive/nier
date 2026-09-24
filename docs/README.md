@@ -14,6 +14,7 @@ are integrating.
 | [`screenshot.md`](screenshot.md) | Screenshot options, encoding, dimensions, and digest |
 | [`uidump.md`](uidump.md) | UIAutomator/WebView dumps, widget choice chains, and fallback behavior |
 | [`webview-devtools.md`](webview-devtools.md) | Root/non-root WebView DevTools setup and CDP DOM dumps |
+| [`intent-hook.md`](intent-hook.md) | Root Frida Activity Intent capture and reusable launch code |
 | [`models.md`](models.md) | OCR, LLM, TypeSafe Choice/Noul/Score, and SysOne-driven goal APIs |
 | [`web-dashboard.md`](web-dashboard.md) | Local script runner, live execution path, request/response logs, and step debugger |
 
