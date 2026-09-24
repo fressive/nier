@@ -1,5 +1,8 @@
 # Nier examples
 
+For short examples grouped by public API method, see the
+[API examples catalog](../docs/api-examples.md).
+
 Run these scripts from the repository root after installing the package:
 
 ```bash
