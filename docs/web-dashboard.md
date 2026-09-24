@@ -37,11 +37,11 @@ termination request.
 
 The **源码** panel displays the selected or currently running Python file. As
 the runner reports execution locations, the panel switches to that file,
-highlights the active line, and scrolls it into view. On narrow screens, use the
-**源码** tab to open the panel; on wide screens it appears alongside the graph,
-logs, and screen preview. Source is fetched on demand only from Python files
-listed under the selected scripts directory. It is not included in location
-events, and local variable values are never shown.
+syntax-highlights Python code, highlights the active line, and scrolls it into
+view. On narrow screens, use the **源码** tab to open the panel; on wide screens
+it appears alongside the graph, logs, and screen preview. Source is fetched on
+demand only from Python files listed under the selected scripts directory. It
+is not included in location events, and local variable values are never shown.
 
 Choose **调试运行** to pause at the first Nier `STEP` event. The sidebar then
 provides **继续**, **步入**, **单步**, and **步出** controls, plus the current

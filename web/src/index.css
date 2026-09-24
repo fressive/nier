@@ -44,6 +44,24 @@ body {
 button, input { font: inherit; }
 ::selection { color: #07120f; background: #4ce0b3; }
 
+.source-code .hljs-keyword,
+.source-code .hljs-meta,
+.source-code .hljs-selector-tag { color: #ff7b72; }
+.source-code .hljs-built_in,
+.source-code .hljs-type,
+.source-code .hljs-title.class_ { color: #ffa657; }
+.source-code .hljs-title.function_,
+.source-code .hljs-function { color: #d2a8ff; }
+.source-code .hljs-string,
+.source-code .hljs-doctag { color: #a5d6ff; }
+.source-code .hljs-number,
+.source-code .hljs-literal,
+.source-code .hljs-symbol,
+.source-code .hljs-bullet { color: #79c0ff; }
+.source-code .hljs-comment { color: #8b949e; font-style: italic; }
+.source-code .hljs-attr,
+.source-code .hljs-variable.language_ { color: #79c0ff; }
+
 .flow-canvas {
   background-color: #0d1118;
   background-image: radial-gradient(rgba(138, 155, 177, 0.14) 1px, transparent 1px);
