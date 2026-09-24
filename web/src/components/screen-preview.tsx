@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { type MouseEvent, useCallback, useEffect, useState } from "react";
 import { AlertCircle, LoaderCircle, MonitorPlay, Play, RefreshCw, Square } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
@@ -37,6 +37,7 @@ export function ScreenPreview() {
   const [error, setError] = useState("");
   const [streamKey, setStreamKey] = useState(0);
   const [frameLoaded, setFrameLoaded] = useState(false);
+  const [coordinateMessage, setCoordinateMessage] = useState("");
 
   const refresh = useCallback(async () => {
     try {
@@ -61,6 +62,7 @@ export function ScreenPreview() {
 
   const start = async () => {
     setError("");
+    setCoordinateMessage("");
     setFrameLoaded(false);
     try {
       const next = await postJson<PreviewState>("/api/preview/start", { serial });
@@ -75,12 +77,43 @@ export function ScreenPreview() {
 
   const stop = async () => {
     setError("");
+    setCoordinateMessage("");
     try {
       const next = await postJson<PreviewState>("/api/preview/stop", {});
       setState(next);
       setFrameLoaded(false);
     } catch (reason) {
       setError((reason as Error).message);
+    }
+  };
+
+  const copyClickCoordinates = async (event: MouseEvent<HTMLImageElement>) => {
+    const image = event.currentTarget;
+    const { naturalWidth, naturalHeight } = image;
+    if (!naturalWidth || !naturalHeight) return;
+
+    const bounds = image.getBoundingClientRect();
+    const scale = Math.min(bounds.width / naturalWidth, bounds.height / naturalHeight);
+    const renderedWidth = naturalWidth * scale;
+    const renderedHeight = naturalHeight * scale;
+    const left = bounds.left + (bounds.width - renderedWidth) / 2;
+    const top = bounds.top + (bounds.height - renderedHeight) / 2;
+    const localX = event.clientX - left;
+    const localY = event.clientY - top;
+
+    if (localX < 0 || localY < 0 || localX >= renderedWidth || localY >= renderedHeight) {
+      setCoordinateMessage("请点击设备画面范围内");
+      return;
+    }
+
+    const x = Math.min(naturalWidth - 1, Math.floor((localX / renderedWidth) * naturalWidth));
+    const y = Math.min(naturalHeight - 1, Math.floor((localY / renderedHeight) * naturalHeight));
+    const snippet = `phone.click(${x}, ${y})`;
+    try {
+      await navigator.clipboard.writeText(snippet);
+      setCoordinateMessage(`已复制 ${snippet}`);
+    } catch {
+      setCoordinateMessage(`复制失败：${snippet}`);
     }
   };
 
@@ -167,12 +200,28 @@ export function ScreenPreview() {
               alt={`设备 ${currentDevice?.model || serial} 的当前界面`}
               onLoad={() => setFrameLoaded(true)}
               onError={() => setError("预览视频流已断开，请停止后重新启动")}
-              className={cn("h-full w-full object-contain", !frameLoaded && "opacity-0")}
+              onClick={(event) => void copyClickCoordinates(event)}
+              title="点击画面复制 phone.click(x, y) 坐标"
+              className={cn("h-full w-full cursor-crosshair object-contain", !frameLoaded && "opacity-0")}
             />
             {!frameLoaded && (
               <div className="absolute inset-0 flex flex-col items-center justify-center gap-2 text-slate-500">
                 <LoaderCircle className="h-5 w-5 animate-spin text-emerald-300/80" />
                 <span className="text-[10px]">正在连接设备画面…</span>
+              </div>
+            )}
+            {frameLoaded && (
+              <div
+                className={cn(
+                  "pointer-events-none absolute bottom-3 left-1/2 max-w-[calc(100%-1.5rem)] -translate-x-1/2 truncate rounded-md border bg-[#10151c]/90 px-2.5 py-1.5 font-mono text-[10px] shadow-lg",
+                  coordinateMessage.startsWith("已复制")
+                    ? "border-emerald-400/20 text-emerald-200"
+                    : coordinateMessage.startsWith("复制失败") || coordinateMessage.startsWith("请点击")
+                      ? "border-rose-400/20 text-rose-200"
+                      : "border-border/70 text-slate-300",
+                )}
+              >
+                {coordinateMessage || "点击画面复制 phone.click(x, y) 坐标"}
               </div>
             )}
           </>
