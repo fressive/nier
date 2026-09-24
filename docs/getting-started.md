@@ -121,10 +121,10 @@ python -m pip install -e '.[hook]'
 nier --config config/nier.yaml intent-hook --spawn --once
 ```
 
-The command prints the Intent fields and a reusable Kotlin launch helper. Use
-`--format java` for Java, `--attach` for an existing process, and omit `--once`
-to keep listening. See the [Activity Intent hook guide](intent-hook.md) for
-root requirements and supported extras.
+The command prints the Intent fields and a reusable Nier Python snippet that
+calls `phone.start_intent(...)`. Use `--attach` for an existing process, and
+omit `--once` to keep listening. See the [Activity Intent hook guide](intent-hook.md)
+for root requirements and supported extras.
 
 To run Python scripts from the local live dashboard:
 

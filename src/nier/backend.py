@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Protocol
 
 from .protocol import (
@@ -51,6 +52,10 @@ class Backend(Protocol):
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         """Start one Activity without retrying the action."""
+        ...
+
+    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
+        """Start one captured Intent without retrying the action."""
         ...
 
     def close(self) -> None:

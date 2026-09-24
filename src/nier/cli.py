@@ -13,7 +13,7 @@ from .backends.adb import AdbBackend
 from .config import HookMode, load_config
 from .errors import NierError
 from .hooks import RootFridaIntentHook
-from .intent_codegen import generate_intent_code
+from .intent_codegen import generate_intent_python
 from .logging_utils import configure_logging
 from .protocol import Capabilities, validate_package_name
 from .results import RunRecorder
@@ -63,7 +63,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     intent_parser = subparsers.add_parser(
         "intent-hook",
-        help="capture Activity Intents from a rooted Android app",
+        help="capture Activity Intents and generate a Nier Python launcher",
     )
     intent_parser.add_argument(
         "--package",
@@ -83,12 +83,6 @@ def _parser() -> argparse.ArgumentParser:
         action="store_false",
         default=None,
         help="attach to the already running target process",
-    )
-    intent_parser.add_argument(
-        "--format",
-        choices=("kotlin", "java"),
-        default="kotlin",
-        help="language for the reusable startActivity helper (default: kotlin)",
     )
     intent_parser.add_argument(
         "--once",
@@ -168,8 +162,15 @@ def _run_intent_hook(args: argparse.Namespace) -> int:
             captured += 1
             print(f"\nActivity launch #{captured} ({event.payload.get('source', 'unknown')}):")
             print(json.dumps(dict(intent), ensure_ascii=False, indent=2))
-            print(f"\nReusable {args.format} startActivity code:")
-            print(generate_intent_code(intent, args.format), end="", flush=True)
+            print("\nReusable Nier Python launch code:")
+            try:
+                snippet = generate_intent_python(intent, config_path=str(args.config))
+            except (TypeError, ValueError) as exc:
+                print(f"Intent hook warning: cannot generate launch code: {exc}", flush=True)
+                if args.once:
+                    return 0
+                continue
+            print(snippet, end="", flush=True)
             if args.once:
                 return 0
     except KeyboardInterrupt:
