@@ -384,6 +384,7 @@ class _FridaHookSession:
         self._device = device
         self.pid = pid
         self._events: Queue[HookEvent] = Queue()
+        self._pending: list[HookEvent] = []
         self._lock = threading.RLock()
         self._closed = False
 
@@ -396,16 +397,20 @@ class _FridaHookSession:
         while True:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
-                raise HookUnavailable("Frida WebView hook did not become ready before the timeout")
-            event = self.next_event(remaining)
-            if event is None:
-                raise HookUnavailable("Frida WebView hook did not become ready before the timeout")
+                raise HookUnavailable("Frida hook did not become ready before the timeout")
+            try:
+                event = self._events.get(timeout=remaining)
+            except Empty:
+                raise HookUnavailable("Frida hook did not become ready before the timeout")
             if event.type == "ready":
                 return
             if event.type == "error":
                 raise HookError(str(event.payload.get("error", "Frida agent failed")))
+            self._pending.append(event)
 
     def next_event(self, timeout: float | None = None) -> HookEvent | None:
+        if self._pending:
+            return self._pending.pop(0)
         try:
             if timeout is None:
                 return self._events.get()
@@ -447,6 +452,57 @@ class _FridaHookSession:
             )
 
 
+def _attach_root_frida_agent(
+    adb: AdbClient,
+    config: HookConfig,
+    package: str,
+    *,
+    spawn: bool | None,
+    source: str,
+    agent_name: str,
+) -> HookSession:
+    """Attach a Frida agent with the shared root/process lifecycle."""
+    target = package.strip()
+    if not target:
+        raise HookError(f"a target package is required for root {agent_name} hooking")
+    if not adb.is_root():
+        raise HookUnavailable(f"root {agent_name} hook mode requires a rooted device")
+
+    frida = _load_frida()
+    if config.auto_start_frida_server:
+        command = f"{shlex.quote(config.frida_server_path)} >/dev/null 2>&1 &"
+        try:
+            adb.root_shell("sh", "-c", command, timeout=min(config.timeout_seconds, 3.0))
+        except Exception as exc:
+            raise HookUnavailable(f"could not start frida-server: {exc}") from exc
+
+    timeout_ms = int(config.timeout_seconds * 1000)
+    try:
+        device = frida.get_usb_device(timeout=timeout_ms)
+        should_spawn = config.spawn if spawn is None else spawn
+        if should_spawn:
+            pid = int(device.spawn([target]))
+            frida_session = device.attach(pid)
+        else:
+            pid = _find_process_pid(adb, device, target, timeout=config.timeout_seconds)
+            frida_session = device.attach(pid)
+        script = frida_session.create_script(source)
+        hook_session = _FridaHookSession(frida_session, script, device=device, pid=pid)
+        try:
+            hook_session.load()
+            if should_spawn:
+                device.resume(pid)
+            hook_session.wait_ready(config.timeout_seconds)
+        except Exception:
+            hook_session.close()
+            raise
+        return hook_session
+    except (HookError, HookUnavailable):
+        raise
+    except Exception as exc:
+        raise HookUnavailable(f"root {agent_name} hook failed for {target}: {exc}") from exc
+
+
 class RootFridaWebViewHook:
     """Inject WebView debugging and optional Back policy into a rooted process."""
 
@@ -466,51 +522,35 @@ class RootFridaWebViewHook:
 
     def attach(self, package: str | None = None, *, spawn: bool | None = None) -> HookSession:
         target = (package or self._config.target_package or "").strip()
-        if not target:
-            raise HookError("a target package is required for root WebView hooking")
-        if not self._adb.is_root():
-            raise HookUnavailable("root hook mode requires a rooted device")
+        return _attach_root_frida_agent(
+            self._adb,
+            self._config,
+            target,
+            spawn=spawn,
+            source=_load_webview_script(
+                force_system_back=self._config.force_system_back,
+                target_package=target,
+            ),
+            agent_name="WebView",
+        )
 
-        frida = _load_frida()
-        if self._config.auto_start_frida_server:
-            self._start_frida_server()
-        timeout_ms = int(self._config.timeout_seconds * 1000)
-        try:
-            device = frida.get_usb_device(timeout=timeout_ms)
-            should_spawn = self._config.spawn if spawn is None else spawn
-            if should_spawn:
-                pid = int(device.spawn([target]))
-                frida_session = device.attach(pid)
-            else:
-                pid = _find_process_pid(self._adb, device, target, timeout=self._config.timeout_seconds)
-                frida_session = device.attach(pid)
-            script = frida_session.create_script(
-                _load_webview_script(
-                    force_system_back=self._config.force_system_back,
-                    target_package=target,
-                )
-            )
-            hook_session = _FridaHookSession(frida_session, script, device=device, pid=pid)
-            try:
-                hook_session.load()
-                if should_spawn:
-                    device.resume(pid)
-                hook_session.wait_ready(self._config.timeout_seconds)
-            except Exception:
-                hook_session.close()
-                raise
-            return hook_session
-        except (HookError, HookUnavailable):
-            raise
-        except Exception as exc:
-            raise HookUnavailable(f"root WebView hook failed for {target}: {exc}") from exc
+class RootFridaIntentHook:
+    """Capture app-originated Activity Intents through root Frida injection."""
 
-    def _start_frida_server(self) -> None:
-        command = f"{shlex.quote(self._config.frida_server_path)} >/dev/null 2>&1 &"
-        try:
-            self._adb.root_shell("sh", "-c", command, timeout=min(self._config.timeout_seconds, 3.0))
-        except Exception as exc:
-            raise HookUnavailable(f"could not start frida-server: {exc}") from exc
+    def __init__(self, adb: AdbClient, config: HookConfig) -> None:
+        self._adb = adb
+        self._config = config
+
+    def attach(self, package: str | None = None, *, spawn: bool | None = None) -> HookSession:
+        target = (package or self._config.target_package or "").strip()
+        return _attach_root_frida_agent(
+            self._adb,
+            self._config,
+            target,
+            spawn=spawn,
+            source=_load_intent_script(),
+            agent_name="Intent",
+        )
 
 
 def _find_process_pid(adb: AdbClient, device: Any, package: str, *, timeout: float) -> int:
@@ -598,3 +638,12 @@ def _load_webview_script(
         1,
     )
     return script
+
+
+def _load_intent_script() -> str:
+    """Load the packaged Frida Java agent for Activity Intent capture."""
+    script_path = Path(__file__).with_name("intent_hook.js")
+    try:
+        return script_path.read_text(encoding="utf-8")
+    except OSError as exc:
+        raise HookUnavailable(f"Frida Intent agent is missing: {exc}") from exc

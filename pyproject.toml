@@ -38,7 +38,7 @@ nier = "nier.cli:main"
 where = ["src"]
 
 [tool.setuptools.package-data]
-nier = ["web_static/*", "web_static/assets/*"]
+nier = ["web_static/*", "web_static/assets/*", "intent_hook.js"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
