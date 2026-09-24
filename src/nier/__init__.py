@@ -22,6 +22,7 @@ from .models.sysone import (
 )
 from .protocol import ActivityInfo
 from .ui import UiDocument, UiNode, parse_uidump
+from .vision import ImageMatch
 from .widgets import Widget, WidgetList
 
 __version__ = "0.1.0"
@@ -43,6 +44,7 @@ __all__ = [
     "SysOneQuestion",
     "SysOneResponse",
     "LlmToolCall",
+    "ImageMatch",
     "ActivityInfo",
     "UiDocument",
     "UiNode",

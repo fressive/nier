@@ -35,3 +35,7 @@ class HookError(NierError):
 
 class HookUnavailable(HookError):
     """The selected hook mode cannot instrument the target in this environment."""
+
+
+class VisionUnavailable(NierError):
+    """An optional image-recognition dependency is unavailable."""
