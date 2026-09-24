@@ -300,15 +300,27 @@ class DeviceSession:
         """Compatibility alias for :meth:`start_activity`."""
         return self.start_activity(package, activity)
 
-    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
-        """Start one captured Activity Intent without retrying it."""
+    def start_intent(
+        self,
+        intent: Mapping[str, object],
+        *,
+        root: bool = False,
+    ) -> ActionResult:
+        """Start one captured Activity Intent without retrying it.
+
+        Set ``root=True`` to start a non-exported Activity through the rooted
+        ADB shell. This option requires a rooted device and is supported by the
+        ADB backend.
+        """
+        if not isinstance(root, bool):
+            raise ValueError("root must be a bool")
         normalized = normalize_intent(intent)
         callback = getattr(self.backend, "start_intent", None)
         if not callable(callback):
             raise BackendError("backend does not support starting captured Intents")
         return self._run_named_action(
             "start_intent",
-            lambda: callback(normalized),
+            lambda: callback(normalized, root=root),
         )
 
     def close(self) -> None:

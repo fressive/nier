@@ -546,8 +546,17 @@ class AdbBackend:
         output = self.adb.shell("am", "start", "-n", component)
         return _launch_result(output, f"start Activity {component!r}")
 
-    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
-        """Start a validated captured Intent once through Android's ``am``."""
+    def start_intent(
+        self,
+        intent: Mapping[str, object],
+        *,
+        root: bool = False,
+    ) -> ActionResult:
+        """Start a captured Intent once through Android's ``am``.
+
+        ``root=True`` starts it through the configured rooted ADB shell. This
+        lets callers replay an Intent for a non-exported Activity.
+        """
         value = normalize_intent(intent)
         arguments = ["am", "start"]
         component = value["component"]
@@ -612,11 +621,24 @@ class AdbBackend:
         # ``adb shell`` parses one remote command string. Quote each token so
         # captured values with spaces or shell metacharacters remain data.
         command = shlex.join(arguments)
-        if len(command.encode("utf-8")) > 64 * 1024:
+        command_limit = 64 * 1024 - (32 if root else 0)
+        if len(command.encode("utf-8")) > command_limit:
             raise ValueError("captured Intent exceeds the 64 KiB ADB command limit")
-        output = self.adb.shell(command)
-        _launch_result(output, "start captured Activity Intent")
-        return ActionResult(success=True, message="captured Activity Intent started")
+        if root:
+            if not self.adb.is_root():
+                raise BackendUnavailable("root=True requires a rooted device with working su")
+            output = AdbClient._decode(self.adb.root_shell(*arguments).stdout)
+        else:
+            try:
+                output = self.adb.shell(command)
+            except BackendUnavailable as exc:
+                if "not exported from uid" in str(exc).lower():
+                    raise BackendUnavailable(
+                        "Android denied this non-exported Activity; on a rooted device, "
+                        "call phone.start_intent(intent, root=True)"
+                    ) from exc
+                raise
+        return _launch_result(output, "start captured Activity Intent")
 
     def open_activity(self, package: str, activity: str) -> ActionResult:
         """Compatibility alias for :meth:`start_activity`."""

@@ -460,3 +460,73 @@ def test_adb_backend_reports_launch_errors(monkeypatch) -> None:
 
     with pytest.raises(BackendError, match="open app"):
         backend.open_app("com.example.app")
+
+
+def test_adb_backend_starts_nonexported_intent_through_root_shell(monkeypatch) -> None:
+    fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+    root_calls = []
+    monkeypatch.setattr(backend.adb, "is_root", lambda: True)
+    monkeypatch.setattr(
+        backend.adb,
+        "root_shell",
+        lambda *args, **kwargs: (
+            root_calls.append((args, kwargs))
+            or subprocess.CompletedProcess(args, 0, b"Starting: Intent { }\n", b"")
+        ),
+    )
+
+    result = backend.start_intent(
+        {
+            "component": {
+                "package": "com.example.app",
+                "class": "com.example.app.HiddenActivity",
+                "exported": False,
+            }
+        },
+        root=True,
+    )
+
+    assert result.success is True
+    assert root_calls == [
+        (
+            (
+                "am",
+                "start",
+                "-n",
+                "com.example.app/com.example.app.HiddenActivity",
+            ),
+            {},
+        )
+    ]
+
+
+def test_adb_backend_requires_root_before_a_root_intent_launch(monkeypatch) -> None:
+    fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+    monkeypatch.setattr(backend.adb, "is_root", lambda: False)
+    root_calls = []
+    monkeypatch.setattr(
+        backend.adb,
+        "root_shell",
+        lambda *args, **kwargs: root_calls.append((args, kwargs)),
+    )
+
+    with pytest.raises(BackendUnavailable, match="root=True requires"):
+        backend.start_intent({"component": None}, root=True)
+    assert root_calls == []
+
+
+def test_adb_backend_explains_nonexported_intent_denial(monkeypatch) -> None:
+    fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+
+    def deny_shell(*_args, **_kwargs):
+        raise BackendUnavailable(
+            "Permission Denial: H5Activity not exported from uid 10292"
+        )
+
+    monkeypatch.setattr(backend.adb, "shell", deny_shell)
+
+    with pytest.raises(BackendUnavailable, match="root=True"):
+        backend.start_intent({"component": None})

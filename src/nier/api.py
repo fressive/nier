@@ -332,16 +332,22 @@ class Device:
         """Start an Activity by class name or ``package/class`` component."""
         return self.session.start_activity(package, activity)
 
-    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
+    def start_intent(
+        self,
+        intent: Mapping[str, object],
+        *,
+        root: bool = False,
+    ) -> ActionResult:
         """Start a captured Activity Intent through the configured backend.
 
         Pass the mapping printed by ``nier intent-hook``. The call is sent once
         and is never automatically retried. ADB can restore common scalar and
         primitive-array extras; unsupported, truncated, or unavailable extras
         raise ``ValueError`` before a device command is sent. The quoted ADB
-        command is limited to 64 KiB.
+        command is limited to 64 KiB. Set ``root=True`` to launch a
+        non-exported Activity through ``su`` on a rooted device.
         """
-        return self.session.start_intent(intent)
+        return self.session.start_intent(intent, root=root)
 
     def open_activity(self, package: str, activity: str) -> ActionResult:
         """Compatibility alias for :meth:`start_activity`."""

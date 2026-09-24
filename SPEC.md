@@ -47,7 +47,7 @@ Every backend MUST provide these synchronous operations:
 | `list_app_activities(package)` | `list[str]` | Return fully qualified Activity class names declared by `package`. |
 | `open_app(package, *, restart=False)` | `ActionResult` | Launch the package's launcher Activity, optionally restarting it first. |
 | `start_activity(package, activity)` | `ActionResult` | Launch one Activity in the package once. |
-| `start_intent(intent)` | `ActionResult` | Launch one validated captured Intent once. |
+| `start_intent(intent, *, root=False)` | `ActionResult` | Launch one validated captured Intent once. Root mode supports authorized non-exported Activities. |
 | `close()` | `None` | Release persistent resources; repeated close calls SHOULD be safe. |
 
 The domain types in `src/nier/protocol.py` are transport-independent. Backend
@@ -125,10 +125,13 @@ application twice after a lost reply.
   `package`. It accepts a short class name, a relative `.ClassName`, a fully
   qualified class name, or a `package/class` component, normalizes it to
   `package/full.class`, and MUST NOT be automatically retried.
-- `start_intent(intent)` MUST accept the JSON-compatible mapping emitted by
-  `nier intent-hook`, validate it before device access, and MUST NOT be
-  automatically retried. It MUST preserve the component, action, data URI, MIME
-  type, package, flags, categories, and supported extras. The ADB backend MUST
+- `start_intent(intent, *, root=False)` MUST accept the JSON-compatible mapping
+  emitted by `nier intent-hook`, validate it before device access, and MUST NOT
+  be automatically retried. With `root=True`, the ADB backend MUST require
+  working root access and issue the launch once through the root shell; this
+  supports authorized replay of non-exported Activities. It MUST preserve the
+  component, action, data URI, MIME type, package, flags, categories, and
+  supported extras. The ADB backend MUST
   reject truncated values and extra types it cannot recreate with Android's
   `am start` command rather than silently changing their types. It MUST reject
   a quoted command larger than 64 KiB before device access.

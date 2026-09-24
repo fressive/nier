@@ -24,7 +24,13 @@ def generate_intent_python(
         raise ValueError("config_path must be a non-empty string")
 
     payload = dict(intent)
+    component = payload.get("component")
+    root_launch = isinstance(component, Mapping) and component.get("exported") is False
     notes: list[str] = []
+    if root_launch:
+        notes.append(
+            "The Activity is not exported; root=True requires a rooted device with working su."
+        )
     if payload.get("action_truncated"):
         payload["action"] = None
         payload["action_truncated"] = False
@@ -81,7 +87,9 @@ def generate_intent_python(
             f"intent = {pformat(normalized_payload, width=88, sort_dicts=False)}",
             "",
             f"with connect({config_path!r}) as phone:",
-            "    result = phone.start_intent(intent)",
+            "    result = phone.start_intent(intent, root=True)"
+            if root_launch
+            else "    result = phone.start_intent(intent)",
             "    print('Activity launch:', 'succeeded' if result.success else 'failed')",
         ]
     )

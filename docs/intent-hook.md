@@ -110,6 +110,14 @@ calls reject unsupported, truncated, or unavailable extras before sending a
 device command.
 A quoted ADB launch command is limited to 64 KiB.
 
+When the LSPosed module can read the target Activity's manifest entry, captured
+component metadata includes its `exported` value. Generated code uses
+`phone.start_intent(intent, root=True)` for a non-exported Activity; this
+requires a rooted device with working `su` and launches the Activity as root.
+For a manually constructed Intent mapping, pass `root=True` explicitly when
+Android reports that the Activity is not exported. Nier sends that launch once
+and does not retry it.
+
 Strings are limited to 4096 characters, captures include up to 100 extras and
 64 array values, and each event is bounded before it is split into logcat
 records. If Android still holds the extras in a parcelled Bundle, Nier leaves

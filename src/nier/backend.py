@@ -54,8 +54,13 @@ class Backend(Protocol):
         """Start one Activity without retrying the action."""
         ...
 
-    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
-        """Start one captured Intent without retrying the action."""
+    def start_intent(
+        self,
+        intent: Mapping[str, object],
+        *,
+        root: bool = False,
+    ) -> ActionResult:
+        """Start one captured Intent once, optionally using root access."""
         ...
 
     def close(self) -> None:

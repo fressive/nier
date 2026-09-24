@@ -26,6 +26,8 @@ at once. `ActivityThread` is used as a receiving-side fallback only when none
 of the launch-side hook methods are available; its first Activity is skipped
 to avoid reporting the launcher Intent. Events are scoped to the app process,
 including when Android WebView code runs inside that process.
+Captured Activity components include the manifest `exported` value when the
+target package manager can resolve it.
 
 For the default flow, build and push the standalone helper instead:
 

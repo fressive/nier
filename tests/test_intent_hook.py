@@ -77,6 +77,23 @@ def test_truncated_fields_are_omitted_from_generated_launch_code() -> None:
         raise AssertionError("direct Intent replay must reject truncated MIME types")
 
 
+def test_nonexported_activity_snippet_uses_explicit_root_launch() -> None:
+    intent = {
+        "component": {
+            "package": "com.example.app",
+            "class": "com.example.app.HiddenActivity",
+            "exported": False,
+        },
+        "extras": {},
+    }
+
+    snippet = generate_intent_python(intent)
+
+    assert "phone.start_intent(intent, root=True)" in snippet
+    assert "root=True requires a rooted device with working su" in snippet
+    assert "'exported': False" not in snippet
+
+
 def test_start_logcat_uses_configured_adb_target(monkeypatch) -> None:
     commands = []
 
