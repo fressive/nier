@@ -21,6 +21,10 @@ hook:
 root` to require Frida injection, or `mode: non-root` to require cooperative
 application integration.
 
+Root detection accepts an already-root `adbd` shell, `su -M -c`, or standard
+`su -c`. When root comes from `su`, its manager must grant root access to the
+ADB shell.
+
 ## Root mode
 
 Install the optional host dependency and run a matching root-capable
