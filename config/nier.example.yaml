@@ -87,10 +87,10 @@ models:
       api_key_env: OPENAI_API_KEY
       model: gpt-4o-mini
       timeout_seconds: 60
-  jev:
+  sysone:
     provider: typesafe
     base_url: https://api.typesafe.ai/v1/systemone
-    api_key_env: TYPESAFE_API_KEY
+    api_key_env: SYS_ONE_API_KEY
     model: jev-latest
     timeout_seconds: 30
     confidence_threshold: 0.75

@@ -13,7 +13,7 @@ class TextMatchDecisionProvider:
 
     This is intentionally conservative: it returns ``noop`` when no OCR span
     appears in the instruction instead of guessing a location. Learned
-    providers such as jev/laya can implement the same interface later.
+    providers such as sysone/laya can implement the same interface later.
     """
 
     def decide(self, text: Sequence[TextSpan], instruction: str) -> Decision:

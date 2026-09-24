@@ -37,7 +37,7 @@ export function isPathEvent(event: WebEvent) {
     "STEP",
     "TOOL CALL",
     "OCR RESULT",
-    "JEV RESULT",
+    "SYS ONE RESULT",
     "LLM RESULT",
   ].includes(event.category ?? "");
 }

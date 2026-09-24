@@ -288,7 +288,7 @@ session and falls back to `adb shell input` if probing fails.
 ## 8. Configuration and model providers
 
 Configuration is loaded from YAML into immutable dataclasses in
-`src/nier/config.py`. Device, runtime, OCR, LLM, and Jev settings MUST be
+`src/nier/config.py`. Device, runtime, OCR, LLM, and SysOne settings MUST be
 validated before use. API keys are read from environment variables named by
 `api_key_env` by default. A non-empty direct `api_key` value MAY be supplied
 in local configuration and MUST take precedence over the environment value.
@@ -312,10 +312,10 @@ The model layer exposes these stable interfaces:
 - `LlmProvider.complete_with_tools(prompt, tools, image=None) ->
   Sequence[LlmToolCall]` for native Agent planning.
 
-The TypeSafe Jev integration exposes a typed `JevProvider.ask(state, questions)`
-API plus `choice`, `score`, and `noul` convenience methods. Jev requests MUST
+The TypeSafe SysOne integration exposes a typed `SysOneProvider.ask(state, questions)`
+API plus `choice`, `score`, and `noul` convenience methods. SysOne requests MUST
 preserve the question ids and typed answer values, and responses MUST retain
-confidence/probability data when supplied by the service. Jev is a decision
+confidence/probability data when supplied by the service. SysOne is a decision
 provider, not an `LlmProvider`; it MUST NOT be used as the free-form planner for
 `Device.agent()`.
 
@@ -323,7 +323,7 @@ OCR providers MUST preserve each recognized text span's screen bounding box.
 Decision providers SHOULD consume those coordinates instead of asking an LLM to
 localize an already recognized control. The current implementations are
 local PaddleOCR, the PaddleOCR hosted API adapter, deterministic OCR text
-matching, TypeSafe Jev, provider routing, an OpenAI-compatible completion and
+matching, TypeSafe SysOne, provider routing, an OpenAI-compatible completion and
 native tool-call adapter, and a validated natural-language Agent. The hosted
 OCR adapter MUST read its token
 from `api_key_env`, submit the screenshot through the PaddleOCR client, and
@@ -334,20 +334,20 @@ not silently fall back to local OCR.
 `Device.agent()` MUST provide the LLM-first Agent flow: it sends native tool
 definitions with the current screenshot/UI state and natural-language goal,
 then compiles returned tool calls into validated `AgentStep` values before
-executing. `Device.run(instruction)` MUST use that LLM-first flow when an LLM
-is supplied or configured, regardless of whether Jev is also configured.
-Jev MAY provide typed advisory context, but MUST NOT select or dispatch the
-LLM Agent's actions. When Jev is unavailable or its advisory request fails,
+executing. `Device.llm(instruction)` MUST use that LLM-first flow when an LLM
+is supplied or configured, regardless of whether SysOne is also configured.
+SysOne MAY provide typed advisory context, but MUST NOT select or dispatch the
+LLM Agent's actions. When SysOne is unavailable or its advisory request fails,
 the Agent MUST record the failure and continue using the LLM and device
-observation. If no LLM is available and Jev is configured, `Device.run()` MAY
-fall back to the bounded Jev goal flow. Jev-specific tuning options and the
-explicit `Device.run_jev_goal()` entry point MUST continue to select that flow.
+observation. `Device.llm()` MUST NOT fall back to a different model flow when
+the LLM is unavailable. SysOne-specific tuning options and the explicit
+`Device.sysone()` entry point MUST select the bounded SysOne goal flow.
 When an optional OCR provider fails during an Agent observation, the host MUST
 record the error and continue without OCR spans; standalone OCR API calls MUST
 continue to surface provider failures.
 The model context MUST include a bounded foreground Activity object when
 available, and an explicit unavailable warning otherwise. The same Activity
-object MUST be included in Jev state. Neither flow MUST require a free-form
+object MUST be included in SysOne state. Neither flow MUST require a free-form
 JSON operation-plan response. The Agent MUST re-observe the device after each
 action, accept exactly one next action or goal-control tool call per iteration,
 and stop only on `goal_complete`, `goal_failed`, an action failure, or the
@@ -361,10 +361,10 @@ validated next-action `AgentPlan` without dispatching actions. The Agent MUST
 write its goal progress and outcome to the same `RunRecorder` used by the
 session.
 
-When a direct `jev` client is supplied or a Jev provider is selected explicitly
-with `jev_provider`, the LLM-first Agent SHOULD make one typed Jev observation
+When a direct `sysone` client is supplied or a SysOne provider is selected explicitly
+with `sysone_provider`, the LLM-first Agent SHOULD make one typed SysOne observation
 call per goal iteration containing the current goal, UI state, and OCR spans.
-The Jev request MUST NOT include screenshots, screen dimensions, or spatial
+The SysOne request MUST NOT include screenshots, screen dimensions, or spatial
 coordinates. Its bounded `ui` tree MUST preserve source/completeness metadata,
 hierarchy, semantic source attributes, text/content descriptions, resource
 identifiers, and interaction/visibility flags, while omitting bounds and
@@ -374,25 +374,25 @@ boxes; at most 64 spans, each clipped to 240 characters, may be sent. A compact
 semantic `ui_summary` MAY accompany it and MUST be bounded to 6,000 characters.
 When parsing fails, `ui` MUST remain a JSON object describing the unavailable
 structured state rather than raw XML/HTML. The request MUST contain a Noul
-readiness question and a Choice target question when OCR spans exist. Jev answers
-MUST be preserved in the current `AgentPlan.jev` and supplied to the LLM as
+readiness question and a Choice target question when OCR spans exist. SysOne answers
+MUST be preserved in the current `AgentPlan.sysone` and supplied to the LLM as
 advisory context when the call succeeds. Advisory failures MUST be preserved
-as diagnostics in `AgentPlan.jev` and MUST NOT prevent the LLM request.
+as diagnostics in `AgentPlan.sysone` and MUST NOT prevent the LLM request.
 The LLM prompt MUST contain the bounded structured UI tree and MAY include
-geometry and raw XML/HTML as supplementary context. Jev answers MUST NOT bypass
-AgentStep validation or directly dispatch device actions. If no Jev provider
+geometry and raw XML/HTML as supplementary context. SysOne answers MUST NOT bypass
+AgentStep validation or directly dispatch device actions. If no SysOne provider
 is configured and no direct client is supplied, the Agent proceeds without
-Jev context.
+SysOne context.
 
-`Device.jev_goal()` creates the explicit Jev-first goal runner.
-`Device.run_jev_goal(instruction)` MUST remain a wrapper to that flow. This
-flow MUST NOT ask Jev to
+`Device.sysone_goal()` creates the explicit SysOne-first goal runner.
+`Device.sysone(instruction)` MUST remain a wrapper to that flow. This
+flow MUST NOT ask SysOne to
 generate arbitrary device operations. For each observation, the host MUST
 expose the goal, bounded
 foreground Activity, a bounded semantic UI tree, optional OCR text/confidence,
-bounded recent action history, and a finite candidate list. Jev MUST NOT receive
+bounded recent action history, and a finite candidate list. SysOne MUST NOT receive
 screenshots, screen dimensions, bounds, centers, coordinates, executable action
-objects, or raw UI markup. Candidate IDs and concise labels are sent to Jev;
+objects, or raw UI markup. Candidate IDs and concise labels are sent to SysOne;
 the corresponding coordinates and host-validated `AgentStep` remain host-side.
 The UI tree MUST contain at most 128 nodes with text clipped to 240 characters;
 OCR MUST include at most 64 spans clipped to 240 characters, the summary MUST
@@ -405,7 +405,7 @@ normalization, with denied labels taking precedence, for UI/OCR and fixed
 system candidates. `allowed_apps` MUST be an explicit mapping of non-empty
 display labels to validated Android package names. Each mapping entry MAY add
 one bounded `open_app` candidate; no app candidate may be offered by default,
-and a Jev response MUST NOT supply or alter a package name. Jev MUST see only
+and a SysOne response MUST NOT supply or alter a package name. SysOne MUST see only
 the app candidate ID and display label, not the package or executable action.
 `allowed_controls` MUST NOT implicitly authorize app launches. When
 `allowed_controls` is omitted, the host MAY discover all unique visible UI/OCR
@@ -414,14 +414,14 @@ UI/OCR/scroll/system labels may be offered. Candidate IDs MUST be regenerated af
 an observation and MUST NOT be trusted as coordinates or commands.
 For a visible UI node explicitly marked scrollable with usable bounds, the
 host MAY offer one pair of bounded vertical scroll candidates for that
-viewport. Their labels MUST pass the same control filters; Jev MUST receive
+viewport. Their labels MUST pass the same control filters; SysOne MUST receive
 only the direction, while swipe coordinates remain host-side. The host MUST
 re-observe and validate the viewport before dispatch.
 
 When an OCR provider is configured, the host MUST expose `ocr_available` and
-MUST NOT run OCR before Jev requests it. The initial observation MUST omit OCR
-spans and MUST offer `inspect_ocr` as a non-action Choice option. If Jev selects
-it, the host MUST re-read the UI state, run OCR once, and ask Jev again with the
+MUST NOT run OCR before SysOne requests it. The initial observation MUST omit OCR
+spans and MUST offer `inspect_ocr` as a non-action Choice option. If SysOne selects
+it, the host MUST re-read the UI state, run OCR once, and ask SysOne again with the
 recognized spans. `inspect_ocr` MUST be removed after that read and MAY be
 offered again only for a new observation. When no OCR provider is configured,
 the option MUST NOT be offered.
@@ -429,7 +429,7 @@ If an optional OCR provider fails when requested, the host MUST mark OCR
 unavailable for the remainder of that goal and continue with UI candidates;
 it MUST NOT treat the failed read as a device action or retry it automatically.
 
-The Jev goal request MUST contain a `done` Noul question and a `next` Choice
+The SysOne goal request MUST contain a `done` Noul question and a `next` Choice
 question. `done` MUST use a configurable threshold; reaching it MUST return
 `needs_verification` and MUST NOT be reported as an independently verified
 pass. The caller is responsible for checking a fresh screenshot or UI dump.
@@ -447,7 +447,7 @@ fresh observation; three consecutive waits MUST trigger recovery and, if that
 recovery fails, stop with a loading timeout.
 When selected, `call_llm` MUST pass the user goal, bounded semantic
 observation, and stop reason to `LlmProvider.complete`. The response MUST be one
-bounded recovery subgoal, not strategic text returned to the main Jev loop.
+bounded recovery subgoal, not strategic text returned to the main SysOne loop.
 Recoverable blocked, low-confidence, stale-state, loading-timeout, action
 failure, and action/planning exception outcomes MUST also request a recovery
 subgoal when an LLM is configured and time remains. Each generated subgoal
@@ -471,13 +471,13 @@ failed or raised during the current run. On recovery completion, the parent
 MUST take a new observation and resume the original main goal if its main
 action and time budgets permit; otherwise it MUST terminate with the applicable
 main-goal limit. The generated recovery text MUST NOT be added to the parent
-Jev context as strategy advice.
+SysOne context as strategy advice.
 
 If an LLM-executed recovery subgoal fails, the host MUST pass its outcome and a fresh
 bounded semantic observation to the LLM to generate a different subgoal while
 the `max_llm_assists` cap has remaining allowance, or without a count limit
 when it is `None`. Exhausting a configured cap MUST terminate recovery as
-failed without returning an action suggestion to the main Jev. If the LLM
+failed without returning an action suggestion to the main SysOne. If the LLM
 repeatedly completes recovery but the same main-goal state remains stalled,
 or repeatedly fails recovery on the same screen, the host MUST stop recovery
 after a bounded number of repeats even when the assist count is unlimited.
@@ -501,7 +501,7 @@ Enter MUST require the corresponding explicit `allowed_controls` label.
 An optional `use_score=True` setting MAY add one progress Score question. Its
 answer MUST be recorded for diagnostics or future stuck detection and MUST
 NOT independently establish success. The default implementation MUST batch
-`done` and `next` in one Jev request per observation and MUST re-observe after
+`done` and `next` in one SysOne request per observation and MUST re-observe after
 each action. Immediately before dispatch, the host MUST take a fresh
 observation and discard the decision if the UI candidate list or its
 host-side coordinates have changed. For an OCR candidate, the host MUST also
@@ -515,7 +515,7 @@ when set, it MUST include recovery. The time limit MUST prevent
 starting a new action after expiry; it need not interrupt an in-flight provider
 or device call. Recovery retains its own 30-second cap when the main deadline
 is disabled.
-The Jev goal MUST use the same `RunRecorder`, dry-run semantics, provider
+The SysOne goal MUST use the same `RunRecorder`, dry-run semantics, provider
 selection rule (first configured provider when omitted), and bounded action
 limit as the regular Agent.
 

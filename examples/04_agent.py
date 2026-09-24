@@ -42,7 +42,7 @@ def main() -> None:
     args = parser.parse_args()
 
     with connect(CONFIG) as phone:
-        result = phone.run(
+        result = phone.llm(
             GOAL,
             max_steps=8,
             dry_run=not args.execute,

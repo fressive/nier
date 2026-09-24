@@ -66,6 +66,35 @@ def test_named_model_providers_are_preserved() -> None:
     assert config.models.llm_providers["monitor"].model == "monitor-model"
 
 
+def test_sysone_uses_typesafe_provider_configuration() -> None:
+    config = from_mapping(
+        {
+            "models": {
+                "sysone": {
+                    "provider": "typesafe",
+                    "model": "jev-latest",
+                },
+                "sysone_providers": {
+                    "primary": {
+                        "provider": "typesafe",
+                        "model": "jev-latest",
+                    }
+                },
+            }
+        }
+    )
+
+    assert config.models.sysone.provider == "typesafe"
+    assert config.models.sysone.model == "jev-latest"
+    assert config.models.sysone_providers["primary"].provider == "typesafe"
+
+
+@pytest.mark.parametrize("old_name", ("jev", "jev_providers"))
+def test_removed_sysone_configuration_names_are_rejected(old_name: str) -> None:
+    with pytest.raises(ConfigurationError, match="removed model configuration"):
+        from_mapping({"models": {old_name: {}}})
+
+
 def test_remote_ocr_provider_settings_are_preserved() -> None:
     config = from_mapping(
         {
@@ -105,15 +134,15 @@ def test_model_api_key_can_be_loaded_directly_or_from_environment(
                 "llm": {
                     "api_key_env": "LLM_TOKEN",
                 },
-                "jev": {
-                    "api_key": "direct-jev-secret",
+                "sysone": {
+                    "api_key": "direct-sysone-secret",
                 },
             }
         }
     )
 
     assert config.models.llm.api_key == "env-llm-secret"
-    assert config.models.jev.api_key == "direct-jev-secret"
+    assert config.models.sysone.api_key == "direct-sysone-secret"
 
 
 def test_hook_modes_are_parsed_and_validated() -> None:

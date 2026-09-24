@@ -79,12 +79,13 @@ class LlmConfig:
 
 
 @dataclass(frozen=True)
-class JevConfig:
-    """Configuration for the TypeSafe Jev structured-decision API."""
+class SysOneConfig:
+    """Configuration for Nier's SysOne typed-decision integration."""
 
     provider: str = "typesafe"
     base_url: str = "https://api.typesafe.ai/v1/systemone"
-    api_key_env: str = "TYPESAFE_API_KEY"
+    api_key_env: str = "SYS_ONE_API_KEY"
+    # The upstream service still requires this model ID on the wire.
     model: str = "jev-latest"
     timeout_seconds: float = 30.0
     confidence_threshold: float = 0.75
@@ -92,7 +93,11 @@ class JevConfig:
 
     @property
     def api_key(self) -> str | None:
-        return self.api_key_value or os.getenv(self.api_key_env)
+        return (
+            self.api_key_value
+            or os.getenv(self.api_key_env)
+            or os.getenv("TYPESAFE_API_KEY")
+        )
 
 
 class HookMode(str, Enum):
@@ -141,12 +146,12 @@ class InputTextConfig:
 class ModelConfig:
     ocr: OcrConfig = OcrConfig()
     llm: LlmConfig = LlmConfig()
-    jev: JevConfig = JevConfig()
+    sysone: SysOneConfig = SysOneConfig()
     # Named providers allow different models for planning, monitoring, and
     # visual analysis while keeping the singular fields backward-compatible.
     ocr_providers: Mapping[str, OcrConfig] = field(default_factory=dict)
     llm_providers: Mapping[str, LlmConfig] = field(default_factory=dict)
-    jev_providers: Mapping[str, JevConfig] = field(default_factory=dict)
+    sysone_providers: Mapping[str, SysOneConfig] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -221,10 +226,10 @@ def _port(value: Any, name: str) -> int:
     return port
 
 
-def _parse_jev_config(data: Mapping[str, Any], prefix: str) -> JevConfig:
+def _parse_sysone_config(data: Mapping[str, Any], prefix: str) -> SysOneConfig:
     provider = str(data.get("provider", "typesafe")).strip()
     base_url = str(data.get("base_url", "https://api.typesafe.ai/v1/systemone")).strip()
-    api_key_env = str(data.get("api_key_env", "TYPESAFE_API_KEY")).strip()
+    api_key_env = str(data.get("api_key_env", "SYS_ONE_API_KEY")).strip()
     api_key_value = _optional_text(data.get("api_key"), f"{prefix}.api_key")
     model = str(data.get("model", "jev-latest")).strip()
     if not provider:
@@ -244,7 +249,7 @@ def _parse_jev_config(data: Mapping[str, Any], prefix: str) -> JevConfig:
     confidence_threshold = float(data.get("confidence_threshold", 0.75))
     if not 0.0 <= confidence_threshold <= 1.0:
         raise ConfigurationError(f"{prefix}.confidence_threshold must be between 0 and 1")
-    return JevConfig(
+    return SysOneConfig(
         provider=provider,
         base_url=base_url,
         api_key_env=api_key_env,
@@ -301,11 +306,18 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
     if not logging_config_data and "log" in data:
         logging_config_data = _section(data, "log")
     models = _section(data, "models")
+    removed_model_keys = {"jev", "jev_providers"}.intersection(models)
+    if removed_model_keys:
+        removed = ", ".join(sorted(f"models.{key}" for key in removed_model_keys))
+        raise ConfigurationError(
+            f"removed model configuration {removed}; use models.sysone or "
+            "models.sysone_providers"
+        )
     hook = _section(data, "hook")
     input_text = _section(data, "input_text")
     ocr = _section(models, "ocr")
     llm = _section(models, "llm")
-    jev = _section(models, "jev")
+    sysone = _section(models, "sysone")
 
     ocr_config = _parse_ocr_config(ocr, "models.ocr")
     llm_config = LlmConfig(
@@ -316,7 +328,7 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
         timeout_seconds=float(_positive(llm.get("timeout_seconds", 60.0), "models.llm.timeout_seconds")),
         api_key_value=_optional_text(llm.get("api_key"), "models.llm.api_key"),
     )
-    jev_config = _parse_jev_config(jev, "models.jev")
+    sysone_config = _parse_sysone_config(sysone, "models.sysone")
     logging_config = LoggingConfig(
         verbosity=_verbosity(
             logging_config_data.get(
@@ -359,17 +371,17 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
             )
         return providers
 
-    def named_jev() -> dict[str, JevConfig]:
-        values = _section(models, "jev_providers")
+    def named_sysone() -> dict[str, SysOneConfig]:
+        values = _section(models, "sysone_providers")
         if not values:
-            # Jev is optional. Do not make an unconfigured default provider
+            # SysOne is optional. Do not make an unconfigured default provider
             # part of every router, but make an explicitly supplied singular
             # section available under the conventional default name.
-            return {"default": jev_config} if "jev" in models else {}
+            return {"default": sysone_config} if "sysone" in models else {}
         return {
-            str(name): _parse_jev_config(
+            str(name): _parse_sysone_config(
                 _section(values, str(name)),
-                f"models.jev_providers.{name}",
+                f"models.sysone_providers.{name}",
             )
             for name in values
         }
@@ -444,10 +456,10 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
         models=ModelConfig(
             ocr=ocr_config,
             llm=llm_config,
-            jev=jev_config,
+            sysone=sysone_config,
             ocr_providers=named_ocr(),
             llm_providers=named_llm(),
-            jev_providers=named_jev(),
+            sysone_providers=named_sysone(),
         ),
         hook=HookConfig(
             mode=hook_mode,

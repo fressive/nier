@@ -35,9 +35,9 @@ from .ui import parse_uidump as parse_ui_dump
 
 if TYPE_CHECKING:
     from .agent import Agent, AgentRun
-    from .jev_goal import JevGoal
+    from .sysone_goal import SysOneGoal
     from .models.base import LlmProvider, OcrProvider, TextSpan
-    from .models.jev import JevProvider
+    from .models.sysone import SysOneProvider
     from .models.router import ModelRouter
 
 PointLike: TypeAlias = Point | tuple[float, float]
@@ -175,7 +175,7 @@ class Device:
         self.output_dir = Path(output_dir)
         self.app_config = app_config
         self._ocr_cache: dict[str, OcrProvider] = {}
-        self._jev_cache: dict[str, JevProvider] = {}
+        self._sysone_cache: dict[str, SysOneProvider] = {}
         if app_config is not None:
             configure_logging(app_config.logging.verbosity)
 
@@ -410,36 +410,36 @@ class Device:
             raise TypeError("root must be a UiNode or UiDocument")
         return _format_tree(node, color=color)
 
-    def jev(
+    def sysone_provider(
         self,
         *,
         provider: str | None = None,
         router: ModelRouter | None = None,
-    ) -> JevProvider:
-        """Return a TypeSafe Jev client for typed model decisions.
+    ) -> SysOneProvider:
+        """Return a configured SysOne typed-decision client.
 
         Pass a ``router`` to reuse an already-created provider. Without one,
-        the first configured Jev provider is created lazily from this device's
+        the first configured SysOne provider is created lazily from this device's
         config and reused for the lifetime of this device. Pass ``provider``
         to select a named entry explicitly.
         """
         if router is not None:
             try:
-                return router.jev(provider=provider)
+                return router.sysone(provider=provider)
             except KeyError as exc:
-                available = ", ".join(sorted(router.jev_providers))
+                available = ", ".join(sorted(router.sysone_providers))
                 raise ModelError(
-                    f"unknown Jev provider {provider!r}; available: {available or 'none'}"
+                    f"unknown SysOne provider {provider!r}; available: {available or 'none'}"
                 ) from exc
-        return self._cached_jev(provider)
+        return self._cached_sysone(provider)
 
-    def jev_goal(
+    def sysone_goal(
         self,
         *,
         router: ModelRouter | None = None,
         ocr_provider: str | None = None,
-        jev: JevProvider | None = None,
-        jev_provider: str | None = None,
+        sysone: SysOneProvider | None = None,
+        sysone_provider: str | None = None,
         llm: LlmProvider | None = None,
         llm_provider: str | None = None,
         max_steps: int = 8,
@@ -453,19 +453,19 @@ class Device:
         use_score: bool = False,
         prefer_webview: bool = True,
         max_llm_assists: int | None = None,
-    ) -> JevGoal:
-        """Create a bounded goal runner driven primarily by Jev.
+    ) -> SysOneGoal:
+        """Create a bounded goal runner driven primarily by SysOne.
 
-        Jev chooses among a bounded UI/OCR/app candidate list and the host
+        SysOne chooses among a bounded UI/OCR/app candidate list and the host
         executes only its selected, validated candidate. If an LLM is available,
-        Jev may choose ``call_llm`` or a failed run may request a bounded
+        SysOne may choose ``call_llm`` or a failed run may request a bounded
         recovery subgoal. The LLM executes it by selecting only safe,
         host-validated dismiss/cancel/skip/back/home controls; it cannot supply
         coordinates or arbitrary device operations. If a recovery subgoal fails,
         the LLM may generate a replacement using a fresh observation. The default has no
         assist-count limit; pass a non-negative ``max_llm_assists`` to cap it,
-        or zero to disable LLM recovery. The first configured Jev, LLM, and OCR
-        providers are selected when names are omitted. A configured OCR provider runs only after Jev
+        or zero to disable LLM recovery. The first configured SysOne, LLM, and OCR
+        providers are selected when names are omitted. A configured OCR provider runs only after SysOne
         selects ``inspect_ocr`` and at most once per observation.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
         DevTools before falling back to UIAutomator.
@@ -475,12 +475,12 @@ class Device:
         is disabled when ``max_seconds`` is ``None``; an explicit limit may be
         up to 60 seconds. Recovery subgoals have a separate limit of three
         actions and thirty seconds, further bounded by the remaining main-goal
-        deadline when one is set. Jev only selects from
+        deadline when one is set. SysOne only selects from
         host-generated candidates; it cannot provide text or
         coordinates. ``allowed_controls`` and ``denied_controls`` match exact
         UI/OCR/system labels after case and whitespace normalization.
         ``allowed_apps`` maps display labels to validated Android package names;
-        these app-launch candidates are omitted by default and Jev sees only
+        these app-launch candidates are omitted by default and SysOne sees only
         their label and candidate ID. It cannot supply an arbitrary package.
         ``use_score`` adds optional progress telemetry. An explicit
         ``max_seconds`` prevents another action after its deadline, but cannot
@@ -488,35 +488,35 @@ class Device:
         A Noul completion signal returns ``needs_verification`` for independent
         caller review.
         """
-        from .jev_goal import JevGoal
+        from .sysone_goal import SysOneGoal
 
-        if jev is not None and jev_provider is not None:
-            raise ValueError("pass either jev= or jev_provider=, not both")
+        if sysone is not None and sysone_provider is not None:
+            raise ValueError("pass either sysone= or sysone_provider=, not both")
         if llm is not None and llm_provider is not None:
             raise ValueError("pass either llm= or llm_provider=, not both")
 
-        selected_jev_provider = jev_provider
-        if jev is None:
+        selected_sysone_provider = sysone_provider
+        if sysone is None:
             if router is not None:
-                if selected_jev_provider is None:
-                    selected_jev_provider = next(iter(router.jev_providers), None)
+                if selected_sysone_provider is None:
+                    selected_sysone_provider = next(iter(router.sysone_providers), None)
                 try:
-                    jev = router.jev(provider=selected_jev_provider)
+                    sysone = router.sysone(provider=selected_sysone_provider)
                 except KeyError as exc:
-                    available = ", ".join(sorted(router.jev_providers))
+                    available = ", ".join(sorted(router.sysone_providers))
                     raise ModelError(
-                        f"unknown Jev provider {selected_jev_provider!r}; available: {available or 'none'}"
+                        f"unknown SysOne provider {selected_sysone_provider!r}; available: {available or 'none'}"
                     ) from exc
             else:
-                selected_jev_provider = self._configured_provider_name(
-                    self.app_config.models.jev_providers
+                selected_sysone_provider = self._configured_provider_name(
+                    self.app_config.models.sysone_providers
                     if self.app_config is not None
                     else {},
-                    selected_jev_provider,
+                    selected_sysone_provider,
                 )
-                jev = self._cached_jev(selected_jev_provider)
-        elif selected_jev_provider is None:
-            selected_jev_provider = "custom"
+                sysone = self._cached_sysone(selected_sysone_provider)
+        elif selected_sysone_provider is None:
+            selected_sysone_provider = "custom"
 
         selected_llm_provider = llm_provider
         if llm is None:
@@ -579,10 +579,10 @@ class Device:
                     lambda: self._cached_ocr_provider(ocr_provider_name)
                 )
 
-        return JevGoal(
+        return SysOneGoal(
             self,
-            jev,
-            provider=selected_jev_provider,
+            sysone,
+            provider=selected_sysone_provider,
             ocr=ocr,
             max_steps=max_steps,
             max_seconds=max_seconds,
@@ -606,19 +606,19 @@ class Device:
         llm: LlmProvider | None = None,
         router: ModelRouter | None = None,
         ocr_provider: str | None = None,
-        jev: JevProvider | None = None,
-        jev_provider: str | None = None,
+        sysone: SysOneProvider | None = None,
+        sysone_provider: str | None = None,
         max_steps: int = 8,
     ) -> Agent:
-        """Create an iterative goal agent for this device.
+        """Create an iterative LLM goal agent for this device.
 
         A configured LLM is loaded from the first configured provider when
         ``provider`` is omitted. The first configured OCR provider is used
-        when ``ocr_provider`` is omitted. Jev is advisory and opt-in: pass
-        ``jev=`` or ``jev_provider=`` to include it in the planner context.
-        The Agent re-observes after each action
-        until the goal terminates. A direct ``jev`` client can also be
-        supplied. For interactive debugging, call ``agent.debug(goal)`` and
+        when ``ocr_provider`` is omitted. SysOne is advisory and opt-in: pass
+        ``sysone=`` or ``sysone_provider=`` to include it in the planner context.
+        The Agent re-observes after each action until the goal terminates. A
+        direct ``sysone`` client can also be supplied. For interactive
+        debugging, call ``agent.debug(goal)`` and
         explicitly invoke its ``step()`` method to execute and inspect one
         action at a time.
         """
@@ -626,8 +626,8 @@ class Device:
 
         if llm is not None and router is not None:
             raise ValueError("pass either llm or router, not both")
-        if jev is not None and jev_provider is not None:
-            raise ValueError("pass either jev= or jev_provider=, not both")
+        if sysone is not None and sysone_provider is not None:
+            raise ValueError("pass either sysone= or sysone_provider=, not both")
         selected_provider = provider
         if router is not None:
             if selected_provider is None:
@@ -677,29 +677,29 @@ class Device:
                     lambda: self._cached_ocr_provider(selected_ocr_provider)
                 )
 
-        if jev is None:
-            selected_jev_provider = jev_provider
-            if selected_jev_provider is not None:
+        if sysone is None:
+            selected_sysone_provider = sysone_provider
+            if selected_sysone_provider is not None:
                 if router is not None:
                     try:
-                        jev = router.jev(provider=selected_jev_provider)
+                        sysone = router.sysone(provider=selected_sysone_provider)
                     except KeyError as exc:
-                        available = ", ".join(sorted(router.jev_providers))
+                        available = ", ".join(sorted(router.sysone_providers))
                         raise ModelError(
-                            f"unknown Jev provider {selected_jev_provider!r}; available: {available or 'none'}"
+                            f"unknown SysOne provider {selected_sysone_provider!r}; available: {available or 'none'}"
                         ) from exc
                 else:
-                    jev = self._cached_jev(selected_jev_provider)
+                    sysone = self._cached_sysone(selected_sysone_provider)
         return Agent(
             self,
             llm,
             provider=selected_provider,
             ocr=ocr,
-            jev=jev,
+            sysone=sysone,
             max_steps=max_steps,
         )
 
-    def run(
+    def llm(
         self,
         instruction: str,
         *,
@@ -707,109 +707,36 @@ class Device:
         llm: LlmProvider | None = None,
         router: ModelRouter | None = None,
         ocr_provider: str | None = None,
-        jev: JevProvider | None = None,
-        jev_provider: str | None = None,
+        sysone: SysOneProvider | None = None,
+        sysone_provider: str | None = None,
         max_steps: int = 8,
         dry_run: bool = False,
-        max_seconds: float | None = None,
-        done_threshold: float = 0.85,
-        action_threshold: float = 0.65,
-        max_candidates: int = 32,
-        allowed_apps: Mapping[str, str] | None = None,
-        allowed_controls: Sequence[str] | None = None,
-        denied_controls: Sequence[str] = (),
-        use_score: bool = False,
-        prefer_webview: bool = True,
-        max_llm_assists: int | None = None,
     ) -> AgentRun:
-        """Run one goal with LLM-first planning and validated tool execution.
+        """Run a natural-language goal with LLM planning and validated tools.
 
-        When an LLM is available, it chooses the next device operation from
-        the current screenshot and UI state. Pass ``jev=`` or
-        ``jev_provider=`` to add typed advisory context; configured Jev
-        providers are not called implicitly and Jev does not select or
-        dispatch actions.
-        If no LLM is available and Jev is configured, this method falls back to
-        the bounded Jev goal runner. Use :meth:`run_jev_goal` to request that
-        flow explicitly when both models are configured.
-
-        Jev-specific tuning options such as ``allowed_controls``,
-        ``done_threshold`` and ``max_seconds`` retain the Jev goal behavior for
-        compatibility. ``max_steps`` bounds actions in either flow.
+        The LLM observes the current screenshot and UI state, then chooses one
+        validated device operation per step. SysOne may be added as typed
+        advisory context by passing ``sysone`` or ``sysone_provider``. To use
+        SysOne as the primary selector, call :meth:`sysone`.
         """
-        if llm is not None and router is not None:
-            raise ValueError("pass either llm or router, not both")
-
-        jev_configured = jev is not None or jev_provider is not None
-        if router is not None:
-            jev_configured = jev_configured or bool(router.jev_providers)
-        elif self.app_config is not None:
-            jev_configured = jev_configured or bool(
-                self.app_config.models.jev_providers
-                or self.app_config.models.jev.api_key
-            )
-        jev_options_used = (
-            max_seconds is not None
-            or done_threshold != 0.85
-            or action_threshold != 0.65
-            or max_candidates != 32
-            or allowed_apps is not None
-            or allowed_controls is not None
-            or bool(denied_controls)
-            or use_score
-            or not prefer_webview
-            or max_llm_assists is not None
-        )
-        llm_available = llm is not None or provider is not None
-        if router is not None:
-            llm_available = llm_available or bool(router.llm_providers)
-        elif self.app_config is not None:
-            configured_llms = self.app_config.models.llm_providers
-            llm_available = llm_available or bool(
-                self.app_config.models.llm.api_key
-                or any(spec.api_key for spec in configured_llms.values())
-                or any(name != "default" for name in configured_llms)
-            )
-
-        if jev_options_used or (jev_configured and not llm_available):
-            return self.jev_goal(
-                router=router,
-                ocr_provider=ocr_provider,
-                jev=jev,
-                jev_provider=jev_provider,
-                llm=llm,
-                llm_provider=provider if llm is None else None,
-                max_steps=max_steps,
-                max_seconds=max_seconds,
-                done_threshold=done_threshold,
-                action_threshold=action_threshold,
-                max_candidates=max_candidates,
-                allowed_apps=allowed_apps,
-                allowed_controls=allowed_controls,
-                denied_controls=denied_controls,
-                use_score=use_score,
-                prefer_webview=prefer_webview,
-                max_llm_assists=max_llm_assists,
-            ).run(instruction, dry_run=dry_run)
-
         return self.agent(
             provider=provider,
             llm=llm,
             router=router,
             ocr_provider=ocr_provider,
-            jev=jev,
-            jev_provider=jev_provider,
+            sysone=sysone,
+            sysone_provider=sysone_provider,
             max_steps=max_steps,
         ).run(instruction, dry_run=dry_run)
 
-    def run_jev_goal(
+    def sysone(
         self,
         instruction: str,
         *,
         router: ModelRouter | None = None,
         ocr_provider: str | None = None,
-        jev: JevProvider | None = None,
-        jev_provider: str | None = None,
+        sysone: SysOneProvider | None = None,
+        sysone_provider: str | None = None,
         max_steps: int = 8,
         max_seconds: float | None = None,
         done_threshold: float = 0.85,
@@ -821,11 +748,11 @@ class Device:
         use_score: bool = False,
         prefer_webview: bool = True,
         llm: LlmProvider | None = None,
-        provider: str | None = None,
+        llm_provider: str | None = None,
         max_llm_assists: int | None = None,
         dry_run: bool = False,
     ) -> AgentRun:
-        """Run a goal with Jev-first decisions and optional LLM recovery.
+        """Run a goal with SysOne selecting from validated UI/OCR candidates.
 
         The overall goal deadline is disabled by default. Pass ``max_seconds``
         to enable a positive deadline of up to 60 seconds.
@@ -833,8 +760,8 @@ class Device:
         ``allowed_apps`` explicitly allowlists app launches by display label
         and package name. ``allowed_controls`` and ``denied_controls`` restrict
         UI/OCR/system candidate labels.
-        A configured OCR provider runs only after Jev selects ``inspect_ocr``.
-        Jev may select ``call_llm`` or a failed run may request a bounded
+        A configured OCR provider runs only after SysOne selects ``inspect_ocr``.
+        SysOne may select ``call_llm`` or a failed run may request a bounded
         recovery subgoal. The LLM can execute it only by choosing from safe,
         host-validated controls; it cannot supply arbitrary device actions.
         Set ``prefer_webview=False`` for native screens to avoid probing WebView
@@ -842,15 +769,15 @@ class Device:
         Dry-run previews and non-action decisions do not make a second UI dump;
         a fresh observation is still required immediately before a real action.
         A completion decision returns ``needs_verification`` for the caller to
-        check independently. Use :meth:`run` for LLM-first planning.
+        check independently. Use :meth:`llm` for LLM-first planning.
         """
-        return self.jev_goal(
+        return self.sysone_goal(
             router=router,
             ocr_provider=ocr_provider,
-            jev=jev,
-            jev_provider=jev_provider,
+            sysone=sysone,
+            sysone_provider=sysone_provider,
             llm=llm,
-            llm_provider=provider if llm is None else None,
+            llm_provider=llm_provider if llm is None else None,
             max_steps=max_steps,
             max_seconds=max_seconds,
             done_threshold=done_threshold,
@@ -938,22 +865,22 @@ class Device:
         self._ocr_cache[provider] = created
         return created
 
-    def _configured_jev(self, provider: str) -> JevProvider:
+    def _configured_sysone(self, provider: str) -> SysOneProvider:
         if self.app_config is None:
             raise ConfigurationError(
-                "no model configuration is attached; pass router= to device.jev()"
+                "no model configuration is attached; pass router= to device.sysone()"
             )
-        spec = self.app_config.models.jev_providers.get(provider)
-        if spec is None and (provider == "default" or not self.app_config.models.jev_providers):
-            spec = self.app_config.models.jev
+        spec = self.app_config.models.sysone_providers.get(provider)
+        if spec is None and (provider == "default" or not self.app_config.models.sysone_providers):
+            spec = self.app_config.models.sysone
         if spec is None:
-            available = ", ".join(sorted(self.app_config.models.jev_providers))
-            raise ConfigurationError(f"unknown Jev provider {provider!r}; available: {available}")
-        if spec.provider not in {"typesafe", "jev"}:
-            raise ModelError(f"unsupported Jev provider: {spec.provider}")
-        from .models.jev import JevProvider
+            available = ", ".join(sorted(self.app_config.models.sysone_providers))
+            raise ConfigurationError(f"unknown SysOne provider {provider!r}; available: {available}")
+        if spec.provider != "typesafe":
+            raise ModelError(f"unsupported SysOne provider: {spec.provider}")
+        from .models.sysone import SysOneProvider
 
-        return JevProvider(
+        return SysOneProvider(
             base_url=spec.base_url,
             api_key=spec.api_key,
             api_key_env=spec.api_key_env,
@@ -961,16 +888,16 @@ class Device:
             timeout=spec.timeout_seconds,
         )
 
-    def _cached_jev(self, provider: str | None) -> JevProvider:
+    def _cached_sysone(self, provider: str | None) -> SysOneProvider:
         provider = self._configured_provider_name(
-            self.app_config.models.jev_providers if self.app_config is not None else {},
+            self.app_config.models.sysone_providers if self.app_config is not None else {},
             provider,
         )
-        cached = self._jev_cache.get(provider)
+        cached = self._sysone_cache.get(provider)
         if cached is not None:
             return cached
-        created = self._configured_jev(provider)
-        self._jev_cache[provider] = created
+        created = self._configured_sysone(provider)
+        self._sysone_cache[provider] = created
         return created
 
     @staticmethod
@@ -993,9 +920,9 @@ class Device:
         try:
             self.session.close()
         finally:
-            providers = tuple((*self._ocr_cache.values(), *self._jev_cache.values()))
+            providers = tuple((*self._ocr_cache.values(), *self._sysone_cache.values()))
             self._ocr_cache.clear()
-            self._jev_cache.clear()
+            self._sysone_cache.clear()
             for provider in providers:
                 close = getattr(provider, "close", None)
                 if callable(close):

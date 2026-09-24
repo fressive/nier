@@ -1,10 +1,10 @@
-"""Bounded device goals driven by typed Jev decisions.
+"""Bounded device goals driven by typed SysOne decisions.
 
-Jev is deliberately used as a selector here, not as a free-form action
+SysOne is deliberately used as a selector here, not as a free-form action
 generator. The host builds a finite set of validated candidate actions from
-the current UI observation, and Jev returns the id of one candidate. If the
-accessibility tree is insufficient, Jev can request one OCR read for that
-observation. When it needs help or the run fails, Jev may ask an optional LLM
+the current UI observation, and SysOne returns the id of one candidate. If the
+accessibility tree is insufficient, SysOne can request one OCR read for that
+observation. When it needs help or the run fails, SysOne may ask an optional LLM
 for a bounded recovery subgoal. The LLM executes that subgoal by selecting
 only host-validated safe controls, then the main goal observes and resumes.
 """
@@ -19,10 +19,10 @@ from hashlib import sha256
 from time import monotonic, sleep
 
 from .agent import (
-    _JEV_MAX_OCR_SPANS,
-    _JEV_MAX_TEXT_LENGTH,
-    _JEV_MAX_UI_NODES,
-    _JEV_MAX_UI_SUMMARY_CHARS,
+    _SYS_ONE_MAX_OCR_SPANS,
+    _SYS_ONE_MAX_TEXT_LENGTH,
+    _SYS_ONE_MAX_UI_NODES,
+    _SYS_ONE_MAX_UI_SUMMARY_CHARS,
     AgentDevice,
     AgentPlan,
     AgentRun,
@@ -38,7 +38,7 @@ from .errors import BackendError, ModelError
 from .logging_utils import step as log_step
 from .logging_utils import tool_call as log_tool_call
 from .models.base import LlmProvider, OcrProvider, TextSpan
-from .models.jev import JevAnswer, JevProvider, JevQuestion
+from .models.sysone import SysOneAnswer, SysOneProvider, SysOneQuestion
 from .protocol import ActionResult, ActivityInfo, validate_package_name
 from .results import ExecutionRecord
 from .ui import UiDocument, UiNode, parse_uidump
@@ -73,8 +73,8 @@ _RECOVERY_CONTROLS = (
 
 
 @dataclass(frozen=True)
-class JevGoalCandidate:
-    """One host-validated action offered to a Jev goal.
+class SysOneGoalCandidate:
+    """One host-validated action offered to a SysOne goal.
 
     ``id`` is stable only for the current observation.  A new observation may
     produce a different candidate list, so callers must never cache ids
@@ -112,7 +112,7 @@ class JevGoalCandidate:
             "height",
         }
         metadata = {
-            key: value[:_JEV_MAX_TEXT_LENGTH] if isinstance(value, str) else value
+            key: value[:_SYS_ONE_MAX_TEXT_LENGTH] if isinstance(value, str) else value
             for key, value in self.metadata.items()
             if key.casefold() not in spatial
         }
@@ -125,26 +125,26 @@ class JevGoalCandidate:
 
 
 @dataclass(frozen=True)
-class _JevObservation:
-    candidates: tuple[JevGoalCandidate, ...]
+class _SysOneObservation:
+    candidates: tuple[SysOneGoalCandidate, ...]
     state: Mapping[str, object]
     freshness_fingerprint: object
     screenshot_digest: str | None
     ocr_inspected: bool
 
 
-class JevGoal:
-    """Execute a bounded Android goal using Jev for typed decisions.
+class SysOneGoal:
+    """Execute a bounded Android goal using SysOne for typed decisions.
 
-    Each observation asks Jev two questions in one request:
+    Each observation asks SysOne two questions in one request:
 
     * ``done`` is a Noul predicate for whether the user goal is satisfied;
     * ``next`` is a Choice over host-generated, validated candidate actions,
       plus bounded ``inspect_ocr``, ``call_llm``, ``wait``, and ``blocked``
       options.
 
-    Jev is the primary decision-maker. If configured, the LLM is called when
-    Jev selects ``call_llm`` or the goal encounters a recoverable failure. It
+    SysOne is the primary decision-maker. If configured, the LLM is called when
+    SysOne selects ``call_llm`` or the goal encounters a recoverable failure. It
     returns a bounded recovery subgoal and executes it by selecting only safe,
     host-validated controls. It cannot provide coordinates or arbitrary device
     operations.
@@ -154,7 +154,7 @@ class JevGoal:
     reliable as a success gate than an explicit Noul predicate.
 
     Visible scrollable viewports may add host-bounded up/down swipe candidates;
-    Jev receives only their direction, not their coordinates. Repeated recovery
+    SysOne receives only their direction, not their coordinates. Repeated recovery
     against an unchanged stalled screen stops even with unlimited LLM assists.
 
     Decisions are checked against a fresh host observation before an action is
@@ -162,7 +162,7 @@ class JevGoal:
     observation. Main-goal actions are bounded by ``max_steps``; the overall
     deadline is disabled when ``max_seconds`` is ``None``. Each recovery
     subgoal has a separate cap of three actions and thirty seconds, further
-    limited by the main deadline when one is set. OCR runs only after Jev
+    limited by the main deadline when one is set. OCR runs only after SysOne
     requests it and at most once per observation.
     Completion returns ``needs_verification`` for the caller to review.
     Set ``prefer_webview=False`` for native screens to skip the WebView probe.
@@ -171,9 +171,9 @@ class JevGoal:
     def __init__(
         self,
         device: AgentDevice,
-        jev: JevProvider,
+        sysone: SysOneProvider,
         *,
-        provider: str = "jev",
+        provider: str = "sysone",
         ocr: OcrProvider | None = None,
         max_steps: int = 8,
         max_seconds: float | None = None,
@@ -189,12 +189,12 @@ class JevGoal:
         llm_provider: str | None = None,
         max_llm_assists: int | None = None,
     ) -> None:
-        """Create a Jev goal runner with bounded actions and recovery.
+        """Create a SysOne goal runner with bounded actions and recovery.
 
-        ``llm`` is optional and is called if Jev selects ``call_llm`` or the
+        ``llm`` is optional and is called if SysOne selects ``call_llm`` or the
         main goal encounters a recoverable failure. Each response supplies a
         recovery subgoal for bounded LLM execution; it is not passed back as
-        guidance to the main Jev goal. Failed subgoals may be revised using a
+        guidance to the main SysOne goal. Failed subgoals may be revised using a
         fresh observation until ``max_llm_assists`` is exhausted. By default,
         there is no assist-count limit; pass a non-negative integer to cap it
         or zero to disable LLM recovery. The overall
@@ -232,7 +232,7 @@ class JevGoal:
         if any(not isinstance(item, str) or not item.strip() for item in denied_controls):
             raise ValueError("denied_controls must contain non-empty strings")
         self.device = device
-        self.jev = jev
+        self.sysone = sysone
         self.provider = provider
         self.ocr = ocr
         self.max_steps = max_steps
@@ -284,9 +284,9 @@ class JevGoal:
         dry_run: bool = False,
         max_steps: int | None = None,
     ) -> AgentRun:
-        """Run a Jev goal, or preview its next candidate with ``dry_run``."""
+        """Run a SysOne goal, or preview its next candidate with ``dry_run``."""
         record = self._start_record(
-            "jev-goal",
+            "sysone-goal",
             instruction=instruction,
             dry_run=dry_run,
             done_threshold=self.done_threshold,
@@ -343,12 +343,12 @@ class JevGoal:
         self._ocr_error = ""
         results: list[ActionResult] = []
         history: list[dict[str, object]] = []
-        jev_data: dict[str, object] | None = None
+        sysone_data: dict[str, object] | None = None
         llm_assists = 0
         recovery_history: list[dict[str, object]] = []
         recovery_state_visits: dict[str, int] = {}
         runtime_denied_controls: set[str] = set()
-        last_observation: _JevObservation | None = None
+        last_observation: _SysOneObservation | None = None
         iteration = 0
 
         def attempt_recovery(
@@ -406,7 +406,7 @@ class JevGoal:
                     "attempt": llm_assists,
                     "provider": self.llm_provider or "llm",
                     "trigger": trigger,
-                    "failure_reason": reason[:_JEV_MAX_TEXT_LENGTH],
+                    "failure_reason": reason[:_SYS_ONE_MAX_TEXT_LENGTH],
                 }
                 try:
                     recovery_goal = self._request_recovery_goal(
@@ -418,7 +418,7 @@ class JevGoal:
                 except Exception as exc:
                     attempt.update({"outcome": "llm_failed", "error": str(exc)})
                     recovery_history.append(attempt)
-                    log_step("jev-goal-recovery-generation-failed", reason=str(exc))
+                    log_step("sysone-goal-recovery-generation-failed", reason=str(exc))
                     return False, str(exc)
                 attempt["recovery_goal"] = recovery_goal
                 remaining = remaining_seconds()
@@ -434,9 +434,9 @@ class JevGoal:
                     or _normalize_label(label) in self.allowed_controls
                 )
                 denied = set(self.denied_controls) | blocked_labels
-                child = JevGoal(
+                child = SysOneGoal(
                     self.device,
-                    self.jev,
+                    self.sysone,
                     provider=self.provider,
                     ocr=self.ocr,
                     max_steps=_MAX_RECOVERY_STEPS,
@@ -461,7 +461,7 @@ class JevGoal:
                     return False, "recovery actions are disabled in dry-run mode"
 
                 log_step(
-                    "jev-goal-recovery-started",
+                    "sysone-goal-recovery-started",
                     trigger=trigger,
                     attempt=llm_assists,
                     recovery_goal=recovery_goal,
@@ -504,7 +504,7 @@ class JevGoal:
                         )
                         del history[:-8]
                         log_step(
-                            "jev-goal-recovery-completed",
+                            "sysone-goal-recovery-completed",
                             attempt=llm_assists,
                             completed_steps=completed_steps,
                         )
@@ -514,7 +514,7 @@ class JevGoal:
                             "outcome": "failed",
                             "completed_steps": completed_steps,
                             "failed_control": failed_label,
-                            "error": recovery_error[:_JEV_MAX_TEXT_LENGTH],
+                            "error": recovery_error[:_SYS_ONE_MAX_TEXT_LENGTH],
                         }
                     )
                     recovery_history.append(attempt)
@@ -576,18 +576,18 @@ class JevGoal:
             *,
             error: str = "",
         ) -> AgentRun:
-            plan_jev = None if jev_data is None else dict(jev_data)
+            plan_sysone = None if sysone_data is None else dict(sysone_data)
             if recovery_history:
-                if plan_jev is None:
-                    plan_jev = {}
-                plan_jev["recovery_subgoals"] = [
+                if plan_sysone is None:
+                    plan_sysone = {}
+                plan_sysone["recovery_subgoals"] = [
                     dict(item) for item in recovery_history
                 ]
             plan = AgentPlan(
                 goal=instruction,
                 steps=tuple(steps),
                 provider=self.provider,
-                jev=plan_jev,
+                sysone=plan_sysone,
             )
             record.details["plan"] = plan.to_dict()
             if error:
@@ -611,7 +611,7 @@ class JevGoal:
                 termination=termination,
             )
 
-        pending_observation: _JevObservation | None = None
+        pending_observation: _SysOneObservation | None = None
         pending_recognize_ocr = False
         stale_decisions = 0
         consecutive_waits = 0
@@ -637,7 +637,7 @@ class JevGoal:
                 pending_observation = None
                 pending_recognize_ocr = False
                 last_observation = observation
-                jev_data, candidate, done, decision = self._decide(
+                sysone_data, candidate, done, decision = self._decide(
                     observation,
                     instruction,
                     can_call_llm=(
@@ -728,14 +728,14 @@ class JevGoal:
                 if not same_observation:
                     stale_decisions += 1
                     log_step(
-                        "jev-goal-stale-decision",
+                        "sysone-goal-stale-decision",
                         iteration=iteration,
                         stale_decisions=stale_decisions,
                         max_stale_decisions=_MAX_STALE_DECISIONS,
                     )
                     if stale_decisions >= _MAX_STALE_DECISIONS:
                         last_observation = fresh
-                        error = "device state kept changing while Jev was deciding"
+                        error = "device state kept changing while SysOne was deciding"
                         recovered, recovery_error = attempt_recovery(
                             "stale_state",
                             error,
@@ -761,7 +761,7 @@ class JevGoal:
                 stale_decisions = 0
 
             if done:
-                jev_data["verification_required"] = True
+                sysone_data["verification_required"] = True
                 return finish(True, "needs_verification")
 
             if decision == "inspect_ocr":
@@ -770,7 +770,7 @@ class JevGoal:
                     {
                         "decision": "inspect_ocr",
                         "executed": True,
-                        "reason": "Jev requested OCR for this observation",
+                        "reason": "SysOne requested OCR for this observation",
                     }
                 )
                 del history[:-8]
@@ -782,14 +782,14 @@ class JevGoal:
                     return finish(
                         False,
                         "wait_required",
-                        error="Jev requested a fresh observation after waiting",
+                        error="SysOne requested a fresh observation after waiting",
                     )
                 consecutive_waits += 1
                 history.append(
                     {
                         "decision": "wait",
                         "executed": False,
-                        "reason": "Jev requested a bounded loading wait",
+                        "reason": "SysOne requested a bounded loading wait",
                     }
                 )
                 del history[:-8]
@@ -825,8 +825,8 @@ class JevGoal:
             if decision == "call_llm":
                 consecutive_waits = 0
                 recovered, recovery_error = attempt_recovery(
-                    "jev_choice",
-                    "Jev selected call_llm because the main goal needs recovery help",
+                    "sysone_choice",
+                    "SysOne selected call_llm because the main goal needs recovery help",
                     state=observation.state,
                 )
                 if recovered and can_continue():
@@ -852,7 +852,7 @@ class JevGoal:
 
             consecutive_waits = 0
             if decision == "low_confidence":
-                error = "Jev confidence was below the action threshold"
+                error = "SysOne confidence was below the action threshold"
                 recovered, recovery_error = attempt_recovery(
                     "low_confidence",
                     error,
@@ -872,7 +872,7 @@ class JevGoal:
                     error=error,
                 )
             if decision == "blocked" or candidate is None:
-                error = "Jev found no safe candidate action that advances the goal"
+                error = "SysOne found no safe candidate action that advances the goal"
                 recovered, recovery_error = attempt_recovery(
                     "blocked",
                     error,
@@ -917,12 +917,12 @@ class JevGoal:
             remaining = step_limit - len(steps)
             steps.append(candidate.action)
             log_step(
-                "jev-goal",
+                "sysone-goal",
                 iteration=iteration,
                 candidate=candidate.id,
                 source=candidate.source,
                 action=candidate.action.action,
-                confidence=jev_data.get("next_confidence"),
+                confidence=sysone_data.get("next_confidence"),
                 remaining_steps=max(0, remaining - 1),
             )
             try:
@@ -979,7 +979,7 @@ class JevGoal:
                     "candidate": candidate.id,
                     "label": candidate.label,
                     "source": candidate.source,
-                    "confidence": jev_data.get("next_confidence"),
+                    "confidence": sysone_data.get("next_confidence"),
                     "action": candidate.action.action,
                     "success": result.success,
                     "message": result.message,
@@ -1015,14 +1015,14 @@ class JevGoal:
         recognize_ocr: bool = False,
         capture_screenshot: bool = False,
         denied_controls: Sequence[str] = (),
-    ) -> _JevObservation:
+    ) -> _SysOneObservation:
         screenshot = (
             self.device.screenshot()
             if recognize_ocr or capture_screenshot
             else None
         )
         if recognize_ocr and self.ocr is None:
-            raise ModelError("Jev requested OCR, but no OCR provider is configured")
+            raise ModelError("SysOne requested OCR, but no OCR provider is configured")
         try:
             dump = self.device.dump_ui(prefer_webview=self.prefer_webview)
         except BackendError as exc:
@@ -1055,12 +1055,12 @@ class JevGoal:
             and not self._ocr_error
         ):
             try:
-                spans = tuple(self.ocr.recognize(screenshot.data)[:_JEV_MAX_OCR_SPANS])
+                spans = tuple(self.ocr.recognize(screenshot.data)[:_SYS_ONE_MAX_OCR_SPANS])
             except ModelError as exc:
                 # OCR is optional; a missing or failed provider must not
                 # derail a goal that can still use the accessibility tree.
-                self._ocr_error = str(exc)[:_JEV_MAX_TEXT_LENGTH]
-                log_step("jev-goal-ocr-unavailable", reason=self._ocr_error)
+                self._ocr_error = str(exc)[:_SYS_ONE_MAX_TEXT_LENGTH]
+                log_step("sysone-goal-ocr-unavailable", reason=self._ocr_error)
         candidates = self._candidates(
             instruction,
             document,
@@ -1078,19 +1078,19 @@ class JevGoal:
                     document,
                     dump,
                     dump_error,
-                    max_nodes=_JEV_MAX_UI_NODES,
-                    max_text_length=_JEV_MAX_TEXT_LENGTH,
+                    max_nodes=_SYS_ONE_MAX_UI_NODES,
+                    max_text_length=_SYS_ONE_MAX_TEXT_LENGTH,
                 )
             ),
             "ui_summary": (
                 _ui_summary(
                     document,
                     limit=64,
-                    max_chars=_JEV_MAX_UI_SUMMARY_CHARS,
+                    max_chars=_SYS_ONE_MAX_UI_SUMMARY_CHARS,
                     include_geometry=False,
                 )
                 if document is not None
-                else (dump_error or "Structured UI is unavailable")[:_JEV_MAX_TEXT_LENGTH]
+                else (dump_error or "Structured UI is unavailable")[:_SYS_ONE_MAX_TEXT_LENGTH]
             ),
             "ocr_available": self.ocr is not None and not self._ocr_error,
             "ocr_inspected": recognize_ocr,
@@ -1099,7 +1099,7 @@ class JevGoal:
             "candidates": [candidate.to_decision_payload() for candidate in candidates],
             "history": [
                 {
-                    key: value[:_JEV_MAX_TEXT_LENGTH] if isinstance(value, str) else value
+                    key: value[:_SYS_ONE_MAX_TEXT_LENGTH] if isinstance(value, str) else value
                     for key, value in item.items()
                 }
                 for item in history[-8:]
@@ -1121,7 +1121,7 @@ class JevGoal:
         screenshot_digest = (
             sha256(screenshot.data).hexdigest() if screenshot is not None else None
         )
-        return _JevObservation(
+        return _SysOneObservation(
             tuple(candidates),
             state,
             freshness_fingerprint,
@@ -1131,11 +1131,11 @@ class JevGoal:
 
     def _decide(
         self,
-        observation: _JevObservation,
+        observation: _SysOneObservation,
         instruction: str,
         *,
         can_call_llm: bool,
-    ) -> tuple[dict[str, object], JevGoalCandidate | None, bool, str]:
+    ) -> tuple[dict[str, object], SysOneGoalCandidate | None, bool, str]:
         criteria = {candidate.id: candidate.label for candidate in observation.candidates}
         can_inspect_ocr = (
             self.ocr is not None
@@ -1154,11 +1154,11 @@ class JevGoal:
             )
         criteria["blocked"] = "No permitted candidate action can safely advance the goal"
         criteria["wait"] = "The screen is loading or transitioning; wait and observe again"
-        questions: dict[str, JevQuestion] = {
-            "done": JevQuestion.noul(
+        questions: dict[str, SysOneQuestion] = {
+            "done": SysOneQuestion.noul(
                 "Is the user's goal already satisfied by the current Android state?"
             ),
-            "next": JevQuestion.choice(
+            "next": SysOneQuestion.choice(
                 "Choose one allowed candidate action that most safely advances the goal. "
                 "Choose inspect_ocr only when the accessibility tree does not expose "
                 "enough visible text to decide. OCR is read-only and is available at most "
@@ -1174,12 +1174,12 @@ class JevGoal:
             ),
         }
         if self.use_score:
-            questions["progress"] = JevQuestion.score(
+            questions["progress"] = SysOneQuestion.score(
                 "How far has the current state progressed toward the user's goal?",
                 ("not_started", "in_progress", "near_complete", "complete"),
             )
 
-        response = self.jev.ask(observation.state, questions)
+        response = self.sysone.ask(observation.state, questions)
         done_answer = response.answer("done")
         next_answer = response.answer("next")
         done_probability = _noul_probability(done_answer)
@@ -1208,7 +1208,7 @@ class JevGoal:
         else:
             decision = "action"
 
-        jev_data: dict[str, object] = {
+        sysone_data: dict[str, object] = {
             "done": done_answer.noul,
             "done_confidence": done_answer.confidence,
             "done_probability": done_probability,
@@ -1218,17 +1218,17 @@ class JevGoal:
             "decision": decision,
         }
         if self.use_score:
-            jev_data["progress"] = response.answer("progress").score
+            sysone_data["progress"] = response.answer("progress").score
         if candidate is not None:
-            jev_data["candidate"] = candidate.to_dict()
+            sysone_data["candidate"] = candidate.to_dict()
         log_step(
-            "jev-goal-decision",
+            "sysone-goal-decision",
             goal=instruction,
             done_probability=done_probability,
             next=selected,
             next_confidence=next_confidence,
         )
-        return jev_data, candidate, done_probability >= self.done_threshold, decision
+        return sysone_data, candidate, done_probability >= self.done_threshold, decision
 
     def _request_recovery_goal(
         self,
@@ -1239,7 +1239,7 @@ class JevGoal:
         prior_attempts: Sequence[Mapping[str, object]] = (),
     ) -> str:
         if self.llm is None:
-            raise ModelError("Jev requested LLM assistance, but no LLM provider is configured")
+            raise ModelError("SysOne requested LLM assistance, but no LLM provider is configured")
         context = {
             key: state.get(key)
             for key in ("activity", "ui_summary", "ocr", "candidates", "history")
@@ -1275,7 +1275,7 @@ Previous recovery attempts:
 
     def _execute_recovery_subgoal(
         self,
-        child: JevGoal,
+        child: SysOneGoal,
         main_goal: str,
         recovery_goal: str,
         *,
@@ -1489,7 +1489,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
         allowed_apps: Sequence[tuple[str, str]],
         allowed_controls: frozenset[str] | None,
         denied_controls: frozenset[str],
-    ) -> tuple[JevGoalCandidate, ...]:
+    ) -> tuple[SysOneGoalCandidate, ...]:
         raw: list[tuple[str, str, AgentStep, dict[str, object], tuple[float, float] | None]] = []
         seen_labels: set[str] = set()
 
@@ -1523,7 +1523,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                         "action": "tap",
                         "x": center[0],
                         "y": center[1],
-                        "reason": f"Jev UI candidate: {label[:80]}",
+                        "reason": f"SysOne UI candidate: {label[:80]}",
                     }
                 )
                 metadata: dict[str, object] = {
@@ -1538,7 +1538,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 }
                 raw.append(("ui", label, step, metadata, center))
 
-            # Scroll only inside a host-observed scrollable viewport. Jev sees
+            # Scroll only inside a host-observed scrollable viewport. SysOne sees
             # a direction, never the gesture coordinates or an arbitrary path.
             visible_goal_target = any(
                 len(label) >= 2 and label in instruction
@@ -1578,7 +1578,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                             "action": "swipe",
                             "points": [(x, top + height * start), (x, top + height * end)],
                             "duration_ms": 350,
-                            "reason": f"Jev bounded scroll: {direction}",
+                            "reason": f"SysOne bounded scroll: {direction}",
                         }
                     )
                     raw.append(("scroll", label, step, {"direction": direction}, None))
@@ -1601,7 +1601,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                     "action": "tap",
                     "x": center[0],
                     "y": center[1],
-                    "reason": f"Jev OCR candidate: {label[:80]}",
+                    "reason": f"SysOne OCR candidate: {label[:80]}",
                 }
             )
             raw.append(
@@ -1619,14 +1619,14 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
             )
 
         # App launches are offered only from the caller's explicit allowlist.
-        # The package stays in the host-side AgentStep; Jev sees only this label.
+        # The package stays in the host-side AgentStep; SysOne sees only this label.
         for label, package in allowed_apps:
             candidate_label = f"打开应用：{label}"[:160]
             step = AgentStep.from_mapping(
                 {
                     "action": "open_app",
                     "package": package,
-                    "reason": f"Jev app candidate: {label[:80]}",
+                    "reason": f"SysOne app candidate: {label[:80]}",
                 }
             )
             raw.append(("app", candidate_label, step, {"kind": "app"}, None))
@@ -1639,7 +1639,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 (
                     "system",
                     "返回上一页",
-                    AgentStep.from_mapping({"action": "back", "reason": "Jev system candidate"}),
+                    AgentStep.from_mapping({"action": "back", "reason": "SysOne system candidate"}),
                     {"key": "BACK"},
                     None,
                 )
@@ -1652,7 +1652,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 (
                     "system",
                     "返回主屏幕",
-                    AgentStep.from_mapping({"action": "home", "reason": "Jev system candidate"}),
+                    AgentStep.from_mapping({"action": "home", "reason": "SysOne system candidate"}),
                     {"key": "HOME"},
                     None,
                 )
@@ -1670,7 +1670,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 (
                     "system",
                     "提交当前输入",
-                    AgentStep.from_mapping({"action": "enter", "reason": "Jev system candidate"}),
+                    AgentStep.from_mapping({"action": "enter", "reason": "SysOne system candidate"}),
                     {"key": "ENTER"},
                     None,
                 )
@@ -1695,7 +1695,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
         raw = visual[: max(0, self.max_candidates - len(reserved))]
         raw.extend(reserved[: max(0, self.max_candidates - len(raw))])
         source_indexes: dict[str, int] = {}
-        candidates: list[JevGoalCandidate] = []
+        candidates: list[SysOneGoalCandidate] = []
         for source, label, action, metadata, _center in raw:
             if source == "system":
                 candidate_id = str(metadata.get("key", "system")).casefold()
@@ -1704,7 +1704,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
                 source_indexes[source] = source_index + 1
                 candidate_id = f"{source}_{source_index}"
             candidates.append(
-                JevGoalCandidate(
+                SysOneGoalCandidate(
                     id=candidate_id,
                     label=label[:160],
                     action=action,
@@ -1718,7 +1718,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
     def _span_payload(index: int, span: TextSpan) -> dict[str, object]:
         return {
             "id": f"span_{index}",
-            "text": span.text[:_JEV_MAX_TEXT_LENGTH],
+            "text": span.text[:_SYS_ONE_MAX_TEXT_LENGTH],
             "confidence": span.confidence,
         }
 
@@ -1741,7 +1741,7 @@ Return exactly one tool call. Use recovery_action only with one listed candidate
             return self.device.open_app(params["package"])  # type: ignore[arg-type]
         if step.action in {"key", "back", "home", "enter"}:
             return self.device.key(params["key"])  # type: ignore[arg-type]
-        raise ModelError(f"unsupported Jev goal candidate action: {step.action}")
+        raise ModelError(f"unsupported SysOne goal candidate action: {step.action}")
 
     def _start_record(self, operation: str, **details: object) -> ExecutionRecord:
         record = self.device.session.recorder.start(operation)
@@ -1768,14 +1768,14 @@ def _is_input_node(node: UiNode) -> bool:
     return any(token in value for token in ("edittext", "input", "textarea"))
 
 
-def _noul_probability(answer: JevAnswer) -> float:
+def _noul_probability(answer: SysOneAnswer) -> float:
     value = answer.noul
     if value is None:
         return 0.0
     return max(0.0, min(1.0, float(value)))
 
 
-def _answer_confidence(answer: JevAnswer) -> float:
+def _answer_confidence(answer: SysOneAnswer) -> float:
     value = answer.confidence
     if value is None:
         value = answer.selected_probability

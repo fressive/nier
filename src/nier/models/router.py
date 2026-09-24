@@ -14,7 +14,7 @@ from .base import (
     TextSpan,
     select_provider_name,
 )
-from .jev import JevProvider
+from .sysone import SysOneProvider
 
 
 @dataclass
@@ -22,7 +22,7 @@ class ModelRouter:
     ocr_providers: Mapping[str, OcrProvider]
     decision_providers: Mapping[str, DecisionProvider]
     llm_providers: Mapping[str, LlmProvider]
-    jev_providers: Mapping[str, JevProvider] = field(default_factory=dict)
+    sysone_providers: Mapping[str, SysOneProvider] = field(default_factory=dict)
 
     def ocr(self, image: bytes, *, provider: str | None = None) -> Sequence[TextSpan]:
         name = select_provider_name(self.ocr_providers, provider)
@@ -65,7 +65,7 @@ class ModelRouter:
             image=image,
         )
 
-    def jev(self, *, provider: str | None = None) -> JevProvider:
-        """Return a configured TypeSafe Jev client."""
-        name = select_provider_name(self.jev_providers, provider)
-        return self.jev_providers[name]
+    def sysone(self, *, provider: str | None = None) -> SysOneProvider:
+        """Return a configured TypeSafe SysOne client."""
+        name = select_provider_name(self.sysone_providers, provider)
+        return self.sysone_providers[name]

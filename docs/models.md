@@ -101,7 +101,7 @@ Then select it from an Agent or router:
 
 ```python
 with connect("config/nier.yaml") as phone:
-    run = phone.run(
+    run = phone.llm(
         "点击登录",
         ocr_provider="cloud",
         dry_run=True,
@@ -133,7 +133,7 @@ from nier import connect
 
 
 with connect("config/nier.yaml") as phone:
-    run = phone.run(
+    run = phone.llm(
         "打开设置，进入关于本机",
         dry_run=True,
     )
@@ -174,7 +174,7 @@ The returned `step.state.screenshot.data` contains the captured image bytes;
 statuses include `goal_complete`, `goal_failed`, `action_failed`, `action_error`,
 `planning_error`, and `max_steps`. Failed device actions are never retried.
 
-When `provider`, `ocr_provider`, or `jev_provider` is omitted, the first
+When `provider`, `ocr_provider`, or `sysone_provider` is omitted, the first
 configured entry of that provider type is selected.
 
 The planner receives the current screenshot, foreground Activity, and parsed UI dump. In addition to
@@ -196,7 +196,7 @@ as ordinary calls; goal failures and failed actions are recorded as
 unsuccessful Agent records.
 
 The foreground Activity is collected from ADB `dumpsys` output and is supplied
-as bounded structured data in both the LLM prompt and Jev state:
+as bounded structured data in both the LLM prompt and SysOne state:
 `package`, fully qualified `activity`, normalized `component`, and the source
 field used (`resumed_activity`, `current_focus`, or similar). If the backend
 cannot report it, the model receives an explicit unavailable warning instead
@@ -213,7 +213,7 @@ from nier.models.factory import create_model_router
 config = load_config("config/nier.yaml")
 router = create_model_router(config)
 with connect(config) as phone:
-    run = phone.run(
+    run = phone.llm(
         "点击登录",
         router=router,
         provider="planner",
@@ -226,57 +226,56 @@ yet perform multi-model voting or automatically retry a failed action. The
 loop is bounded by `max_steps` and requires an explicit `goal_complete` tool
 call.
 
-### Letting the Agent call Jev
+### Letting the Agent call SysOne
 
-Pass `jev=` or `jev_provider=` to enable Jev as advisory context; configured
-Jev providers are not queried implicitly by the LLM Agent. The Agent sends one
-batched Jev request on each goal observation when explicitly enabled. Its
+Pass `sysone=` or `sysone_provider=` to enable SysOne as advisory context; configured
+SysOne providers are not queried implicitly by the LLM Agent. The Agent sends one
+batched SysOne request on each goal observation when explicitly enabled. Its
 `state["ui"]` field contains the bounded semantic UI tree, while
-`state["ui_summary"]` contains a compact text summary. Jev receives no screenshot,
+`state["ui_summary"]` contains a compact text summary. SysOne receives no screenshot,
 screen dimensions, UI bounds,
 or OCR boxes. OCR entries contain span IDs, text, and confidence. A Noul
 question checks whether the current state is actionable, and when OCR is
 enabled a Choice question picks the most relevant span. The typed result is
-recorded in `run.plan.jev` and provided to the LLM as advisory context; every
+recorded in `run.plan.sysone` and provided to the LLM as advisory context; every
 action still goes through normal validation.
 
 ```python
 with connect("config/nier.yaml") as phone:
-    run = phone.run(
+    run = phone.llm(
         "点击登录",
         dry_run=True,
     )
-    print(run.plan.jev)
+    print(run.plan.sysone)
 ```
 
-`phone.run()` uses LLM-first planning when an LLM is configured. Pass
-`jev=` or `jev_provider=` to add Jev advisory context; Jev does not choose or
-dispatch actions, and a Jev request failure is recorded without blocking the
-LLM. Use `phone.run_jev_goal()` to explicitly request Jev-first candidate
-selection.
+`phone.llm()` uses LLM-first planning. Pass `sysone=` or `sysone_provider=` to
+add SysOne advisory context; SysOne does not choose or dispatch actions, and a
+SysOne request failure is recorded without blocking the LLM. Use
+`phone.sysone()` to explicitly request SysOne-first candidate selection.
 An explicit Agent can also make a typed call from the goal flow:
 
 ```python
 agent = phone.agent()
-answer = agent.ask_jev(
+answer = agent.ask_sysone(
     {"context": "..."},
-    {"urgent": JevQuestion.noul("Does this require immediate attention?")},
+    {"urgent": SysOneQuestion.noul("Does this require immediate attention?")},
 )
 print(answer.answer("urgent").noul)
 ```
 
-Jev advisory failures are recorded in `run.plan.jev`; the LLM still receives
+SysOne advisory failures are recorded in `run.plan.sysone`; the LLM still receives
 the current screen observation and remains responsible for each action.
 
-### Jev-first unified goals
+### SysOne-first unified goals
 
-Use `phone.run_jev_goal()` when the task can be expressed as a sequence of
-visible UI/OCR selections and small system keys. Jev selects among the finite,
+Use `phone.sysone()` when the task can be expressed as a sequence of visible
+UI/OCR selections and small system keys. SysOne selects among the finite,
 host-validated candidates:
 
 ```python
 with connect("config/nier.yaml") as phone:
-    result = phone.run_jev_goal(
+    result = phone.sysone(
         "打开设置，进入关于本机",
         max_steps=8,
         max_seconds=45,
@@ -294,20 +293,20 @@ Use `prefer_webview=False` for native screens such as Settings to skip the
 WebView DevTools probe; keep it enabled when the target screen is a WebView.
 
 The host initially creates candidates from the current UI dump. It does not run
-OCR automatically. If Jev cannot choose from the semantic UI and visible
+OCR automatically. If SysOne cannot choose from the semantic UI and visible
 controls, it can select `inspect_ocr`; the host then runs one OCR read and asks
-Jev again with the resulting text spans. Jev sees only each candidate's ID,
+SysOne again with the resulting text spans. SysOne sees only each candidate's ID,
 label, source, and semantic metadata; coordinates and executable actions stay
 host-side. UI candidates must be visible clickable nodes with unique labels.
-OCR candidates must have unique text. Jev chooses an ID such as `ui_0` or
+OCR candidates must have unique text. SysOne chooses an ID such as `ui_0` or
 `ocr_1`, and the host executes the already validated action behind it. `back` is
 a fixed system candidate. When the UI marks a bounded viewport as scrollable,
-Jev may also choose
+SysOne may also choose
 `向下滚动当前列表` or `向上滚动当前列表`. The host keeps the swipe path private,
 rechecks the viewport before dispatch, and counts the swipe as a main-goal
 action. Include these labels in `allowed_controls` when using an allowlist.
 `home` is offered when the goal mentions the launcher/home screen. `enter` is
-offered only when `allowed_controls` explicitly includes `提交当前输入`. Jev
+offered only when `allowed_controls` explicitly includes `提交当前输入`. SysOne
 never receives screenshots, screen dimensions, bounds, raw coordinates, shell
 commands, or arbitrary action objects.
 
@@ -318,17 +317,17 @@ surrounding or repeated whitespace; denied labels take precedence. If
 controls and, after an OCR request, unique OCR labels. Candidate IDs are
 regenerated for each observation and are never valid after the page changes.
 OCR is optional; without a configured provider, UI candidates remain available
-and `inspect_ocr` is not offered. With a provider configured, Jev can request
+and `inspect_ocr` is not offered. With a provider configured, SysOne can request
 OCR at most once for the current observation.
 If the optional OCR provider is unavailable at that point (for example,
 PaddleOCR is configured but not installed), the agent reports the OCR error
-to Jev, disables further OCR requests for this run, and continues using UI
+to SysOne, disables further OCR requests for this run, and continues using UI
 candidates. It does not retry the failed OCR read.
 
 If an LLM is configured, `next` offers `call_llm` by default without an
-assist-count limit. Jev can select it when progress is stuck; failed runs can also
+assist-count limit. SysOne can select it when progress is stuck; failed runs can also
 request recovery. The LLM receives bounded semantic state and returns one
-concise recovery subgoal—not advice to inject into the main Jev loop. It then
+concise recovery subgoal—not advice to inject into the main SysOne loop. It then
 executes the subgoal through native tool calls that select only current,
 host-validated safe dismiss/cancel, Back, and explicitly requested Home
 controls. Coordinates and arbitrary actions are never accepted. Recovery is
@@ -342,16 +341,16 @@ zero disables LLM recovery. Each generated subgoal remains limited to three
 actions and thirty seconds. Repeated recovery on the same stalled screen
 terminates even without an assist cap. Failed controls are excluded so device
 actions are not retried automatically. The LLM may mark only its recovery subgoal complete
-or failed; Jev remains responsible for the main goal. It cannot provide
-coordinates, text, packages, or arbitrary operations. `phone.run_jev_goal()`
-is the explicit Jev-first entry point.
+or failed; SysOne remains responsible for the main goal. It cannot provide
+coordinates, text, packages, or arbitrary operations. `phone.sysone()` is the
+explicit SysOne-first entry point.
 
 Pass `allowed_apps` as an explicit mapping from a display label to an Android
 package name to offer app-launch candidates, for example
 `allowed_apps={"设置": "com.android.settings"}`. The host validates each
-package and keeps it in the executable candidate; Jev sees a candidate such as
+package and keeps it in the executable candidate; SysOne sees a candidate such as
 `打开应用：设置` with source `app`, never the package name. No app-launch
-candidates are offered by default, and Jev cannot invent a package. App entries
+candidates are offered by default, and SysOne cannot invent a package. App entries
 are separate from `allowed_controls` and `denied_controls`. `open_app` changes
 device state and is not retried automatically. If the goal should offer only
 app launches, also pass `allowed_controls=()`; otherwise omitting
@@ -369,7 +368,7 @@ Each observation sends one batched request containing:
   `inspect_ocr` when OCR is configured and has not run for this observation.
   Low confidence or an unknown choice never dispatches that selected
   candidate; it can enter bounded recovery when LLM is configured.
-  `inspect_ocr` is a read-only request; after OCR, Jev receives a new
+  `inspect_ocr` is a read-only request; after OCR, SysOne receives a new
   observation. `blocked` does not dispatch a main-goal action and may trigger
   bounded recovery. `wait` waits 750 ms and observes again; three consecutive
   waits trigger recovery and stop with `loading_timeout` if it fails;
@@ -377,7 +376,7 @@ Each observation sends one batched request containing:
   recorded for diagnostics/stuck detection and is not the success gate.
 
 Immediately before an action, the host reads the device state again. If the UI,
-candidate list, or host-side coordinates changed while Jev was deciding, it
+candidate list, or host-side coordinates changed while SysOne was deciding, it
 discards that answer and asks again against the fresh observation. An OCR-based
 tap also requires the screenshot digest to match the image used for that OCR
 read; this check does not run OCR a second time. Three stale decisions trigger
@@ -391,37 +390,41 @@ disabled. Failed device actions are excluded from later candidates, not retried.
 Provider or observation failures request bounded recovery when configured; if
 recovery is unavailable or fails, the run stops with an error (and unexpected
 exceptions remain surfaced to the caller). The caller should inspect a fresh
-screenshot or UI dump when Jev returns `needs_verification`.
+screenshot or UI dump when SysOne returns `needs_verification`.
 
-`phone.run()` uses the LLM-first Agent flow whenever an LLM is available. The
-LLM can use screenshots, UI state, OCR, app discovery, and validated native
-tools to choose each action. If no LLM is configured but Jev is available,
-`phone.run()` can fall back to this Jev-first flow. Use `phone.agent().run()`
-when you want to customize the LLM Agent directly. Only run device actions on
+`phone.llm()` uses the LLM-first Agent flow. The LLM can use screenshots, UI
+state, OCR, app discovery, and validated native tools to choose each action.
+It does not fall back to SysOne; use `phone.sysone()` for that flow. Use
+`phone.agent().run()` when you want to customize the LLM Agent directly. Only run device actions on
 an authorized device; `DeviceSession` never retries taps or other device actions.
 
-## TypeSafe Jev
+## TypeSafe SysOne
 
-Jev is the typed-decision provider. Its wire API follows the TypeSafe
+SysOne is the typed-decision provider. Its wire API follows the TypeSafe
 [quickstart](https://docs.typesafe.ai/introduction/quickstart) and
 [primitive definitions](https://docs.typesafe.ai/primitives). It is useful when the application needs a
-bounded `choice`, `score`, or `noul` answer. In the explicit Jev-first
-`phone.run_jev_goal(...)` flow, Jev selects each action and can ask an LLM for
-bounded recovery; `phone.run(...)` uses LLM-first operation planning when an
+bounded `choice`, `score`, or `noul` answer. In the explicit SysOne-first
+`phone.sysone(...)` flow, SysOne selects each action and can ask an LLM for
+bounded recovery; `phone.llm(...)` uses LLM-first operation planning when an
 LLM is available.
 
-Set the key in the environment and add an optional `models.jev` section:
+Set the key in the environment and configure `models.sysone` with the TypeSafe
+provider. `model: jev-latest` is the upstream TypeSafe wire identifier and stays
+unchanged; `sysone` names Nier's model role, while `typesafe` names its provider:
 
 ```yaml
 models:
-  jev:
+  sysone:
     provider: typesafe
     base_url: https://api.typesafe.ai/v1/systemone
-    api_key_env: TYPESAFE_API_KEY
+    api_key_env: SYS_ONE_API_KEY
     model: jev-latest
     timeout_seconds: 30
     confidence_threshold: 0.75
 ```
+
+The default key variable is `SYS_ONE_API_KEY`; the TypeSafe-specific
+`TYPESAFE_API_KEY` variable is also recognized.
 
 The direct API is intentionally small:
 
@@ -430,7 +433,7 @@ from nier import connect
 
 
 with connect("config/nier.yaml") as phone:
-    answer = phone.jev().choice(
+    answer = phone.sysone_provider().choice(
         {"instruction": "find the account settings button"},
         ["account", "notifications", "help"],
         instructions="Which option best matches the instruction?",
@@ -438,28 +441,28 @@ with connect("config/nier.yaml") as phone:
     print(answer.choice, answer.confidence, answer.probabilities)
 ```
 
-`phone.jev()` loads the first provider from `models.jev_providers` on first use
+`phone.sysone_provider()` loads the first TypeSafe provider from `models.sysone_providers` on first use
 and caches it for the connection lifetime. If no named mapping is present,
-the singular `models.jev` section is used. Scripts do not need to construct
-or close a `JevProvider` themselves. Use `provider="name"` only when selecting
+the singular `models.sysone` section is used. Scripts do not need to construct
+or close a `SysOneProvider` themselves. Use `provider="name"` only when selecting
 a named entry explicitly.
 
 For more than one question, use the typed request API:
 
 ```python
-from nier import JevQuestion, connect
+from nier import SysOneQuestion, connect
 
 
 with connect("config/nier.yaml") as phone:
-    response = phone.jev().ask(
+    response = phone.sysone_provider().ask(
         {"message": "The payment failed twice"},
         {
-            "route": JevQuestion.choice(
+            "route": SysOneQuestion.choice(
                 "Choose the support route",
                 ["billing", "technical", "general"],
             ),
-            "urgent": JevQuestion.noul("Is immediate attention needed?"),
-            "severity": JevQuestion.score(
+            "urgent": SysOneQuestion.noul("Is immediate attention needed?"),
+            "severity": SysOneQuestion.score(
                 "Rate the severity",
                 ["low", "medium", "high"],
             ),
@@ -470,25 +473,25 @@ with connect("config/nier.yaml") as phone:
     print(f"Severity score: {response.answer('severity').score}")
 ```
 
-`JevAnswer` preserves the typed value, confidence, probabilities, and raw
-answer. The client uses the standard library HTTP implementation; no Jev SDK
-package is required. `phone.jev(provider="name")` selects a named provider
-from `models.jev_providers`; omitting the argument selects the first one. A
-configured router can be reused with `phone.jev(router=router)` or
-`router.jev(provider="name")`.
+`SysOneAnswer` preserves the typed value, confidence, probabilities, and raw
+answer. The client uses the standard library HTTP implementation; no SysOne SDK
+package is required. `phone.sysone_provider(provider="name")` selects a named
+provider from `models.sysone_providers`; omitting the argument selects the first
+one. A configured router can be reused with
+`phone.sysone_provider(router=router)` or `router.sysone(provider="name")`.
 
-When OCR coordinates are available, `JevDecisionProvider` can turn a Jev choice
+When OCR coordinates are available, `SysOneDecisionProvider` can turn a SysOne choice
 of `span_0`, `span_1`, and so on into a safe `Decision` with the original screen
-coordinates. Jev sees only span IDs, text, and confidence; coordinates remain
-in the host-side `TextSpan` objects. The factory exposes this adapter as `jev` when a default Jev
-provider is configured, or as `jev:<name>` for named providers:
+coordinates. SysOne sees only span IDs, text, and confidence; coordinates remain
+in the host-side `TextSpan` objects. The factory exposes this adapter as `sysone` when a default SysOne
+provider is configured, or as `sysone:<name>` for named providers:
 
 ```python
-decision = router.decide(spans, "点击设置", provider="jev")
+decision = router.decide(spans, "点击设置", provider="sysone")
 if decision.action == "tap" and decision.point is not None:
     phone.tap(*decision.point)
 ```
 
-The API key is never put in configuration values or run records. Jev requests
+The API key is never put in configuration values or run records. SysOne requests
 are synchronous and failures raise `ModelError`; review any resulting action
 before dispatching it.
