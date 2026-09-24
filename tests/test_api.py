@@ -456,6 +456,17 @@ def test_format_tree_shows_text_and_only_true_boolean_attributes() -> None:
     assert "android.widget.Button" not in tree
 
 
+def test_format_tree_shows_true_attributes_when_text_is_empty() -> None:
+    phone, _ = make_device(
+        FakeBackend(ui_xml='<hierarchy><node clickable="true" /></hierarchy>')
+    )
+    document = phone.parse_uidump()
+
+    assert phone.format_tree(document, color=False) == (
+        "hierarchy\n└── node [clickable]"
+    )
+
+
 def test_format_tree_adds_ansi_color_by_default() -> None:
     phone, _ = make_device(
         FakeBackend(
@@ -470,6 +481,33 @@ def test_format_tree_adds_ansi_color_by_default() -> None:
     assert "\x1b[" in colored
     assert "\x1b[" not in plain
     assert "text='搜索'" in plain
+
+
+def test_format_tree_full_includes_all_attributes_and_unshortened_text() -> None:
+    text = "x" * 140
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node class="android.widget.Button" '
+            f'text="{text}" resource-id="com.example:id/search" '
+            'clickable="true" enabled="1" selected="false" '
+            'content-desc="search button" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+    document = phone.parse_uidump()
+
+    tree = phone.format_tree(document, color=False, full=True)
+
+    assert tree == (
+        "hierarchy [text='', attributes={}]\n"
+        "└── node [text='"
+        + text
+        + "', attributes={'class': 'android.widget.Button', "
+        "'text': '"
+        + text
+        + "', 'resource-id': 'com.example:id/search', 'clickable': 'true', "
+        "'enabled': '1', 'selected': 'false', 'content-desc': 'search button'}]"
+    )
 
 
 def test_device_lists_apps_and_app_activities() -> None:
