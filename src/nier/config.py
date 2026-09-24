@@ -108,13 +108,14 @@ class HookMode(str, Enum):
 
 @dataclass(frozen=True)
 class HookConfig:
-    """Configuration for optional root/non-root instrumentation.
+    """Configuration for optional WebView instrumentation and Intent capture.
 
-    ``force_system_back`` is a root-Frida opt-in. When enabled, the hook
-    suppresses common application-owned Java back callbacks so a back action
-    can reach the platform default behavior. The CLI's ``intent-hook`` command
-    uses the target package, spawn mode, Frida server path, and timeout. The
-    Back policy is deliberately disabled by default because it changes
+    force_system_back is a root-Frida opt-in. When enabled, the hook suppresses
+    common application-owned Java back callbacks so a back action can reach
+    the platform default behavior. Root WebView instrumentation uses the
+    Frida server settings. The intent-hook CLI uses the target package, spawn
+    mode, and timeout to listen for events from the installed LSPosed module.
+    The Back policy is deliberately disabled by default because it changes
     application navigation semantics.
     """
 

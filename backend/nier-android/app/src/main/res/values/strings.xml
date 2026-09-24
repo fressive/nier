@@ -1,3 +1,4 @@
 <resources>
     <string name="nier_ime_name">Nier Text Input</string>
+    <string name="xposed_description">Captures Activity Intents in selected apps for Nier.</string>
 </resources>

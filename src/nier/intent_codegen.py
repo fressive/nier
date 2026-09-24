@@ -33,6 +33,18 @@ def generate_intent_python(
         payload["data"] = None
         payload["data_truncated"] = False
         notes.append("The captured data URI was truncated and has been omitted.")
+    if payload.get("type_truncated"):
+        payload["type"] = None
+        payload["type_truncated"] = False
+        notes.append("The captured MIME type was truncated and has been omitted.")
+    if payload.get("package_truncated"):
+        payload["package"] = None
+        payload["package_truncated"] = False
+        notes.append("The captured package was truncated and has been omitted.")
+    if payload.get("categories_truncated"):
+        payload["categories"] = []
+        payload["categories_truncated"] = False
+        notes.append("Some Intent categories were omitted by the capture limit.")
 
     if payload.get("extras_truncated"):
         notes.append("Some extras were omitted by the capture limit.")

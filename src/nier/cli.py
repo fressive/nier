@@ -5,15 +5,14 @@ from __future__ import annotations
 import argparse
 import json
 from collections.abc import Mapping
-from dataclasses import replace
 from pathlib import Path
 
 from .adb import AdbClient
 from .api import Device, connect
-from .config import AppConfig, HookMode, load_config
+from .config import AppConfig, load_config
 from .errors import NierError
-from .hooks import RootFridaIntentHook
 from .intent_codegen import generate_intent_python
+from .intent_hook import LsposedIntentHook
 from .logging_utils import configure_logging
 from .protocol import Capabilities, validate_package_name
 
@@ -135,14 +134,18 @@ def _parser() -> argparse.ArgumentParser:
         dest="spawn",
         action="store_true",
         default=None,
-        help="spawn the target with the hook installed before resume",
+        help="force-stop and relaunch the target to activate the LSPosed hook",
     )
     spawn_group.add_argument(
         "--attach",
         dest="spawn",
         action="store_false",
         default=None,
-        help="attach to the already running target process",
+        help="listen without restarting the target process",
+    )
+    intent_parser.add_argument(
+        "--activity",
+        help="Activity component to launch with --spawn instead of the launcher",
     )
     intent_parser.add_argument(
         "--once",
@@ -178,41 +181,54 @@ def _run_intent_hook(args: argparse.Namespace) -> int:
     except (NierError, OSError, ValueError) as exc:
         raise SystemExit(f"nier intent-hook: {exc}") from exc
     configure_logging(max(config.logging.verbosity, args.verbose))
-    if config.hook.mode is HookMode.NON_ROOT:
-        raise SystemExit(
-            "nier intent-hook: hook.mode is non-root; set hook.mode: root to use Frida"
-        )
-
     try:
         package = validate_package_name(args.package or config.hook.target_package or "")
-        hook_config = replace(
-            config.hook,
-            mode=HookMode.ROOT,
-            target_package=package,
+        spawn = config.hook.spawn if args.spawn is None else args.spawn
+        if args.activity and not spawn:
+            raise ValueError("--activity requires --spawn")
+        hook = LsposedIntentHook(
+            AdbClient(config.device),
+            timeout_seconds=config.hook.timeout_seconds,
         )
-        hook = RootFridaIntentHook(AdbClient(config.device), hook_config)
-        session = hook.attach(package, spawn=args.spawn)
+        session = hook.attach(package, spawn=spawn, activity=args.activity)
+    except KeyboardInterrupt:
+        print("\nIntent hook stopped.", flush=True)
+        return 0
     except (NierError, OSError, ValueError) as exc:
         raise SystemExit(f"nier intent-hook: {exc}") from exc
 
-    print(f"Intent hook attached to {package} (pid {session.pid}). Press Ctrl-C to stop.", flush=True)
+    if spawn:
+        print(f"LSPosed hook active for {package}. Press Ctrl-C to stop.", flush=True)
+    else:
+        print(
+            f"Listening for LSPosed Intent events from {package}. "
+            "Make sure Nier is enabled for this package in LSPosed Manager.",
+            flush=True,
+        )
     captured = 0
     try:
         while True:
             event = session.next_event(timeout=0.5)
             if event is None:
                 continue
-            if event.type == "error":
+            if event.kind == "error":
                 raise SystemExit(
-                    f"nier intent-hook: {event.payload.get('error', 'Frida agent failed')}"
+                    f"nier intent-hook: {event.payload.get('error', 'ADB logcat failed')}"
                 )
-            if event.type == "intent_hook_warning":
+            if event.kind == "module_ready":
+                print(
+                    f"LSPosed hook active for {package} "
+                    f"(pid {event.payload.get('pid', 'unknown')}).",
+                    flush=True,
+                )
+                continue
+            if event.kind in {"module_error", "capture_error"}:
                 print(
                     f"Intent hook warning: {event.payload.get('error', event.payload)}",
                     flush=True,
                 )
                 continue
-            if event.type != "intent_started":
+            if event.kind != "intent":
                 continue
 
             intent = event.payload.get("intent")

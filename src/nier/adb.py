@@ -191,6 +191,23 @@ class AdbClient:
             raise BackendUnavailable(f"ADB command failed: {exc}") from exc
         return result.returncode
 
+    def start_logcat(self, *filters: str) -> subprocess.Popen[str]:
+        """Start a configured-device logcat stream for a host-side reader."""
+        self._ensure_remote_connection()
+        command = [*self._base(), "logcat", "-T", "0", "-v", "brief", *filters]
+        try:
+            return subprocess.Popen(
+                command,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                bufsize=1,
+            )
+        except OSError as exc:
+            raise BackendUnavailable(f"could not start ADB logcat: {exc}") from exc
+
     @staticmethod
     def _decode(value: bytes | None) -> str:
         return (value or b"").decode("utf-8", errors="replace")

@@ -17,7 +17,7 @@ are integrating.
 | [`text-matching.md`](text-matching.md) | OCR-based fuzzy matching of visible text and explicit match actions |
 | [`uidump.md`](uidump.md) | UIAutomator/WebView dumps, widget choice chains, and fallback behavior |
 | [`webview-devtools.md`](webview-devtools.md) | Root/non-root WebView DevTools setup and CDP DOM dumps |
-| [`intent-hook.md`](intent-hook.md) | Root Frida capture and reusable Nier Python Intent launches |
+| [`intent-hook.md`](intent-hook.md) | LSPosed Intent capture and reusable Nier Python launches |
 | [`models.md`](models.md) | OCR, LLM, TypeSafe Choice/Noul/Score, and SysOne-driven goal APIs |
 | [`web-dashboard.md`](web-dashboard.md) | Local script runner, syntax-highlighted source viewer, request/response logs, and step debugger |
 

@@ -311,35 +311,52 @@ The hook enables `WebView.setWebContentsDebuggingEnabled(true)`, and
 `src/nier/webview.py` performs the separate CDP extraction. Root and non-root
 therefore share the same DOM extraction path after debugging is enabled.
 
-### Root Activity Intent hook CLI
+### LSPosed Activity Intent hook CLI
 
-`nier intent-hook` MUST use root Frida injection and MUST NOT silently fall
-back to non-root mode. It MUST require a rooted device, the optional host
-`frida` dependency, and a compatible root-capable `frida-server`. The target
-package comes from `--package` or `hook.target_package`; `--spawn` installs the
-agent before the process resumes and `--attach` selects an existing process.
-Without either flag, `hook.spawn` applies. An explicit `hook.mode: non-root`
-configuration MUST be rejected.
+`nier intent-hook` MUST consume Intent events from the LSPosed module packaged
+in `backend/nier-android` through the configured ADB logcat stream. This
+command MUST NOT use Frida, `frida-server`, root shell commands, or port
+forwarding. The host-side `frida` extra remains optional for the separate
+WebView hook.
 
-The agent MUST observe app-process Activity launches through Android's
-`Instrumentation` and `ContextImpl` Java entry points without changing their
-arguments or return values. Each captured Intent MUST include its component,
-action, data URI, MIME type, package, flags, categories, and bounded extras.
-String values MUST be limited to 4096 characters, extras to 100 keys, and
-arrays to 64 values. Primitive and string extras SHOULD be represented with
-their Java type. The Python snippet restores types supported by Android's
-`am start` interface and MUST identify unsupported or truncated values.
-Unsupported Parcelable or custom Serializable values MUST be reported by type
-and MUST NOT be invoked or serialized through arbitrary application methods.
-The agent MUST NOT force a still-parcelled Bundle to expand; it MUST report
-that those extras were not read.
+The module MUST declare the LSPosed module metadata and a legacy
+`assets/xposed_init` entry point. It MUST hook the app-process
+`Instrumentation.execStartActivity` and `ContextImpl.startActivity` entry
+points without changing their arguments or return values. It MUST report
+successful calls only and MUST suppress duplicate reports for the same Intent
+passing through both entry points. The module MUST emit bounded, chunked
+Base64 JSON log records using the `NierIntentHook` tag; the CLI MUST reassemble
+complete events and ignore events from packages other than the selected package.
+Logcat payloads are Base64-encoded, not encrypted, and remain in the device's
+ring buffer until rotated.
+
+The module MUST capture the component, action, data URI, MIME type, package,
+flags, categories, and bounded extras. Text values MUST be limited to 4096
+characters, extras and categories to 100 entries, and arrays to 64 values.
+Primitive and string extras SHOULD retain their Java type. Unsupported
+Parcelable or custom Serializable values MUST be reported by type and MUST NOT
+be invoked or serialized through arbitrary application methods. The module
+MUST inspect only an already-materialized Bundle map and MUST report extras as
+unavailable rather than force a still-parcelled Bundle to expand. Events MUST
+be bounded before logcat chunking, and truncation MUST be visible to code
+generation.
+
+The CLI MUST use the configured device serial and ADB server. The target
+package comes from `--package` or `hook.target_package`. With `--spawn`, it MUST
+start logcat, force-stop the selected package once, then launch its launcher
+Activity or the explicit component supplied with `--activity`. It MUST report
+an error if the module does not become active for that package before
+`hook.timeout_seconds`. With `--attach` or the default `hook.spawn` setting,
+it MUST listen without restarting the process; the module must already have
+been enabled for that package when the current process started. The CLI MUST
+NOT silently change LSPosed module scope or install the APK.
 
 The CLI MUST print captured Intent data and a reusable Nier Python snippet that
 calls `phone.start_intent(...)`. The snippet MUST use the configured Nier YAML
 path and MUST call out captured fields or extras it omits because Android's
 `am start` cannot recreate them. The command MUST continue listening until
-Ctrl-C, except with `--once`, and MUST detach the Frida session when it exits.
-It MUST NOT persist captured Intents or retry any device action.
+Ctrl-C, except with `--once`, and MUST stop its host logcat process when it
+exits. It MUST NOT persist captured Intents or retry any device action.
 
 ### CLI device utility commands
 

@@ -117,18 +117,25 @@ Artifacts are written to `runtime.output_dir` (default: `artifacts`) unless an
 output path is supplied. See the [CLI device tools guide](cli.md) for screenshot
 options, UI dump formats, locate dependencies, and ADB passthrough.
 
-To capture Activity Intents from a rooted app process, install the optional
-Frida dependency and configure a matching `frida-server`:
+To capture Activity Intents, install the Nier Android APK, enable its module
+in LSPosed Manager, and add the target app to the module scope:
 
 ```bash
-python -m pip install -e '.[hook]'
-nier --config config/nier.yaml intent-hook --spawn --once
+cd backend/nier-android
+gradle :app:assembleDebug
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+After LSPosed applies the module, run:
+
+```bash
+nier --config config/nier.yaml intent-hook \
+  --package com.example.authorized.app --spawn --once
 ```
 
 The command prints the Intent fields and a reusable Nier Python snippet that
-calls `phone.start_intent(...)`. Use `--attach` for an existing process, and
-omit `--once` to keep listening. See the [Activity Intent hook guide](intent-hook.md)
-for root requirements and supported extras.
+calls `phone.start_intent(...)`. See the
+[Activity Intent hook guide](intent-hook.md) for setup and supported extras.
 
 To run Python scripts from the local live dashboard:
 
