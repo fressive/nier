@@ -46,7 +46,8 @@ with connect("config/nier.yaml") as phone:
 ```
 
 `locate_text()` uses the configured OCR provider and returns screen bounds,
-similarity, and an explicit `match.click()` action. See the
+similarity, and a match supporting click, long-press, and directional swipe
+gestures with bounded human-like jitter. See the
 [text-matching guide](docs/text-matching.md).
 
 `screenshot().ocr()` uses the first OCR provider from the loaded configuration.

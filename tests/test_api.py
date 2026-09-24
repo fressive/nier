@@ -151,7 +151,7 @@ def test_locate_icon_match_clicks_its_center_only_when_requested(monkeypatch) ->
     assert match is not None
     assert backend.actions == []
 
-    match.click()
+    match.click(jitter=0)
 
     assert backend.actions == [Click(Point(14, 26), 80)]
 
@@ -170,9 +170,122 @@ def test_locate_text_returns_best_fuzzy_match_and_clicks_its_center() -> None:
     assert backend.screenshot_request == ScreenshotRequest()
     assert backend.actions == []
 
-    match.click()
+    match.click(jitter=0)
 
     assert backend.actions == [Click(Point(30.5, 30.5), 80)]
+
+
+def test_image_match_click_jitter_stays_inside_matched_bounds(monkeypatch) -> None:
+    phone, backend = make_device()
+    monkeypatch.setattr(
+        "nier.api.locate_template",
+        lambda *_args, **_kwargs: ImageMatch(10, 20, 8, 12, 0.93),
+    )
+    monkeypatch.setattr("nier.api.random.uniform", lambda low, high: high)
+
+    match = phone.locate_icon(b"template image")
+    assert match is not None
+
+    match.click(jitter=100)
+
+    assert backend.actions == [Click(Point(17, 31), 80)]
+
+
+def test_image_match_long_press_uses_click_duration() -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(10, 20, 18, 32))
+    ]
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    match.long_press(duration_ms=900, jitter=0)
+
+    assert len(backend.actions) == 1
+    action = backend.actions[0]
+    assert action == Click(Point(14, 26), 900)
+
+
+def test_long_press_jitter_stays_inside_the_matched_rectangle(monkeypatch) -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(10, 20, 18, 32))
+    ]
+    monkeypatch.setattr("nier.api.random.uniform", lambda low, high: high)
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    match.long_press(duration_ms=900)
+
+    action = backend.actions[0]
+    assert action == Click(Point(16, 28), 900)
+    assert 10 <= action.point.x <= 17
+    assert 20 <= action.point.y <= 31
+
+
+@pytest.mark.parametrize(
+    ("direction", "endpoint"),
+    [
+        ("up", Point(50, 70)),
+        ("down", Point(50, 130)),
+        ("left", Point(20, 100)),
+        ("right", Point(80, 100)),
+    ],
+)
+def test_image_match_swipes_in_cardinal_directions(direction, endpoint) -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(40, 90, 60, 110))
+    ]
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    match.swipe(direction, distance=30, duration_ms=400, jitter=0)
+
+    action = backend.actions[0]
+    assert isinstance(action, Swipe)
+    assert action.points[0] == Point(50, 100)
+    assert action.points[-1] == endpoint
+    assert action.duration_ms == 400
+
+
+def test_directional_swipe_adds_bounded_path_jitter(monkeypatch) -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(30, 80, 70, 120))
+    ]
+    monkeypatch.setattr("nier.api.random.uniform", lambda low, high: high)
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    match.swipe("up", distance=40)
+
+    action = backend.actions[0]
+    assert isinstance(action, Swipe)
+    assert action.points[0] == Point(52, 102)
+    assert action.points[-1] == Point(54, 62)
+    assert len(set(point.x for point in action.points)) > 1
+    assert all(
+        0 <= point.x < 100 and 0 <= point.y < 200 for point in action.points
+    )
+
+
+def test_image_match_gesture_validation() -> None:
+    phone, _ = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(10, 20, 18, 32))
+    ]
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    with pytest.raises(ValueError, match="direction"):
+        match.swipe("diagonal")
+    with pytest.raises(ValueError, match="jitter"):
+        match.long_press(jitter=-1)
+    with pytest.raises(ValueError, match="duration_ms"):
+        match.long_press(duration_ms=0)
+    with pytest.raises(ValueError, match="distance"):
+        match.swipe("up", distance=0)
 
 
 def test_locate_text_scores_fuzzy_candidates_and_returns_none_below_threshold() -> None:
@@ -209,8 +322,13 @@ def test_locate_text_validates_query_and_threshold(
 
 
 def test_unbound_image_match_cannot_click() -> None:
+    match = ImageMatch(10, 20, 8, 12, 0.93)
     with pytest.raises(RuntimeError, match="not bound to a device"):
-        ImageMatch(10, 20, 8, 12, 0.93).click()
+        match.click()
+    with pytest.raises(RuntimeError, match="not bound to a device"):
+        match.long_press()
+    with pytest.raises(RuntimeError, match="not bound to a device"):
+        match.swipe("up")
 
 
 @pytest.mark.parametrize("label", ["登录", re.compile(r"登.*")])
