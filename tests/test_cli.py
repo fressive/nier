@@ -62,6 +62,36 @@ def test_cli_parses_device_tool_options_and_adb_remainder() -> None:
     assert adb.adb_args == ["exec-out", "screencap", "-p"]
 
 
+def test_web_cli_passes_config_path_to_dashboard(monkeypatch, tmp_path) -> None:
+    from nier import web
+
+    scripts = tmp_path / "scripts"
+    scripts.mkdir()
+    config = tmp_path / "nier.yaml"
+    calls = []
+    monkeypatch.setattr(
+        web,
+        "serve_web",
+        lambda path, **options: calls.append((path, options)),
+    )
+
+    assert cli.main(
+        ["--config", str(config), "web", "--scripts", str(scripts), "--no-browser"]
+    ) == 0
+
+    assert calls == [
+        (
+            scripts,
+            {
+                "config_path": config,
+                "host": "127.0.0.1",
+                "port": 8765,
+                "open_browser": False,
+            },
+        )
+    ]
+
+
 def test_intent_hook_uses_lsposed_events_without_frida(monkeypatch, tmp_path, capsys) -> None:
     config_path = tmp_path / "nier.yaml"
     config = AppConfig(

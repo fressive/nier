@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { type Edge, type Node } from "@xyflow/react";
-import { ClipboardList, Code2, MonitorPlay, Workflow, XCircle } from "lucide-react";
+import { ClipboardList, Code2, MonitorPlay, ScanSearch, Workflow, XCircle } from "lucide-react";
 import { ExecutionGraph } from "./components/execution-graph";
 import { LogSidebar } from "./components/log-sidebar";
 import { RunConfirmDialog } from "./components/run-confirm-dialog";
@@ -8,6 +8,7 @@ import { RunStatusBadge } from "./components/status-indicator";
 import { RunToolbar } from "./components/run-toolbar";
 import { ScreenPreview } from "./components/screen-preview";
 import { SourceViewer } from "./components/source-viewer";
+import { UiInspectorTab } from "./components/ui-inspector-tab";
 import { fetchJson, postJson } from "./lib/api";
 import { isBusy, isPathEvent, isResponseOrResultEvent, localTime } from "./lib/dashboard";
 import { cn } from "./lib/utils";
@@ -15,6 +16,7 @@ import { initialRun, type ApiState, type DebugCommand, type RunState, type Scrip
 
 const NODE_SPACING = 146;
 type DashboardPanel = "graph" | "source" | "logs" | "preview";
+type DashboardTab = "execution" | "inspector";
 
 export default function App() {
   const [scripts, setScripts] = useState<ScriptInfo[]>([]);
@@ -28,6 +30,7 @@ export default function App() {
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
   const [activePanel, setActivePanel] = useState<DashboardPanel>("source");
+  const [activeTab, setActiveTab] = useState<DashboardTab>("execution");
 
   const mergeEvent = useCallback((incoming: WebEvent) => {
     if (incoming.type === "run.started") {
@@ -237,7 +240,33 @@ export default function App() {
         </div>
       </header>
 
-      <main className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:px-5 lg:px-6">
+      <nav role="tablist" aria-label="工作区" className="mx-auto flex h-10 w-full shrink-0 items-center gap-1 border-b border-border/60 px-3 sm:px-5 lg:px-6">
+        {([
+          { id: "execution", label: "执行工作台", Icon: Workflow },
+          { id: "inspector", label: "UI Inspector", Icon: ScanSearch },
+        ] as const).map(({ id, label, Icon }) => (
+          <button
+            key={id}
+            id={`workspace-tab-${id}`}
+            type="button"
+            role="tab"
+            aria-selected={activeTab === id}
+            aria-controls={`workspace-panel-${id}`}
+            onClick={() => setActiveTab(id)}
+            className={cn(
+              "flex h-full items-center gap-2 border-b-2 px-3 text-[11px] font-medium transition-colors sm:px-4 sm:text-xs",
+              activeTab === id
+                ? "border-emerald-400 text-emerald-200"
+                : "border-transparent text-slate-500 hover:text-slate-300",
+            )}
+          >
+            <Icon className="h-3.5 w-3.5" />{label}
+          </button>
+        ))}
+      </nav>
+
+      {activeTab === "execution" && (
+      <main id="workspace-panel-execution" role="tabpanel" aria-labelledby="workspace-tab-execution" className="mx-auto flex min-h-0 w-full flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:px-5 lg:px-6">
         <div className="flex shrink-0 flex-col gap-1.5 sm:flex-row sm:items-center sm:justify-between sm:gap-3">
           <div className="flex min-w-0 items-center gap-2 sm:gap-3">
             <h1 className="shrink-0 text-base font-semibold tracking-tight text-slate-100 sm:text-lg">执行路径</h1>
@@ -321,6 +350,13 @@ export default function App() {
           <span className="ml-auto truncate font-mono">NIER WEB / {run.id ? run.id.slice(0, 8) : "READY"} · {localTime(run.started_at)}</span>
         </footer>
       </main>
+      )}
+
+      {activeTab === "inspector" && (
+        <section id="workspace-panel-inspector" role="tabpanel" aria-labelledby="workspace-tab-inspector" className="flex min-h-0 flex-1 flex-col">
+          <UiInspectorTab />
+        </section>
+      )}
 
       <RunConfirmDialog
         open={showConfirm}
