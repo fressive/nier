@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import io
 import os
-from pathlib import Path
 import runpy
 import sys
 import threading
+from pathlib import Path
 
 from .web_debugger import install_line_tracing, read_commands
 
