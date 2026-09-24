@@ -764,5 +764,9 @@ when the dashboard shuts down. The preview MAY use scrcpy's temporary ADB
 local-socket forwarding, but MUST NOT open a device network listener. If scrcpy,
 FFmpeg, ADB, or the required host pipe support is unavailable, the dashboard
 MUST show that state and keep preview startup disabled.
+When the preview offers coordinate copying, clicking inside the displayed
+frame MUST copy an absolute-pixel `phone.click(x, y)` call mapped from the
+source frame dimensions, excluding letterbox space. It MUST NOT send a device
+input action.
 Static web assets MUST be bundled with the Python package; frontend dependencies
 MUST NOT be required at runtime.

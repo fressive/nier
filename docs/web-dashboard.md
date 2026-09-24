@@ -28,7 +28,10 @@ scrcpy control and audio; the stream is view-only and stops when you stop it or
 shut down the dashboard. The preview uses ADB's temporary local socket
 forwarding and does not open a device network listener. It reads scrcpy's H.264
 stream directly and converts frames to MJPEG locally; FIFO support is not
-required.
+required. Click inside the displayed device frame to copy a ready-to-use
+`phone.click(x, y)` call with absolute screen-pixel coordinates. Clicks in the
+black letterbox area are ignored. This only copies coordinates; it does not
+send input to the device.
 
 The interface lists each script using its module docstring. Press **运行脚本**
 and confirm the prompt to start it. A script runs with the same Python
