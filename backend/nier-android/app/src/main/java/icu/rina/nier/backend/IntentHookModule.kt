@@ -346,7 +346,7 @@ private object IntentEventLogger {
 
         val extras = readExtras(intent.extras)
         return JSONObject()
-            .put("component", component?.let { componentToJson(it) } ?: JSONObject.NULL)
+            .put("component", component?.let { activityComponentToJson(it) } ?: JSONObject.NULL)
             .put("action", action.first ?: JSONObject.NULL)
             .put("action_truncated", action.second)
             .put("data", data.first ?: JSONObject.NULL)
@@ -457,6 +457,20 @@ private object IntentEventLogger {
         JSONObject()
             .put("package", component.packageName)
             .put("class", component.className)
+
+    private fun activityComponentToJson(component: ComponentName): JSONObject {
+        val result = componentToJson(component)
+        val exported = try {
+            val activityThread = XposedHelpers.findClass("android.app.ActivityThread", null)
+            val context = XposedHelpers
+                .callStaticMethod(activityThread, "currentApplication") as? android.content.Context
+            context?.packageManager?.getActivityInfo(component, 0)?.exported
+        } catch (_: Throwable) {
+            null
+        }
+        if (exported != null) result.put("exported", exported)
+        return result
+    }
 
     private fun tagged(type: String, value: Any?, truncated: Boolean = false): JSONObject {
         val result = JSONObject().put("type", type).put("value", value ?: JSONObject.NULL)

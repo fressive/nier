@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 
 import pytest
@@ -38,6 +39,7 @@ class FakeBackend:
     ui_xml: str = "<hierarchy />"
     closed: bool = False
     opened_apps: list[tuple[str, bool]] = field(default_factory=list)
+    intent_launches: list[tuple[dict[str, object], bool]] = field(default_factory=list)
 
     def health(self) -> bool:
         return True
@@ -72,6 +74,15 @@ class FakeBackend:
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         return ActionResult(True, f"started {package}/{activity}")
+
+    def start_intent(
+        self,
+        intent: Mapping[str, object],
+        *,
+        root: bool = False,
+    ) -> ActionResult:
+        self.intent_launches.append((dict(intent), root))
+        return ActionResult(True, "started captured Intent")
 
     def close(self) -> None:
         self.closed = True
@@ -491,6 +502,36 @@ def test_device_can_open_apps_and_start_activities() -> None:
     assert phone.open_activity(
         "com.example.one", "com.example.one.MainActivity"
     ).success is True
+
+
+def test_start_intent_can_explicitly_use_root() -> None:
+    phone, backend = make_device()
+    intent = {
+        "component": {
+            "package": "com.example.one",
+            "class": "com.example.one.HiddenActivity",
+        }
+    }
+
+    assert phone.start_intent(intent, root=True).success is True
+    assert backend.intent_launches == [
+        (
+            {
+                "component": {
+                    "package": "com.example.one",
+                    "class": "com.example.one.HiddenActivity",
+                },
+                "action": None,
+                "data": None,
+                "type": None,
+                "package": None,
+                "flags": None,
+                "categories": [],
+                "extras": {},
+            },
+            True,
+        )
+    ]
 
 
 def test_screenshot_infers_format_and_writes_file(tmp_path) -> None:

@@ -30,8 +30,11 @@ class FakeBackend:
     open_app_calls: int = 0
     open_app_restarts: list[bool] = field(default_factory=list)
     start_activity_calls: int = 0
+    start_intent_calls: int = 0
+    start_intent_roots: list[bool] = field(default_factory=list)
     fail_open_app: bool = False
     fail_start_activity: bool = False
+    fail_start_intent: bool = False
     last_screenshot_request: ScreenshotRequest | None = None
     last_dump_ui_request: DumpUiRequest | None = None
 
@@ -77,6 +80,13 @@ class FakeBackend:
         if self.fail_start_activity:
             raise BackendUnavailable("activity response unavailable")
         return ActionResult(True, f"started {package}/{activity}")
+
+    def start_intent(self, _intent, *, root: bool = False) -> ActionResult:
+        self.start_intent_calls += 1
+        self.start_intent_roots.append(root)
+        if self.fail_start_intent:
+            raise BackendUnavailable("captured Intent launch failed")
+        return ActionResult(True, "started captured Intent")
 
     def close(self) -> None:
         pass
@@ -173,15 +183,31 @@ def test_session_exposes_app_queries_as_read_operations() -> None:
 
 
 def test_session_does_not_retry_launch_actions() -> None:
-    backend = FakeBackend(fail_open_app=True, fail_start_activity=True)
+    backend = FakeBackend(
+        fail_open_app=True,
+        fail_start_activity=True,
+        fail_start_intent=True,
+    )
     session = DeviceSession(backend, retries=3)
 
     with pytest.raises(BackendUnavailable):
         session.open_app("com.example.app")
     with pytest.raises(BackendUnavailable):
         session.start_activity("com.example.app", ".MainActivity")
+    with pytest.raises(BackendUnavailable):
+        session.start_intent(
+            {
+                "component": {
+                    "package": "com.example.app",
+                    "class": "com.example.app.HiddenActivity",
+                }
+            },
+            root=True,
+        )
     assert backend.open_app_calls == 1
     assert backend.start_activity_calls == 1
+    assert backend.start_intent_calls == 1
+    assert backend.start_intent_roots == [True]
 
 
 def test_session_passes_app_restart_option_once() -> None:
