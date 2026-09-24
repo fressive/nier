@@ -39,7 +39,7 @@ from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
 from .vision import ImageMatch, SwipeDirection, locate_template
-from .widgets import WidgetList
+from .widgets import Widget, WidgetList
 
 if TYPE_CHECKING:
     from .agent import Agent, AgentRun
@@ -683,6 +683,18 @@ class Device:
                 include_invisible=include_invisible,
             )
         return WidgetList(self, document.walk(), source=document.source)
+
+    def widget(self, node: UiNode) -> Widget:
+        """Bind a parsed UI node to this device for safe, direct interaction.
+
+        Use a node from a recent dump captured for this device. The node's
+        bounds are device-specific. ``Widget.click()`` checks that the node is
+        clickable, not explicitly hidden, and has usable screen bounds before
+        tapping its center.
+        """
+        if not isinstance(node, UiNode):
+            raise TypeError("node must be a UiNode")
+        return Widget(self, node)
 
     def format_tree(
         self,
