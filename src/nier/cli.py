@@ -43,6 +43,7 @@ def _parser() -> argparse.ArgumentParser:
     )
     screenshot_parser.add_argument("--max-width", type=int, default=0)
     screenshot_parser.add_argument("--max-height", type=int, default=0)
+    subparsers.add_parser("ocr", help="recognize text in a fresh screenshot")
     uidump_parser = subparsers.add_parser(
         "uidump",
         aliases=["dump-ui"],
@@ -299,6 +300,25 @@ def _run_locate(device: Device, args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_ocr(device: Device) -> int:
+    spans = device.screenshot().ocr()
+    if not spans:
+        print("No text recognized.")
+        return 0
+
+    label = "span" if len(spans) == 1 else "spans"
+    print(f"OCR results ({len(spans)} {label}):")
+    for index, span in enumerate(spans, start=1):
+        box = span.box
+        print(f"  {index}. {span.text}")
+        print(f"     Confidence: {span.confidence:.3f}")
+        print(
+            "     Bounds: "
+            f"[{box.left:g},{box.top:g}][{box.right:g},{box.bottom:g}]"
+        )
+    return 0
+
+
 def _run_adb(args: argparse.Namespace, config: AppConfig) -> int:
     adb_args = list(args.adb_args)
     if adb_args[:1] == ["--"]:
@@ -395,6 +415,10 @@ def main(argv: list[str] | None = None) -> int:
             print(device.format_tree(document))
         elif args.command == "locate":
             result = _run_locate(device, args)
+            device.save_run()
+            return result
+        elif args.command == "ocr":
+            result = _run_ocr(device)
             device.save_run()
             return result
         device.save_run()
