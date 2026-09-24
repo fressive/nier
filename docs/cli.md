@@ -19,6 +19,23 @@ nier --config config/nier.yaml screenshot \
 100. `--max-width` and `--max-height` are optional pixel limits; zero means no
 limit.
 
+## OCR
+
+`ocr` recognizes text in one fresh screenshot with the configured OCR provider.
+It prints each span's text, confidence, and screen-pixel bounds without issuing
+device actions. A configured provider under `models.ocr` or
+`models.ocr_providers` is required. Local PaddleOCR requires the optional
+`models` extra; hosted providers may require a credential environment variable.
+
+```bash
+nier --config config/nier.yaml ocr
+```
+
+If no text is recognized, the command prints `No text recognized.` and exits
+successfully. Missing OCR configuration or provider failures are reported as
+errors without substituting another provider. Screenshot reads may follow the
+session read retry policy; OCR is not retried automatically.
+
 ## UI dump
 
 `uidump` saves XML by default. `dump-ui` remains an alias for compatibility.

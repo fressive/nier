@@ -8,6 +8,7 @@ from types import SimpleNamespace
 from nier import cli
 from nier.config import AppConfig, DeviceConfig, HookConfig, HookMode, RuntimeConfig
 from nier.intent_hook import IntentHookEvent
+from nier.models.base import BoundingBox, TextSpan
 from nier.protocol import ImageFormat, Screenshot, UiDump, UiSource
 from nier.ui import parse_uidump
 
@@ -31,6 +32,7 @@ def test_cli_parses_device_tool_options_and_adb_remainder() -> None:
     locate = parser.parse_args(
         ["locate", "icon", "icon.png", "--region", "1", "2", "3", "4"]
     )
+    ocr = parser.parse_args(["ocr"])
     intent_hook = parser.parse_args(
         ["intent-hook", "--package", "com.example.app", "--spawn",
          "--activity", ".DetailActivity", "--once"]
@@ -49,6 +51,7 @@ def test_cli_parses_device_tool_options_and_adb_remainder() -> None:
     )
     assert legacy_uidump.command == "dump-ui"
     assert locate.region == [1, 2, 3, 4]
+    assert ocr.command == "ocr"
     assert (
         intent_hook.command,
         intent_hook.package,
@@ -244,21 +247,30 @@ class FakeCliDevice:
     formatted_documents: list[object] = field(default_factory=list)
     locate_calls: list[tuple[object, ...]] = field(default_factory=list)
     taps: list[int] = field(default_factory=list)
+    ocr_spans: list[TextSpan] = field(default_factory=list)
     match: object | None = None
     closed: bool = False
     run_saved: bool = False
 
-    def screenshot(self, path, **options):
-        target = Path(path)
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(b"image")
+    def screenshot(self, path=None, **options):
+        target = None if path is None else Path(path)
+        if target is not None:
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(b"image")
         self.screenshot_options = {"path": target, **options}
         image_format = (
             ImageFormat.JPEG
             if options.get("format") in {"jpg", "jpeg"}
             else ImageFormat.PNG
         )
-        return Screenshot(b"image", image_format, 800, 600, "digest")
+        return Screenshot(
+            b"image",
+            image_format,
+            800,
+            600,
+            "digest",
+            _ocr_callback=lambda _image: self.ocr_spans,
+        )
 
     def dump_ui(self, **options):
         self.dump_options = options
@@ -329,6 +341,41 @@ def test_screenshot_command_passes_options_and_saves_to_requested_path(
         "max_height": 0,
     }
     assert "Screenshot saved to:" in capsys.readouterr().out
+    assert device.closed and device.run_saved
+
+
+def test_ocr_command_prints_text_confidence_and_screen_bounds(
+    monkeypatch, tmp_path, capsys
+) -> None:
+    device = FakeCliDevice(
+        ocr_spans=[
+            TextSpan(
+                text="设置",
+                confidence=0.975,
+                box=BoundingBox(left=40, top=80, right=220, bottom=140),
+            )
+        ]
+    )
+    _patch_cli_device(monkeypatch, tmp_path, device)
+
+    assert cli.main(["ocr"]) == 0
+
+    output = capsys.readouterr().out
+    assert "OCR results (1 span):" in output
+    assert "设置" in output
+    assert "Confidence: 0.975" in output
+    assert "Bounds: [40,80][220,140]" in output
+    assert device.screenshot_options == {"path": None}
+    assert device.closed and device.run_saved
+
+
+def test_ocr_command_reports_empty_results(monkeypatch, tmp_path, capsys) -> None:
+    device = FakeCliDevice()
+    _patch_cli_device(monkeypatch, tmp_path, device)
+
+    assert cli.main(["ocr"]) == 0
+
+    assert capsys.readouterr().out.strip() == "No text recognized."
     assert device.closed and device.run_saved
 
 

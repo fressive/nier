@@ -108,6 +108,7 @@ After copying the example configuration, the basic commands are:
 nier --config config/nier.yaml health
 nier --config config/nier.yaml capabilities
 nier --config config/nier.yaml screenshot
+nier --config config/nier.yaml ocr
 nier --config config/nier.yaml uidump --format json
 nier --config config/nier.yaml locate text "进入设置"
 nier --config config/nier.yaml adb shell dumpsys activity activities
@@ -115,7 +116,8 @@ nier --config config/nier.yaml adb shell dumpsys activity activities
 
 Artifacts are written to `runtime.output_dir` (default: `artifacts`) unless an
 output path is supplied. See the [CLI device tools guide](cli.md) for screenshot
-options, UI dump formats, locate dependencies, and ADB passthrough.
+options, OCR provider setup, UI dump formats, locate dependencies, and ADB
+passthrough.
 
 To capture Activity Intents, install the Nier Android APK, enable its module
 in LSPosed Manager, and add the target app to the module scope:

@@ -369,8 +369,9 @@ exits. It MUST NOT persist captured Intents or retry any device action.
 
 ### CLI device utility commands
 
-The `nier` CLI MUST provide `screenshot`, `uidump`, `locate text`, `locate
-icon`, and `adb` subcommands. `dump-ui` MUST remain an alias for `uidump`.
+The `nier` CLI MUST provide `screenshot`, `ocr`, `uidump`, `locate text`,
+`locate icon`, and `adb` subcommands. `dump-ui` MUST remain an alias for
+`uidump`.
 Device commands MUST use the selected Nier configuration and ADB target.
 
 `screenshot` MUST accept an optional output path, PNG/JPEG format, JPEG
@@ -382,6 +383,12 @@ quality, and maximum width and height. Without an output path it MUST save to
 parsed tree and dump metadata. JSON MAY include the original XML/HTML when
 `--include-raw` is selected. The command MUST support disabling the WebView
 path and requesting invisible nodes.
+
+`ocr` MUST recognize one fresh screenshot using the configured OCR provider
+and print every recognized span's text, confidence, and screen-pixel bounds.
+It MUST NOT issue device actions. An empty result MUST exit successfully and
+report that no text was recognized. Screenshot reads MAY follow the session's
+read retry policy; the OCR request MUST NOT be retried automatically.
 
 `locate text` MUST use the configured OCR provider. `locate icon` MUST use the
 optional `vision` dependencies and accept a local template image and optional

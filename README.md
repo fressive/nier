@@ -109,10 +109,10 @@ for that command. `v` shows steps. `vv` adds OCR, UI dump, SysOne, and LLM resul
 SysOne answers are shown by question and type; `vvv` renders their UI summaries
 and OCR spans as readable lines.
 
-The CLI includes configurable `screenshot` and `uidump` commands, read-only
-`locate text` and `locate icon` commands (`--tap` explicitly requests a click),
-and `adb` for raw ADB passthrough. See the [CLI device tools guide](docs/cli.md)
-for options and optional OCR/OpenCV dependencies.
+The CLI includes configurable `screenshot`, `ocr`, and `uidump` commands,
+read-only `locate text` and `locate icon` commands (`--tap` explicitly requests
+a click), and `adb` for raw ADB passthrough. See the [CLI device tools
+guide](docs/cli.md) for options and optional OCR/OpenCV dependencies.
 Nier terminal logs are written to stdout, and logs and CLI summaries use labeled
 text rather than JSON output; machine-readable run records remain saved as JSON
 files.
