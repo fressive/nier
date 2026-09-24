@@ -8,7 +8,7 @@ from nier import Device
 from nier.agent import Agent
 from nier.errors import BackendUnavailable, ModelError
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
-from nier.models.jev import JevAnswer, JevResponse
+from nier.models.sysone import SysOneAnswer, SysOneResponse
 from nier.protocol import (
     Action,
     ActionResult,
@@ -113,23 +113,23 @@ class FakeOcr:
         ]
 
 
-class FakeJev:
+class FakeSysOne:
     def __init__(self) -> None:
         self.calls: list[tuple[object, object]] = []
 
     def ask(self, state, questions):
         self.calls.append((state, questions))
         answers = {
-            "ready": JevAnswer(type="noul", noul=0.96),
+            "ready": SysOneAnswer(type="noul", noul=0.96),
         }
         if "target" in questions:
-            answers["target"] = JevAnswer(
+            answers["target"] = SysOneAnswer(
                 type="choice",
                 choice="span_0",
                 confidence=0.91,
                 probabilities={"span_0": 0.91, "none": 0.09},
             )
-        return JevResponse(answers=answers, model="jev-test")
+        return SysOneResponse(answers=answers, model="sysone-test")
 
 
 def make_device() -> tuple[Device, FakeBackend]:
@@ -153,7 +153,7 @@ def test_agent_compiles_natural_language_to_recorded_actions() -> None:
         ],
     )
 
-    result = phone.run("登录并输入 rina", llm=llm)
+    result = phone.llm("登录并输入 rina", llm=llm)
 
     assert result.success is True
     assert result.completed_steps == 3
@@ -192,7 +192,7 @@ def test_agent_can_query_apps_and_start_an_activity() -> None:
         ],
     )
 
-    result = phone.run("打开示例应用的主页面", llm=llm, max_steps=4)
+    result = phone.llm("打开示例应用的主页面", llm=llm, max_steps=4)
 
     assert result.success is True
     assert [step.action for step in result.plan.steps] == [
@@ -218,7 +218,7 @@ def test_agent_dry_run_previews_the_next_goal_action() -> None:
     phone, backend = make_device()
     llm = FakeLlm([tool("tap", x=0.5, y=0.5, normalized=True)])
 
-    result = phone.run("点击中心", llm=llm, dry_run=True)
+    result = phone.llm("点击中心", llm=llm, dry_run=True)
 
     assert result.plan.steps[0].action == "tap"
     assert result.dry_run is True
@@ -227,16 +227,16 @@ def test_agent_dry_run_previews_the_next_goal_action() -> None:
     assert backend.actions == []
 
 
-def test_agent_can_call_jev_for_typed_planning_context() -> None:
+def test_agent_can_call_sysone_for_typed_planning_context() -> None:
     phone, _ = make_device()
     llm = FakeLlm([tool("tap", x=30, y=40)])
-    jev = FakeJev()
+    sysone = FakeSysOne()
 
-    result = Agent(phone, llm, ocr=FakeOcr(), jev=jev).run("点击登录", dry_run=True)
+    result = Agent(phone, llm, ocr=FakeOcr(), sysone=sysone).run("点击登录", dry_run=True)
     plan = result.plan
 
-    assert len(jev.calls) == 1
-    state, questions = jev.calls[0]
+    assert len(sysone.calls) == 1
+    state, questions = sysone.calls[0]
     assert state["goal"] == "点击登录"
     assert state["activity"]["component"] == "com.android.settings/com.android.settings.Settings"  # type: ignore[index]
     assert state["ui"]["root"]["children"][0]["resource_id"] == "app:id/login"  # type: ignore[index]
@@ -246,7 +246,7 @@ def test_agent_can_call_jev_for_typed_planning_context() -> None:
     assert set(state["ocr"][0]) == {"id", "text", "confidence"}  # type: ignore[index]
     assert state["ui_summary"]
     assert set(questions) == {"ready", "target"}
-    assert plan.jev == {
+    assert plan.sysone == {
         "ready": 0.96,
         "target": "span_0",
         "target_confidence": 0.91,
@@ -255,40 +255,40 @@ def test_agent_can_call_jev_for_typed_planning_context() -> None:
     assert '"target": "span_0"' in llm.prompt
 
 
-def test_agent_exposes_explicit_jev_call() -> None:
+def test_agent_exposes_explicit_sysone_call() -> None:
     phone, _ = make_device()
-    jev = FakeJev()
-    agent = phone.agent(llm=FakeLlm([]), jev=jev)
+    sysone = FakeSysOne()
+    agent = phone.agent(llm=FakeLlm([]), sysone=sysone)
 
-    response = agent.ask_jev("state", {"ready": {"type": "noul", "instructions": "ready?"}})
+    response = agent.ask_sysone("state", {"ready": {"type": "noul", "instructions": "ready?"}})
 
     assert response.answer("ready").noul == 0.96
 
 
-def test_explicit_agent_keeps_direct_jev_as_advisory_context() -> None:
+def test_explicit_agent_keeps_direct_sysone_as_advisory_context() -> None:
     phone, backend = make_device()
-    jev = FakeJev()
+    sysone = FakeSysOne()
 
     result = phone.agent(
         llm=FakeLlm([tool("goal_complete", reason="当前页面无需操作")]),
-        jev=jev,
+        sysone=sysone,
     ).run(
         "检查当前页面",
         dry_run=True,
     )
 
-    assert result.plan.jev == {"ready": 0.96}
-    assert len(jev.calls) == 1
+    assert result.plan.sysone == {"ready": 0.96}
+    assert len(sysone.calls) == 1
     assert backend.actions == []
 
 
-def test_agent_continues_when_jev_advisory_and_optional_ocr_fail() -> None:
+def test_agent_continues_when_sysone_advisory_and_optional_ocr_fail() -> None:
     phone, backend = make_device()
     llm = FakeLlm([tool("goal_complete", reason="UI state is sufficient")])
 
-    class UnavailableJev:
+    class UnavailableSysOne:
         def ask(self, state, questions):
-            raise ModelError("Jev service unavailable")
+            raise ModelError("SysOne service unavailable")
 
     class UnavailableOcr:
         def recognize(self, image: bytes):
@@ -297,15 +297,15 @@ def test_agent_continues_when_jev_advisory_and_optional_ocr_fail() -> None:
     result = Agent(
         phone,
         llm,
-        jev=UnavailableJev(),
+        sysone=UnavailableSysOne(),
         ocr=UnavailableOcr(),
     ).run("检查当前页面", dry_run=True)
 
     assert result.termination == "goal_complete"
     assert result.success is True
-    assert result.plan.jev == {
+    assert result.plan.sysone == {
         "available": False,
-        "error": "ModelError: Jev service unavailable",
+        "error": "ModelError: SysOne service unavailable",
         "ocr_error": "PaddleOCR is not installed",
     }
     assert "advisory is unavailable" in llm.prompt
@@ -318,7 +318,7 @@ def test_agent_rejects_actions_outside_the_allowlist() -> None:
     llm = FakeLlm([tool("shell", command="rm -rf /")])
 
     with pytest.raises(ModelError, match="unsupported agent action"):
-        phone.run("执行命令", llm=llm)
+        phone.llm("执行命令", llm=llm)
 
 
 def test_agent_goal_mode_reobserves_after_each_action() -> None:
@@ -332,7 +332,7 @@ def test_agent_goal_mode_reobserves_after_each_action() -> None:
         ],
     )
 
-    result = phone.run(
+    result = phone.llm(
         "打开设置",
         llm=llm,
         max_steps=3,

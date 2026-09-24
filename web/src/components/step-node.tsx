@@ -7,7 +7,7 @@ import type { StepNodeType } from "../types";
 
 function NodeIcon({ category }: { category?: string }) {
   if (category === "TOOL CALL") return <Bot className="h-4 w-4" />;
-  if (category === "JEV RESULT" || category === "LLM RESULT") return <Braces className="h-4 w-4" />;
+  if (category === "SYS ONE RESULT" || category === "LLM RESULT") return <Braces className="h-4 w-4" />;
   if (category === "OCR RESULT") return <Activity className="h-4 w-4" />;
   return <Workflow className="h-4 w-4" />;
 }

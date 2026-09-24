@@ -47,34 +47,35 @@ with connect("config/nier.yaml") as phone:
 The provider is created lazily and cached for the duration of the connection;
 scripts do not need to instantiate an OCR provider.
 
-Natural-language operation flows are available through `phone.run(...)`. When
-an LLM is configured, it is the primary planner: it observes the current
-screenshot and UI, then selects one validated tool action per step. Pass
-`jev=` or `jev_provider=` when you want Jev to supply advisory context. Use
-`phone.run_jev_goal(...)` to explicitly request Jev-first selection from
-host-validated UI/OCR candidates; when no LLM is configured, `phone.run(...)`
-can use that flow as a fallback. Use `dry_run=True` to preview the next
-validated action. See the
+Natural-language operation flows are available through `phone.llm(...)`. It
+uses the configured LLM as the planner: it observes the current screenshot and
+UI, then selects one validated tool action per step. Pass `sysone=` or
+`sysone_provider=` when you want SysOne to supply advisory context. Use
+`phone.sysone(...)` to explicitly request TypeSafe SysOne selection from
+host-validated UI/OCR candidates. The two entry points are separate; `llm()`
+does not fall back to SysOne. Use `dry_run=True` to preview the next validated
+action. See the
 [model and Agent guide](docs/models.md).
 
-Typed TypeSafe Jev decisions are available through `phone.jev()` for bounded
-choice, score, and noul questions. The client is created from configuration on
-first use and reused for the connection; keep `TYPESAFE_API_KEY` in the
-environment (`JEV_API_KEY` is accepted as a compatibility alias). See the
+Typed decisions from the TypeSafe SysOne provider are available through
+`phone.sysone_provider()` for bounded choice, score, and noul questions. The
+provider is configured under `models.sysone` with `provider: typesafe`, created
+on first use, and reused for the connection. The default credential variable is
+`SYS_ONE_API_KEY`; `TYPESAFE_API_KEY` is also recognized. See the
 [model guide](docs/models.md) for configuration and examples.
 
-For goals where Jev should select only from host-generated UI/OCR actions,
-`phone.run_jev_goal(...)` uses Noul for completion and Choice for the next candidate,
-requests OCR only when Jev chooses `inspect_ocr`, and rechecks the device state
-before acting. Jev receives semantic UI/OCR labels; the host keeps coordinates
-and executes validated actions. `phone.run_jev_goal(...)` is the explicit
+For goals where SysOne should select only from host-generated UI/OCR actions,
+`phone.sysone(...)` uses Noul for completion and Choice for the next candidate,
+requests OCR only when SysOne chooses `inspect_ocr`, and rechecks the device state
+before acting. SysOne receives semantic UI/OCR labels; the host keeps coordinates
+and executes validated actions. `phone.sysone(...)` is the explicit
 entry point for this flow.
 `allowed_controls` and `denied_controls` can restrict visible labels, while
 `allowed_apps={"设置": "com.android.settings"}` can explicitly allow app
-launch candidates. Jev sees the app label, while the package stays host-side.
-`max_steps` bounds main-goal actions. For Jev-first goals, `max_seconds` adds an
+launch candidates. SysOne sees the app label, while the package stays host-side.
+`max_steps` bounds main-goal actions. For SysOne-first goals, `max_seconds` adds an
 optional overall deadline and is disabled by default. A completion signal
-returns `needs_verification` for caller review. If Jev selects `call_llm`, the
+returns `needs_verification` for caller review. If SysOne selects `call_llm`, the
 LLM generates a bounded recovery subgoal (with no assist-count limit by
 default), then executes it by selecting only safe, host-validated
 dismiss/back/home controls; the main goal observes again and resumes. It cannot
@@ -91,15 +92,15 @@ ADB TCP. See the [feature-oriented API documentation](docs/README.md) and
 Logging is quiet by default. Add a `logging.verbosity` value of `1`, `2`, or
 `3` (also accepted as `v`, `vv`, or `vvv`) to the YAML configuration. The CLI
 also accepts `-v`, `-vv`, and `-vvv`; these increase the configured verbosity
-for that command. `v` shows steps. `vv` adds OCR, UI dump, Jev, and LLM results.
+for that command. `v` shows steps. `vv` adds OCR, UI dump, SysOne, and LLM results.
 `vvv` adds bounded, sanitized ADB and HTTP request/response details.
-Jev answers are shown by question and type; `vvv` renders their UI summaries
+SysOne answers are shown by question and type; `vvv` renders their UI summaries
 and OCR spans as readable lines.
 Terminal logs and CLI summaries use labeled text rather than JSON output;
 machine-readable run records remain saved as JSON files.
 
 Verbose terminal logs include a local `HH:MM:SS.mmm` timestamp. Steps and OCR
-results are cyan, tool calls and LLM results magenta, UI dumps yellow, Jev
+results are cyan, tool calls and LLM results magenta, UI dumps yellow, SysOne
 results green, requests blue, and responses green. Colors are omitted when
 output is redirected or `NO_COLOR` is set.
 

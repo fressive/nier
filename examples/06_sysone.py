@@ -1,4 +1,4 @@
-"""Run a bounded UI goal with Jev selecting validated candidates."""
+"""Run a bounded UI goal with SysOne selecting validated candidates."""
 
 from __future__ import annotations
 
@@ -72,9 +72,9 @@ def _print_run_summary(run) -> None:
             detail = result.message or result.error_code
             suffix = f": {detail}" if detail else ""
             print(f"  {index}. {status}{suffix}")
-    if run.plan.jev and run.plan.jev.get("recovery_subgoals"):
+    if run.plan.sysone and run.plan.sysone.get("recovery_subgoals"):
         print("Recovery subgoals:")
-        for index, subgoal in enumerate(run.plan.jev["recovery_subgoals"], start=1):
+        for index, subgoal in enumerate(run.plan.sysone["recovery_subgoals"], start=1):
             goal = subgoal.get("recovery_goal", "(not generated)")
             print(f"  {index}. {goal} — {subgoal['outcome']}")
 
@@ -83,7 +83,7 @@ def main(argv: list[str] | None = None) -> None:
     args = _parser().parse_args(argv)
     allowed_controls, dry_run = _goal_options(args)
     with connect(CONFIG) as phone:
-        result = phone.run_jev_goal(
+        result = phone.sysone(
             GOAL,
             max_steps=MAX_STEPS,
             allowed_controls=allowed_controls,
@@ -94,8 +94,8 @@ def main(argv: list[str] | None = None) -> None:
         )
         _print_run_summary(result)
         if result.termination == "needs_verification":
-            print("Jev signaled completion; inspect a fresh screenshot or UI dump to verify.")
-        phone.save_run("jev-goal-run.json")
+            print("SysOne signaled completion; inspect a fresh screenshot or UI dump to verify.")
+        phone.save_run("sysone-goal-run.json")
 
 
 if __name__ == "__main__":

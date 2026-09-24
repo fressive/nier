@@ -30,8 +30,8 @@ _CATEGORY_COLORS = {
     "TOOL CALL": "\x1b[35;1m",
     "OCR RESULT": "\x1b[36;1m",
     "UIDUMP RESULT": "\x1b[33;1m",
-    "JEV RESULT": "\x1b[32;1m",
-    "JEV CONTEXT": "\x1b[35;1m",
+    "SYS ONE RESULT": "\x1b[32;1m",
+    "SYS ONE CONTEXT": "\x1b[35;1m",
     "LLM RESULT": "\x1b[35;1m",
 }
 

@@ -57,12 +57,12 @@ The current foundation includes:
   with an Android shell-input fallback;
 - an optional Android IME text backend for Unicode/Chinese `InputText` actions,
   while retaining shell input as the default;
-- OCR, deterministic text-match decisions, TypeSafe Jev typed decisions,
+- OCR, deterministic text-match decisions, TypeSafe SysOne typed decisions,
   provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
-- a unified `Device.run()` goal flow that uses the configured LLM as the
+- a unified `Device.llm()` goal flow that uses the configured LLM as the
   primary planner, re-observes after each validated tool action, and accepts
-  optional typed Jev advice without letting Jev failures block execution;
-- a Jev-first goal API for callers that need finite, host-validated UI/OCR
+  optional typed SysOne advice without letting SysOne failures block execution;
+- a SysOne-first goal API for callers that need finite, host-validated UI/OCR
   candidates, with bounded LLM recovery subgoals.
 
 The following are intentionally outside the completed foundation:
@@ -78,7 +78,7 @@ The following are intentionally outside the completed foundation:
 
 These are future extensions, not reasons to change the default ADB topology.
 
-In the explicit Jev-first goal flow, recovery may generate any number of
+In the explicit SysOne-first goal flow, recovery may generate any number of
 subgoals by default, with each subgoal restricted to safe controls and bounded
 to three actions and thirty seconds. The host executes only a current candidate
 from the safe-control allowlist. Callers can cap the number of assists or set

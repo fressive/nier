@@ -80,15 +80,15 @@ nier -vvv screenshot
 
 Request and response payloads are bounded and sensitive headers such as
 Authorization and API keys are redacted in `vvv` transport logs. At `vv`, OCR,
-UI dump, Jev, and LLM results are logged with the same payload size limits.
+UI dump, SysOne, and LLM results are logged with the same payload size limits.
 Screenshot data sent to OCR is shown as a size marker rather than a Base64
 payload. Terminal logs and CLI summaries use labeled text rather than JSON;
 saved run records remain JSON files for machine-readable inspection.
-Jev answers are shown by question and type; at `vvv`, Jev context logs render UI
+SysOne answers are shown by question and type; at `vvv`, SysOne context logs render UI
 summaries and OCR spans as readable lines.
 
 Verbose terminal logs include local timestamps. Steps and OCR results are cyan,
-tool calls and LLM results magenta, UI dumps yellow, Jev results green, requests
+tool calls and LLM results magenta, UI dumps yellow, SysOne results green, requests
 blue, and responses green. Colors are omitted when output is redirected or
 `NO_COLOR` is set.
 

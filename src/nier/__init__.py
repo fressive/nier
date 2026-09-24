@@ -10,15 +10,15 @@ from .agent import (
     AgentStep,
 )
 from .api import Device, connect
-from .jev_goal import JevGoal, JevGoalCandidate
+from .sysone_goal import SysOneGoal, SysOneGoalCandidate
 from .models.base import LlmToolCall
-from .models.jev import (
-    JevAnswer,
-    JevCriteria,
-    JevDecisionProvider,
-    JevProvider,
-    JevQuestion,
-    JevResponse,
+from .models.sysone import (
+    SysOneAnswer,
+    SysOneCriteria,
+    SysOneDecisionProvider,
+    SysOneProvider,
+    SysOneQuestion,
+    SysOneResponse,
 )
 from .protocol import ActivityInfo
 from .ui import UiDocument, UiNode, parse_uidump
@@ -33,14 +33,14 @@ __all__ = [
     "AgentRun",
     "AgentStep",
     "Device",
-    "JevGoal",
-    "JevGoalCandidate",
-    "JevAnswer",
-    "JevCriteria",
-    "JevDecisionProvider",
-    "JevProvider",
-    "JevQuestion",
-    "JevResponse",
+    "SysOneGoal",
+    "SysOneGoalCandidate",
+    "SysOneAnswer",
+    "SysOneCriteria",
+    "SysOneDecisionProvider",
+    "SysOneProvider",
+    "SysOneQuestion",
+    "SysOneResponse",
     "LlmToolCall",
     "ActivityInfo",
     "UiDocument",

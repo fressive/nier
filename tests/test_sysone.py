@@ -7,9 +7,9 @@ import pytest
 
 from nier.config import from_mapping
 from nier.errors import ConfigurationError
-from nier.models import jev as jev_module
+from nier.models import sysone as sysone_module
 from nier.models.base import BoundingBox, TextSpan
-from nier.models.jev import JevAnswer, JevDecisionProvider, JevProvider
+from nier.models.sysone import SysOneAnswer, SysOneDecisionProvider, SysOneProvider
 
 
 class FakeResponse:
@@ -26,7 +26,7 @@ class FakeResponse:
         return self.payload
 
 
-def test_jev_choice_posts_typed_request(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sysone_choice_posts_typed_request(monkeypatch: pytest.MonkeyPatch) -> None:
     captured: dict[str, Any] = {}
 
     def fake_urlopen(request, timeout):
@@ -46,8 +46,8 @@ def test_jev_choice_posts_typed_request(monkeypatch: pytest.MonkeyPatch) -> None
             }
         )
 
-    monkeypatch.setattr(jev_module.urllib_request, "urlopen", fake_urlopen)
-    client = JevProvider(api_key="secret", timeout=12)
+    monkeypatch.setattr(sysone_module.urllib_request, "urlopen", fake_urlopen)
+    client = SysOneProvider(api_key="secret", timeout=12)
 
     answer = client.choice(
         {"screen": "settings"},
@@ -71,7 +71,7 @@ def test_jev_choice_posts_typed_request(monkeypatch: pytest.MonkeyPatch) -> None
     assert answer.selected_probability == 0.92
 
 
-def test_jev_supports_score_and_noul_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_sysone_supports_score_and_noul_answers(monkeypatch: pytest.MonkeyPatch) -> None:
     def fake_urlopen(request, timeout):
         return FakeResponse(
             {
@@ -82,8 +82,8 @@ def test_jev_supports_score_and_noul_answers(monkeypatch: pytest.MonkeyPatch) ->
             }
         )
 
-    monkeypatch.setattr(jev_module.urllib_request, "urlopen", fake_urlopen)
-    client = JevProvider(api_key="secret")
+    monkeypatch.setattr(sysone_module.urllib_request, "urlopen", fake_urlopen)
+    client = SysOneProvider(api_key="secret")
 
     response = client.ask(
         "an error message",
@@ -104,20 +104,30 @@ def test_jev_supports_score_and_noul_answers(monkeypatch: pytest.MonkeyPatch) ->
     assert response.answer("urgent").noul == 1.0
 
 
-def test_missing_jev_key_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.delenv("TEST_NIER_JEV_KEY", raising=False)
-    with pytest.raises(ConfigurationError, match="TEST_NIER_JEV_KEY"):
-        JevProvider(api_key_env="TEST_NIER_JEV_KEY")
+def test_missing_sysone_key_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("TEST_NIER_SYS_ONE_KEY", raising=False)
+    monkeypatch.delenv("TYPESAFE_API_KEY", raising=False)
+    with pytest.raises(ConfigurationError, match="TEST_NIER_SYS_ONE_KEY"):
+        SysOneProvider(api_key_env="TEST_NIER_SYS_ONE_KEY")
 
 
-def test_jev_decision_provider_maps_selected_span_to_coordinates() -> None:
-    class FakeJev:
+def test_sysone_reads_the_typesafe_provider_key(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("SYS_ONE_API_KEY", raising=False)
+    monkeypatch.setenv("TYPESAFE_API_KEY", "typesafe-secret")
+
+    client = SysOneProvider()
+
+    assert client._api_key == "typesafe-secret"
+
+
+def test_sysone_decision_provider_maps_selected_span_to_coordinates() -> None:
+    class FakeSysOne:
         def choice(self, state, options, *, instructions, question_id):
             assert state["spans"][0]["text"] == "Settings"
             assert options == ["noop", "span_0"]
-            return JevAnswer(type="choice", choice="span_0", confidence=0.91)
+            return SysOneAnswer(type="choice", choice="span_0", confidence=0.91)
 
-    decision = JevDecisionProvider(FakeJev(), confidence_threshold=0.8).decide(
+    decision = SysOneDecisionProvider(FakeSysOne(), confidence_threshold=0.8).decide(
         [
             TextSpan(
                 text="Settings",
@@ -133,8 +143,8 @@ def test_jev_decision_provider_maps_selected_span_to_coordinates() -> None:
     assert decision.confidence == 0.91
 
 
-def test_jev_config_is_optional_but_explicit_singular_config_is_named_default() -> None:
-    assert from_mapping({}).models.jev_providers == {}
-    config = from_mapping({"models": {"jev": {"model": "test-model"}}})
-    assert config.models.jev.model == "test-model"
-    assert config.models.jev_providers["default"].model == "test-model"
+def test_sysone_config_is_optional_but_explicit_singular_config_is_named_default() -> None:
+    assert from_mapping({}).models.sysone_providers == {}
+    config = from_mapping({"models": {"sysone": {"model": "test-model"}}})
+    assert config.models.sysone.model == "test-model"
+    assert config.models.sysone_providers["default"].model == "test-model"

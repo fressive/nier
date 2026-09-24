@@ -7,9 +7,9 @@ import pytest
 
 from nier import Device, connect
 from nier.config import from_mapping
-from nier.errors import ProtocolError, UiElementNotFound
+from nier.errors import ConfigurationError, ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
-from nier.models.jev import JevAnswer, JevResponse
+from nier.models.sysone import SysOneAnswer, SysOneResponse
 from nier.protocol import (
     Action,
     ActionResult,
@@ -78,6 +78,15 @@ class FakeBackend:
 def make_device(backend: FakeBackend | None = None) -> tuple[Device, FakeBackend]:
     backend = backend or FakeBackend()
     return Device(DeviceSession(backend)), backend
+
+
+def test_public_goal_entry_points_use_llm_and_sysone_names() -> None:
+    phone, _ = make_device()
+
+    assert callable(phone.llm)
+    assert callable(phone.sysone)
+    assert not hasattr(phone, "run")
+    assert not hasattr(phone, "run_jev_goal")
 
 
 def test_script_actions_build_protocol_actions() -> None:
@@ -275,34 +284,54 @@ def test_screenshot_ocr_is_created_from_configuration_and_cached(monkeypatch) ->
     assert fake.closed is True
 
 
-def test_jev_is_created_from_configuration_and_cached(monkeypatch) -> None:
+def test_sysone_is_created_from_configuration_and_cached(monkeypatch) -> None:
     phone, _ = make_device()
 
-    class FakeJev:
+    class FakeSysOne:
         def __init__(self) -> None:
             self.closed = False
 
         def close(self) -> None:
             self.closed = True
 
-    fake = FakeJev()
+    fake = FakeSysOne()
 
     def create(provider: str):
         assert provider == "default"
         return fake
 
-    monkeypatch.setattr(phone, "_configured_jev", create)
+    monkeypatch.setattr(phone, "_configured_sysone", create)
 
-    assert phone.jev() is fake
-    assert phone.jev() is fake
-    assert phone._jev_cache == {"default": fake}
+    assert phone.sysone_provider() is fake
+    assert phone.sysone_provider() is fake
+    assert phone._sysone_cache == {"default": fake}
 
     phone.close()
 
     assert fake.closed is True
 
 
-def test_first_llm_ocr_and_explicit_jev_providers_are_selected(monkeypatch) -> None:
+def test_sysone_configuration_builds_a_typesafe_provider(monkeypatch) -> None:
+    monkeypatch.setenv("SYS_ONE_API_KEY", "typesafe-secret")
+    config = from_mapping(
+        {
+            "models": {
+                "sysone": {
+                    "provider": "typesafe",
+                    "model": "jev-latest",
+                }
+            }
+        }
+    )
+    phone = Device(DeviceSession(FakeBackend()), app_config=config)
+
+    provider = phone.sysone_provider()
+
+    assert provider.base_url == "https://api.typesafe.ai/v1/systemone"
+    assert provider.model == "jev-latest"
+
+
+def test_first_llm_ocr_and_explicit_sysone_providers_are_selected(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
@@ -314,7 +343,7 @@ def test_first_llm_ocr_and_explicit_jev_providers_are_selected(monkeypatch) -> N
                     "primary": {"model": "primary-model"},
                     "backup": {"model": "backup-model"},
                 },
-                "jev_providers": {
+                "sysone_providers": {
                     "typed": {"model": "typed-model"},
                     "backup": {"model": "backup-model"},
                 },
@@ -323,13 +352,13 @@ def test_first_llm_ocr_and_explicit_jev_providers_are_selected(monkeypatch) -> N
     )
     backend = FakeBackend()
     phone = Device(DeviceSession(backend), app_config=config)
-    selected: dict[str, list[str]] = {"ocr": [], "llm": [], "jev": []}
+    selected: dict[str, list[str]] = {"ocr": [], "llm": [], "sysone": []}
 
     class FakeOcr:
         def recognize(self, image: bytes):
             return []
 
-    class FakeJev:
+    class FakeSysOne:
         pass
 
     monkeypatch.setattr(
@@ -344,27 +373,27 @@ def test_first_llm_ocr_and_explicit_jev_providers_are_selected(monkeypatch) -> N
     )
     monkeypatch.setattr(
         phone,
-        "_configured_jev",
-        lambda provider: selected["jev"].append(provider) or FakeJev(),
+        "_configured_sysone",
+        lambda provider: selected["sysone"].append(provider) or FakeSysOne(),
     )
 
     phone.screenshot().ocr()
-    phone.jev()
-    selected["jev"].clear()
+    phone.sysone_provider()
+    selected["sysone"].clear()
     agent = phone.agent()
 
     assert selected == {
         "ocr": ["cloud"],
         "llm": ["primary"],
-        "jev": [],
+        "sysone": [],
     }
     assert agent.provider == "primary"
 
-    phone.agent(jev_provider="backup")
-    assert selected["jev"] == ["backup"]
+    phone.agent(sysone_provider="backup")
+    assert selected["sysone"] == ["backup"]
 
 
-def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> None:
+def test_sysone_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> None:
     config = from_mapping(
         {"models": {"ocr_providers": {"local": {"provider": "paddleocr"}}}}
     )
@@ -381,7 +410,7 @@ def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> Non
         lambda provider: created.append(provider) or FakeOcr(),
     )
 
-    goal = phone.jev_goal(jev=object())
+    goal = phone.sysone_goal(sysone=object())
 
     assert created == []
     assert goal.max_seconds is None
@@ -390,27 +419,27 @@ def test_jev_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> Non
     assert created == ["local"]
 
 
-def test_device_run_uses_llm_without_implicit_jev_call(monkeypatch) -> None:
+def test_device_run_uses_llm_without_implicit_sysone_call(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
                 "llm_providers": {"primary": {"model": "primary-model"}},
-                "jev_providers": {"typed": {"model": "typed-model"}},
+                "sysone_providers": {"typed": {"model": "typed-model"}},
             }
         }
     )
     phone = Device(DeviceSession(FakeBackend()), app_config=config)
-    created_jev: list[str] = []
-    jev_calls: list[tuple[object, object]] = []
+    created_sysone: list[str] = []
+    sysone_calls: list[tuple[object, object]] = []
     created_llm: list[str] = []
     llm_calls: list[str] = []
 
-    class FakeJev:
+    class FakeSysOne:
         def ask(self, state, questions):
-            jev_calls.append((state, questions))
-            return JevResponse(
+            sysone_calls.append((state, questions))
+            return SysOneResponse(
                 answers={
-                    "ready": JevAnswer(type="noul", noul=0.96),
+                    "ready": SysOneAnswer(type="noul", noul=0.96),
                 },
                 model="fake",
             )
@@ -422,8 +451,8 @@ def test_device_run_uses_llm_without_implicit_jev_call(monkeypatch) -> None:
 
     monkeypatch.setattr(
         phone,
-        "_configured_jev",
-        lambda provider: created_jev.append(provider) or FakeJev(),
+        "_configured_sysone",
+        lambda provider: created_sysone.append(provider) or FakeSysOne(),
     )
     monkeypatch.setattr(
         phone,
@@ -431,37 +460,37 @@ def test_device_run_uses_llm_without_implicit_jev_call(monkeypatch) -> None:
         lambda provider: created_llm.append(provider) or FakeLlm(),
     )
 
-    result = phone.run("检查当前页面", dry_run=True)
+    result = phone.llm("检查当前页面", dry_run=True)
 
     assert result.success is True
     assert result.termination == "goal_complete"
     assert result.plan.provider == "primary"
-    assert created_jev == []
+    assert created_sysone == []
     assert created_llm == ["primary"]
-    assert jev_calls == []
-    assert result.plan.jev == {
+    assert sysone_calls == []
+    assert result.plan.sysone == {
         "ocr_error": "PaddleOCR is not installed; install the models extra"
     }
     assert len(llm_calls) == 1
 
 
-def test_device_run_adds_jev_only_when_explicitly_requested(monkeypatch) -> None:
+def test_device_run_adds_sysone_only_when_explicitly_requested(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
                 "llm_providers": {"primary": {"model": "primary-model"}},
-                "jev_providers": {"typed": {"model": "typed-model"}},
+                "sysone_providers": {"typed": {"model": "typed-model"}},
             }
         }
     )
     phone = Device(DeviceSession(FakeBackend()), app_config=config)
-    jev_calls: list[object] = []
+    sysone_calls: list[object] = []
 
-    class FakeJev:
+    class FakeSysOne:
         def ask(self, state, questions):
-            jev_calls.append((state, questions))
-            return JevResponse(
-                answers={"ready": JevAnswer(type="noul", noul=0.96)},
+            sysone_calls.append((state, questions))
+            return SysOneResponse(
+                answers={"ready": SysOneAnswer(type="noul", noul=0.96)},
                 model="fake",
             )
 
@@ -469,38 +498,38 @@ def test_device_run_adds_jev_only_when_explicitly_requested(monkeypatch) -> None
         def complete_with_tools(self, prompt, *, tools, image=None):
             return [LlmToolCall("goal_complete", {"reason": "LLM confirms goal"})]
 
-    monkeypatch.setattr(phone, "_configured_jev", lambda _provider: FakeJev())
+    monkeypatch.setattr(phone, "_configured_sysone", lambda _provider: FakeSysOne())
     monkeypatch.setattr(phone, "_configured_llm", lambda _provider: FakeLlm())
 
-    result = phone.run("检查当前页面", jev_provider="typed", dry_run=True)
+    result = phone.llm("检查当前页面", sysone_provider="typed", dry_run=True)
 
     assert result.termination == "goal_complete"
-    assert result.plan.jev == {
+    assert result.plan.sysone == {
         "ready": 0.96,
         "ocr_error": "PaddleOCR is not installed; install the models extra",
     }
-    assert len(jev_calls) == 1
+    assert len(sysone_calls) == 1
 
 
-def test_device_run_falls_back_to_jev_when_no_llm_is_configured(monkeypatch) -> None:
+def test_llm_entry_point_does_not_fall_back_to_sysone(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
                 "llm": {"api_key_env": "NIER_TEST_MISSING_LLM_KEY"},
-                "jev_providers": {"typed": {"model": "typed-model"}},
+                "sysone_providers": {"typed": {"model": "typed-model"}},
             }
         }
     )
     phone = Device(DeviceSession(FakeBackend()), app_config=config)
-    jev_calls: list[object] = []
+    sysone_calls: list[object] = []
 
-    class FakeJev:
+    class FakeSysOne:
         def ask(self, state, questions):
-            jev_calls.append((state, questions))
-            return JevResponse(
+            sysone_calls.append((state, questions))
+            return SysOneResponse(
                 answers={
-                    "done": JevAnswer(type="noul", noul=0.96),
-                    "next": JevAnswer(
+                    "done": SysOneAnswer(type="noul", noul=0.96),
+                    "next": SysOneAnswer(
                         type="choice",
                         choice="blocked",
                         confidence=0.99,
@@ -510,26 +539,19 @@ def test_device_run_falls_back_to_jev_when_no_llm_is_configured(monkeypatch) -> 
                 model="fake",
             )
 
-    monkeypatch.setattr(phone, "_configured_jev", lambda _provider: FakeJev())
-    monkeypatch.setattr(
-        phone,
-        "_configured_llm",
-        lambda _provider: pytest.fail("LLM should not be loaded without configuration"),
-    )
+    monkeypatch.setattr(phone, "_configured_sysone", lambda _provider: FakeSysOne())
+    with pytest.raises(ConfigurationError, match="LLM API key is missing"):
+        phone.llm("检查当前页面", dry_run=True)
 
-    result = phone.run("检查当前页面", dry_run=True)
-
-    assert result.termination == "needs_verification"
-    assert result.plan.provider == "typed"
-    assert len(jev_calls) == 1
+    assert sysone_calls == []
 
 
-def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
+def test_sysone_forwards_bounded_llm_recovery_tool_calls(monkeypatch) -> None:
     config = from_mapping(
         {
             "models": {
                 "llm_providers": {"primary": {"model": "primary-model"}},
-                "jev_providers": {"typed": {"model": "typed-model"}},
+                "sysone_providers": {"typed": {"model": "typed-model"}},
             }
         }
     )
@@ -539,13 +561,13 @@ def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
     tool_requests: list[object] = []
     choices = iter(["call_llm", "blocked"])
 
-    class FakeJev:
+    class FakeSysOne:
         def ask(self, state, questions):
             choice = next(choices)
-            return JevResponse(
+            return SysOneResponse(
                 answers={
-                    "done": JevAnswer(type="noul", noul=0.10 if choice == "call_llm" else 0.96),
-                    "next": JevAnswer(
+                    "done": SysOneAnswer(type="noul", noul=0.10 if choice == "call_llm" else 0.96),
+                    "next": SysOneAnswer(
                         type="choice",
                         choice=choice,
                         confidence=0.99,
@@ -565,14 +587,14 @@ def test_configured_lazy_llm_forwards_recovery_tool_calls(monkeypatch) -> None:
                 return [LlmToolCall("recovery_action", {"candidate_id": "back"})]
             return [LlmToolCall("recovery_complete", {})]
 
-    monkeypatch.setattr(phone, "_configured_jev", lambda provider: FakeJev())
+    monkeypatch.setattr(phone, "_configured_sysone", lambda provider: FakeSysOne())
     monkeypatch.setattr(
         phone,
         "_configured_llm",
         lambda provider: llm_created.append(provider) or FakeLlm(),
     )
 
-    result = phone.run("继续操作", max_llm_assists=1)
+    result = phone.sysone("继续操作", max_llm_assists=1)
 
     assert result.success is True
     assert llm_created == ["primary"]

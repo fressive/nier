@@ -1,24 +1,24 @@
 """Model provider interfaces and optional implementations."""
 
 from .base import LlmToolCall
-from .jev import (
-    JevAnswer,
-    JevCriteria,
-    JevDecisionProvider,
-    JevProvider,
-    JevQuestion,
-    JevResponse,
+from .sysone import (
+    SysOneAnswer,
+    SysOneCriteria,
+    SysOneDecisionProvider,
+    SysOneProvider,
+    SysOneQuestion,
+    SysOneResponse,
 )
 from .ocr import PaddleOcrApiProvider, PaddleOcrCompatibleApiProvider, PaddleOcrProvider
 
 __all__ = [
     "LlmToolCall",
-    "JevAnswer",
-    "JevCriteria",
-    "JevDecisionProvider",
-    "JevProvider",
-    "JevQuestion",
-    "JevResponse",
+    "SysOneAnswer",
+    "SysOneCriteria",
+    "SysOneDecisionProvider",
+    "SysOneProvider",
+    "SysOneQuestion",
+    "SysOneResponse",
     "PaddleOcrApiProvider",
     "PaddleOcrCompatibleApiProvider",
     "PaddleOcrProvider",
