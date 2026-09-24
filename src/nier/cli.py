@@ -1,4 +1,4 @@
-"""Command-line entry points for smoke-testing a connected device."""
+"""Command-line commands for Android devices and local script execution."""
 
 from __future__ import annotations
 

@@ -541,6 +541,7 @@ class RootFridaWebViewHook:
             agent_name="WebView",
         )
 
+
 class RootFridaIntentHook:
     """Capture app-originated Activity Intents through root Frida injection."""
 

@@ -152,7 +152,7 @@ function readMaterializedExtras(bundle) {
     return {values: {}, truncated: false, unavailable: true};
   }
 
-  const values = {};
+  const values = Object.create(null);
   let truncated = false;
   try {
     const iterator = map.entrySet().iterator();
@@ -242,7 +242,7 @@ function intentToObject(intent) {
   };
 }
 
-const activeIntentHashes = {};
+const activeIntentHashes = Object.create(null);
 
 function emitIntents(source, values, seenInCall, claimed) {
   values.forEach(function (intent) {
@@ -304,7 +304,7 @@ function hookIntentMethods(className, methodNames) {
 
       overload.implementation = function () {
         const args = Array.prototype.slice.call(arguments);
-        const seenInCall = {};
+        const seenInCall = Object.create(null);
         const claimed = [];
         intentIndexes.forEach(function (info) {
           try {
