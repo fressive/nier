@@ -8,13 +8,14 @@ import { RunMetrics } from "./components/run-metrics";
 import { RunStatusBadge } from "./components/status-indicator";
 import { RunToolbar } from "./components/run-toolbar";
 import { ScreenPreview } from "./components/screen-preview";
+import { SourceViewer } from "./components/source-viewer";
 import { fetchJson, postJson } from "./lib/api";
 import { isBusy, isPathEvent, isResponseOrResultEvent, localTime } from "./lib/dashboard";
 import { cn } from "./lib/utils";
 import { initialRun, type ApiState, type DebugCommand, type RunState, type ScriptInfo, type StepNodeData, type WebEvent } from "./types";
 
 const NODE_SPACING = 146;
-type DashboardPanel = "graph" | "logs" | "preview";
+type DashboardPanel = "graph" | "source" | "logs" | "preview";
 
 export default function App() {
   const [scripts, setScripts] = useState<ScriptInfo[]>([]);
@@ -27,7 +28,7 @@ export default function App() {
   const [confirmed, setConfirmed] = useState(false);
   const [error, setError] = useState("");
   const [connected, setConnected] = useState(false);
-  const [activePanel, setActivePanel] = useState<DashboardPanel>("graph");
+  const [activePanel, setActivePanel] = useState<DashboardPanel>("source");
 
   const mergeEvent = useCallback((incoming: WebEvent) => {
     if (incoming.type === "run.started") {
@@ -137,6 +138,9 @@ export default function App() {
     ? pathEvents.at(-1)
     : pathEvents.find((event) => event.event_id === selectedEventId) ?? pathEvents.at(-1);
   const selectedScriptInfo = scripts.find((script) => script.path === selectedScript);
+  const sourcePath = run.execution_location?.file || run.script || selectedScript;
+  const sourceLine = run.execution_location?.file === sourcePath ? run.execution_location.line : null;
+  const sourceFunction = run.execution_location?.file === sourcePath ? run.execution_location.function : null;
   const busy = isBusy(run.status);
   const successCount = pathEvents.filter((event) =>
     event.type === "log" && event.category === "STEP" && (
@@ -289,6 +293,7 @@ export default function App() {
         <nav aria-label="运行面板" className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-[#10151c]/80 p-1 xl:hidden">
           {([
             { id: "graph", label: "拓扑", Icon: Workflow },
+            { id: "source", label: "源码", Icon: Code2 },
             { id: "logs", label: "执行日志", Icon: ClipboardList },
             { id: "preview", label: "scrcpy 预览", Icon: MonitorPlay },
           ] as const).map(({ id, label, Icon }) => (
@@ -307,7 +312,7 @@ export default function App() {
           ))}
         </nav>
 
-        <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-[minmax(0,1.5fr)_minmax(260px,0.85fr)_minmax(260px,0.85fr)]">
+        <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 xl:grid-cols-[minmax(250px,1.05fr)_minmax(280px,1.1fr)_minmax(230px,0.9fr)_minmax(230px,0.9fr)]">
           <div className={cn("min-h-0 min-w-0", activePanel === "graph" ? "flex" : "hidden", "xl:flex")}>
             <ExecutionGraph
               nodes={nodes}
@@ -316,6 +321,14 @@ export default function App() {
               running={busy}
               onSelectNode={onSelectNode}
               onRefresh={() => window.location.reload()}
+            />
+          </div>
+          <div className={cn("min-h-0 min-w-0", activePanel === "source" ? "flex" : "hidden", "xl:flex")}>
+            <SourceViewer
+              path={sourcePath}
+              line={sourceLine}
+              functionName={sourceFunction}
+              panelActive={activePanel === "source"}
             />
           </div>
           <div className={cn("min-h-0 min-w-0", activePanel === "logs" ? "flex" : "hidden", "xl:flex")}>
