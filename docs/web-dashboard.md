@@ -35,6 +35,14 @@ and confirm the prompt to start it. A script runs with the same Python
 interpreter and working directory as `nier web`. **停止运行** sends a process
 termination request.
 
+The **源码** panel displays the selected or currently running Python file. As
+the runner reports execution locations, the panel switches to that file,
+highlights the active line, and scrolls it into view. On narrow screens, use the
+**源码** tab to open the panel; on wide screens it appears alongside the graph,
+logs, and screen preview. Source is fetched on demand only from Python files
+listed under the selected scripts directory. It is not included in location
+events, and local variable values are never shown.
+
 Choose **调试运行** to pause at the first Nier `STEP` event. The sidebar then
 provides **继续**, **步入**, **单步**, and **步出** controls, plus the current
 STEP details and call path. **单步** runs through exactly one STEP event and
@@ -42,8 +50,9 @@ pauses at the next one. **步入** waits for a STEP event at a deeper call level
 **步出** waits for one at a shallower level. These controls follow Nier STEP
 events rather than Python source lines. Normal runs remain uninterrupted and
 also stream the current script-relative Python file, line, and function to the
-**当前代码行** indicator. The runner samples location updates at up to 20 per
-second; it does not send source text or local variable values.
+**当前代码行** indicator and source panel. The runner samples location updates
+at up to 20 per second; it does not send source text or local variable values
+in those events.
 
 To rebuild the frontend from a source checkout:
 
@@ -78,7 +87,9 @@ they omit source text and local variable values.
 The current execution location is tracked only for Python files inside the
 selected scripts directory. Line tracing runs in the dashboard child process
 and may add execution overhead for heavily Python-bound scripts; dashboard UI
-updates are sampled to keep the event stream compact.
+updates are sampled to keep the event stream compact. Source reads use a
+separate same-origin endpoint restricted to available `.py` files under that
+directory; responses are not cached.
 
 The dashboard enables the existing `vvv` request/response logging level in the
 child script and streams structured Nier events after applying the existing

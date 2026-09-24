@@ -20,7 +20,7 @@ from pathlib import Path
 from typing import Any, Literal
 from urllib.parse import urlsplit
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Response
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
@@ -117,6 +117,14 @@ class _DashboardState:
         ):
             raise ValueError("script must be a Python file inside the selected scripts directory")
         return candidate
+
+    def read_source(self, relative_path: str) -> dict[str, str]:
+        """Read one available Python script for the dashboard source viewer."""
+        script = self._resolve_script(relative_path)
+        return {
+            "path": script.relative_to(self.scripts).as_posix(),
+            "source": script.read_text(encoding="utf-8"),
+        }
 
     def start(self, relative_path: str, *, debug: bool = False) -> dict[str, Any]:
         script = self._resolve_script(relative_path)
@@ -457,6 +465,20 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
     @app.get("/api/scripts")
     def list_scripts() -> dict[str, Any]:
         return {"scripts": state.list_scripts()}
+
+    @app.get("/api/source/{relative_path:path}")
+    def get_source(relative_path: str, request: Request, response: Response) -> dict[str, str]:
+        check_origin(request)
+        try:
+            source = state.read_source(relative_path)
+        except UnicodeError as exc:
+            raise HTTPException(status_code=415, detail="script source must be UTF-8") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=404, detail=str(exc)) from exc
+        except OSError as exc:
+            raise HTTPException(status_code=404, detail="script source is unavailable") from exc
+        response.headers["Cache-Control"] = "no-store"
+        return source
 
     @app.get("/api/state")
     def get_state() -> dict[str, Any]:
