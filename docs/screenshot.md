@@ -40,6 +40,8 @@ with connect("config/nier.yaml") as phone:
 
 The OCR provider is created lazily and cached by `phone`; scripts do not need
 to construct or close a provider themselves.
+To locate text and get a clickable screen-space match, use
+[`phone.locate_text()`](text-matching.md).
 
 `Screenshot` contains:
 

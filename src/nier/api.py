@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
+from difflib import SequenceMatcher
+from math import ceil, floor, isfinite
+from numbers import Real
 from pathlib import Path
 from re import Pattern
-from typing import Any, TYPE_CHECKING, Sequence, TypeAlias
+from typing import TYPE_CHECKING, Any, TypeAlias
+from unicodedata import normalize
 
 from .backends.adb import AdbBackend
 from .config import AppConfig, load_config
@@ -38,9 +42,9 @@ from .widgets import WidgetList
 
 if TYPE_CHECKING:
     from .agent import Agent, AgentRun
-    from .sysone_goal import SysOneGoal
     from .models.base import LlmProvider, OcrProvider, TextSpan
     from .models.router import ModelRouter
+    from .sysone_goal import SysOneGoal
 
 PointLike: TypeAlias = Point | tuple[float, float]
 Endpoint: TypeAlias = str | tuple[str, int]
@@ -121,6 +125,25 @@ def _image_format(value: ImageFormat | str) -> ImageFormat:
         return ImageFormat(text)
     except ValueError as exc:
         raise ValueError("format must be 'png', 'jpg', or 'jpeg'") from exc
+
+
+def _normalize_locator_text(value: str) -> str:
+    if not isinstance(value, str):
+        raise TypeError("text must be a string")
+    normalized = " ".join(normalize("NFKC", value).casefold().split())
+    if not normalized:
+        raise ValueError("text must not be empty")
+    return normalized
+
+
+def _validate_text_score(value: float) -> None:
+    if (
+        isinstance(value, bool)
+        or not isinstance(value, Real)
+        or not isfinite(value)
+        or not 0.0 <= value <= 1.0
+    ):
+        raise ValueError("min_score must be a finite number between 0 and 1")
 
 
 def _key_code(value: KeyCode | str) -> KeyCode:
@@ -351,12 +374,84 @@ class Device:
         an icon is read-only and never performs a device action.
         """
         screenshot = self.screenshot()
-        return locate_template(
+        match = locate_template(
             screenshot.data,
             template,
             min_score=min_score,
             region=region,
         )
+        return None if match is None else self._bind_image_match(match)
+
+    def locate_text(
+        self,
+        text: str,
+        *,
+        min_score: float = 0.6,
+    ) -> ImageMatch | None:
+        """Locate OCR text in one fresh screenshot using fuzzy similarity.
+
+        The first configured OCR provider recognizes the screenshot. Text is
+        normalized with Unicode NFKC and case-folding, then compared to each
+        OCR span with ``SequenceMatcher``. The best span meeting ``min_score``
+        is returned as a screen-coordinate :class:`ImageMatch`; its ``score``
+        is text similarity from 0 to 1, not a probability. The returned match
+        is bound to this device, so ``match.click()`` taps its center once.
+
+        OCR must be configured through ``models.ocr`` or
+        ``models.ocr_providers``. Screenshot reads follow the session retry
+        policy; OCR and locating do not perform a device action.
+        """
+        query = _normalize_locator_text(text)
+        _validate_text_score(min_score)
+        screenshot = self.screenshot()
+        best: ImageMatch | None = None
+        best_score = -1.0
+        for span in screenshot.ocr():
+            candidate = " ".join(
+                normalize("NFKC", span.text).casefold().split()
+            )
+            if not candidate:
+                continue
+            score = SequenceMatcher(
+                None,
+                query,
+                candidate,
+                autojunk=False,
+            ).ratio()
+            coordinates = (
+                span.box.left,
+                span.box.top,
+                span.box.right,
+                span.box.bottom,
+            )
+            if not all(isfinite(value) for value in coordinates):
+                continue
+            left = max(0, min(screenshot.width, floor(span.box.left)))
+            top = max(0, min(screenshot.height, floor(span.box.top)))
+            right = max(0, min(screenshot.width, ceil(span.box.right)))
+            bottom = max(0, min(screenshot.height, ceil(span.box.bottom)))
+            if right <= left or bottom <= top:
+                continue
+            if score > best_score:
+                best_score = score
+                best = ImageMatch(
+                    x=left,
+                    y=top,
+                    width=right - left,
+                    height=bottom - top,
+                    score=score,
+                )
+        if best is None or best.score < min_score:
+            return None
+        return self._bind_image_match(best)
+
+    def _bind_image_match(self, match: ImageMatch) -> ImageMatch:
+        center = match.center
+
+        def clicker(duration_ms: int) -> ActionResult:
+            return self.click(*center, duration_ms=duration_ms)
+
+        return replace(match, _clicker=clicker)
 
     def _ocr_screenshot(self, image: bytes) -> Sequence[TextSpan]:
         """Run the first configured OCR provider on screenshot bytes."""

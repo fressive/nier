@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import dataclass, field
 from math import isfinite
 from numbers import Real
 from pathlib import Path
 from typing import TypeAlias
 
 from .errors import VisionUnavailable
-
+from .protocol import ActionResult
 
 TemplateImage: TypeAlias = str | Path | bytes
 ImageRegion: TypeAlias = tuple[int, int, int, int]
@@ -17,13 +18,23 @@ ImageRegion: TypeAlias = tuple[int, int, int, int]
 
 @dataclass(frozen=True)
 class ImageMatch:
-    """A screenshot-template match in absolute screen pixel coordinates."""
+    """A visual match in absolute screen pixel coordinates.
+
+    Matches returned by :class:`nier.Device` are bound to that device and can
+    tap their center with :meth:`click`. Matches created by lower-level helper
+    functions are not device-bound.
+    """
 
     x: int
     y: int
     width: int
     height: int
     score: float
+    _clicker: Callable[[int], ActionResult] | None = field(
+        default=None,
+        repr=False,
+        compare=False,
+    )
 
     @property
     def bounds(self) -> tuple[int, int, int, int]:
@@ -34,6 +45,20 @@ class ImageMatch:
     def center(self) -> tuple[float, float]:
         """Return the center of the matched region in screen pixels."""
         return self.x + self.width / 2, self.y + self.height / 2
+
+    def click(self, duration_ms: int = 80) -> ActionResult:
+        """Tap the match center once; device actions are never auto-retried.
+
+        This is available on matches returned by ``Device.locate_icon()`` or
+        ``Device.locate_text()``. A standalone ``ImageMatch`` has no device
+        attached and raises ``RuntimeError``.
+        """
+        if self._clicker is None:
+            raise RuntimeError(
+                "this match is not bound to a device; obtain it from "
+                "phone.locate_icon() or phone.locate_text()"
+            )
+        return self._clicker(duration_ms)
 
 
 def locate_template(

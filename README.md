@@ -2,8 +2,8 @@
 
 Nier is an extensible Android automated-testing framework. It provides a
 Python runtime for ADB-based device control, screenshots, UI dumps, optional
-OpenCV icon matching, rooted `uinput` input, model providers, and replaceable
-backend transports.
+OpenCV icon matching and OCR text locating, rooted `uinput` input, model
+providers, and replaceable backend transports.
 
 ## Quick start
 
@@ -41,8 +41,13 @@ with connect("config/nier.yaml") as phone:
     phone.start_activity("com.android.settings", ".Settings")
     screenshot = phone.screenshot("artifacts/screen.png")
     spans = screenshot.ocr()
+    text_match = phone.locate_text("设置", min_score=0.6)
     xml = phone.uidump("artifacts/ui.xml")
 ```
+
+`locate_text()` uses the configured OCR provider and returns screen bounds,
+similarity, and an explicit `match.click()` action. See the
+[text-matching guide](docs/text-matching.md).
 
 `screenshot().ocr()` uses the first OCR provider from the loaded configuration.
 The provider is created lazily and cached for the duration of the connection;

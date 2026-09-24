@@ -1,7 +1,7 @@
 # Screenshot icon matching
 
 `phone.locate_icon()` searches a fresh screenshot for a known image template.
-It returns the best match rectangle and score; it never taps the screen. This
+It returns the best match rectangle and score without tapping the screen. This
 is useful when an icon has no text label or accessible UI node.
 
 Install the optional OpenCV dependency:
@@ -31,13 +31,18 @@ with connect("config/nier.yaml") as phone:
         print("bounds:", match.bounds)
         print("center:", match.center)
         print("matching score:", match.score)
+        # Explicitly tap only when that is the intended action:
+        # match.click()
 ```
 
 The template can also be passed as encoded image bytes. `region=(x, y, width,
 height)` optionally limits the search to a rectangle in the full screenshot;
 returned coordinates remain screen-relative. `ImageMatch` exposes integer
 `x`, `y`, `width`, and `height`, a `(left, top, right, bottom)` `bounds`, a
-pixel-coordinate `center`, and the normalized OpenCV `score`.
+pixel-coordinate `center`, and the normalized OpenCV `score`. Matches returned
+by `phone.locate_icon()` can be tapped with `match.click()`; this sends one
+device action at the match center. The coordinates are not revalidated, so use
+the match promptly if the screen may change.
 
 `min_score` must be between `0` and `1` and defaults to `0.85`. It is a
 similarity threshold, not a calibrated probability or a promised recognition
@@ -48,6 +53,6 @@ not installed, `VisionUnavailable` explains how to install the optional extra.
 
 Run this only against an authorized device and app. `DeviceSession` may retry
 the screenshot read after a transient backend failure; icon matching itself
-does not issue a device action. If you later use the returned center in
-`phone.tap(*match.center)`, that tap is an action and is never retried
-automatically.
+does not issue a device action. A call to `match.click()` is an explicit action
+and is never retried automatically. For OCR-based text matching, see
+[`text-matching.md`](text-matching.md).
