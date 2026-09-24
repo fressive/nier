@@ -2,23 +2,23 @@
 
 from __future__ import annotations
 
-import asyncio
 import ast
-from collections import deque
-from contextlib import asynccontextmanager
+import asyncio
 import json
 import os
-from pathlib import Path
 import queue
 import re
 import subprocess
 import sys
 import threading
-from datetime import datetime, timezone
-from typing import Any, Literal
-from urllib.parse import urlsplit
 import uuid
 import webbrowser
+from collections import deque
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Literal
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -26,7 +26,6 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
 from .web_preview import PreviewRequestError, PreviewUnavailable, ScrcpyPreview
-
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
 _NIER_TERMINAL_LINE = re.compile(r"^\d{2}:\d{2}:\d{2}\.\d{3} \[nier ")

@@ -4,15 +4,15 @@ from __future__ import annotations
 
 import json
 import os
-from pathlib import Path
 import queue
 import sys
 import threading
+from collections.abc import Callable
+from pathlib import Path
 from time import monotonic
-from typing import Any, Callable
+from typing import Any
 
 from .logging_utils import _WEB_EVENT_LOCK
-
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
 _COMMANDS = {"continue", "step", "step_into", "step_out"}
