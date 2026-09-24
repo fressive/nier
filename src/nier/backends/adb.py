@@ -330,7 +330,20 @@ class AdbBackend:
                     timeout=max(self.config.connect_timeout_seconds, action.duration_ms / 1000 + 2),
                 )
             else:
-                self.adb.shell("input", "tap", str(x), str(y))
+                if action.duration_ms > 0:
+                    # `input tap` has no duration argument; a stationary swipe
+                    # keeps the touch down for the requested hold time.
+                    self.adb.shell(
+                        "input",
+                        "swipe",
+                        str(x),
+                        str(y),
+                        str(x),
+                        str(y),
+                        str(action.duration_ms),
+                    )
+                else:
+                    self.adb.shell("input", "tap", str(x), str(y))
         elif isinstance(action, Swipe):
             points = [
                 self._coordinates(point.x, point.y, point.normalized, width, height)

@@ -113,6 +113,38 @@ def test_adb_backend_falls_back_to_android_input(monkeypatch) -> None:
     assert any("shell input keyevent 4" in command for command in commands)
 
 
+def test_adb_fallback_click_honors_hold_duration(monkeypatch) -> None:
+    calls = fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+
+    backend.execute(Click(Point(23, 31), duration_ms=900))
+    backend.execute(Click(Point(23, 31), duration_ms=0))
+
+    assert [
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "input",
+        "swipe",
+        "23",
+        "31",
+        "23",
+        "31",
+        "900",
+    ] in calls
+    assert [
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "input",
+        "tap",
+        "23",
+        "31",
+    ] in calls
+
+
 def test_force_system_back_attaches_frida_before_back(monkeypatch) -> None:
     calls = fake_adb(monkeypatch)
 

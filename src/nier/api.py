@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import random
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import replace
 from difflib import SequenceMatcher
@@ -37,7 +38,7 @@ from .results import RunRecorder
 from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
-from .vision import ImageMatch, locate_template
+from .vision import ImageMatch, SwipeDirection, locate_template
 from .widgets import WidgetList
 
 if TYPE_CHECKING:
@@ -144,6 +145,84 @@ def _validate_text_score(value: float) -> None:
         or not 0.0 <= value <= 1.0
     ):
         raise ValueError("min_score must be a finite number between 0 and 1")
+
+
+def _jittered_point(
+    x: float,
+    y: float,
+    bounds: tuple[int, int, int, int],
+    jitter: float,
+) -> tuple[float, float]:
+    left, top, right, bottom = bounds
+
+    def offset(value: float, low: int, high: int) -> float:
+        if high <= low or jitter == 0:
+            return max(low, min(high, value))
+        return max(
+            low,
+            min(high, value + random.uniform(-jitter, jitter)),
+        )
+
+    return offset(x, left, right - 1), offset(y, top, bottom - 1)
+
+
+def _directional_swipe_points(
+    match: ImageMatch,
+    screen_size: tuple[int, int],
+    direction: SwipeDirection,
+    distance: float | None,
+    jitter: float,
+) -> tuple[tuple[float, float], ...]:
+    width, height = screen_size
+    start_x, start_y = _jittered_point(*match.center, match.bounds, jitter)
+    vertical = direction in ("up", "down")
+    dimension = height if vertical else width
+    requested_distance = distance if distance is not None else dimension * 0.4
+    if direction == "up":
+        axis_start, sign, axis_limit = start_y, -1.0, height - 1
+    elif direction == "down":
+        axis_start, sign, axis_limit = start_y, 1.0, height - 1
+    elif direction == "left":
+        axis_start, sign, axis_limit = start_x, -1.0, width - 1
+    else:
+        axis_start, sign, axis_limit = start_x, 1.0, width - 1
+
+    available = axis_start if sign < 0 else axis_limit - axis_start
+    travel = min(float(requested_distance), available)
+    if travel < 1.0:
+        raise ValueError(
+            f"not enough screen space to swipe {direction} from this match"
+        )
+
+    if vertical:
+        cross_start = start_x
+        cross_limit = width - 1
+    else:
+        cross_start = start_y
+        cross_limit = height - 1
+    cross_end = cross_start
+    if jitter:
+        cross_end = max(
+            0.0,
+            min(cross_limit, cross_start + random.uniform(-jitter, jitter)),
+        )
+
+    def point_at(progress: float) -> tuple[float, float]:
+        axis = axis_start + sign * travel * progress
+        cross = cross_start + (cross_end - cross_start) * progress
+        if 0.0 < progress < 1.0 and jitter:
+            cross += random.uniform(-jitter * 0.5, jitter * 0.5)
+        cross = max(0.0, min(cross_limit, cross))
+        axis = max(0.0, min(axis_limit, axis))
+        return (cross, axis) if vertical else (axis, cross)
+
+    return (
+        (start_x, start_y),
+        point_at(0.25),
+        point_at(0.5),
+        point_at(0.75),
+        point_at(1.0),
+    )
 
 
 def _key_code(value: KeyCode | str) -> KeyCode:
@@ -260,6 +339,7 @@ class Device:
         normalized: bool = False,
         duration_ms: int = 80,
     ) -> ActionResult:
+        """Click at screen coordinates, holding for ``duration_ms``."""
         return self.session.execute(Click(Point(x, y, normalized), duration_ms))
 
     tap = click
@@ -380,7 +460,14 @@ class Device:
             min_score=min_score,
             region=region,
         )
-        return None if match is None else self._bind_image_match(match)
+        return (
+            None
+            if match is None
+            else self._bind_image_match(
+                match,
+                screen_size=(screenshot.width, screenshot.height),
+            )
+        )
 
     def locate_text(
         self,
@@ -443,15 +530,49 @@ class Device:
                 )
         if best is None or best.score < min_score:
             return None
-        return self._bind_image_match(best)
+        return self._bind_image_match(
+            best,
+            screen_size=(screenshot.width, screenshot.height),
+        )
 
-    def _bind_image_match(self, match: ImageMatch) -> ImageMatch:
+    def _bind_image_match(
+        self,
+        match: ImageMatch,
+        *,
+        screen_size: tuple[int, int],
+    ) -> ImageMatch:
+        bounds = match.bounds
         center = match.center
 
-        def clicker(duration_ms: int) -> ActionResult:
-            return self.click(*center, duration_ms=duration_ms)
+        def clicker(duration_ms: int, jitter: float) -> ActionResult:
+            point = _jittered_point(*center, bounds, jitter)
+            return self.click(*point, duration_ms=duration_ms)
 
-        return replace(match, _clicker=clicker)
+        def long_presser(duration_ms: int, jitter: float) -> ActionResult:
+            anchor = _jittered_point(*center, bounds, jitter)
+            return self.click(*anchor, duration_ms=duration_ms)
+
+        def swiper(
+            direction: SwipeDirection,
+            distance: float | None,
+            duration_ms: int,
+            jitter: float,
+        ) -> ActionResult:
+            points = _directional_swipe_points(
+                match,
+                screen_size,
+                direction,
+                distance,
+                jitter,
+            )
+            return self.swipe(*points, duration_ms=duration_ms)
+
+        return replace(
+            match,
+            _clicker=clicker,
+            _long_presser=long_presser,
+            _swiper=swiper,
+        )
 
     def _ocr_screenshot(self, image: bytes) -> Sequence[TextSpan]:
         """Run the first configured OCR provider on screenshot bytes."""

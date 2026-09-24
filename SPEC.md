@@ -224,11 +224,18 @@ typed provider errors. OCR matching and screenshot acquisition MUST NOT click
 or otherwise mutate the device.
 
 `ImageMatch` values returned by `Device.locate_icon()` and
-`Device.locate_text()` MUST provide `click(duration_ms=80)`, which emits one
-click at the center of the matched bounds. A match from a lower-level helper
-without a bound `Device` MUST reject `click()`. This click is a device action
-and MUST NOT be retried automatically. Match coordinates are a snapshot and
-are not revalidated if the screen changes before the click.
+`Device.locate_text()` MUST provide bound `click()`, `long_press()`, and
+`swipe(direction)` gestures. Click defaults to 80 ms, long press to 800 ms,
+and directional swipe to 350 ms; long-press duration MUST be a positive
+integer, and swipe direction is one of `up`, `down`,
+`left`, or `right`. Swipe defaults to 40% of the corresponding screen
+dimension, capped at available space from the matched center. Gesture jitter
+defaults to at most 2 pixels; click and long-press jitter MUST stay inside the
+matched rectangle, and swipe endpoints/path MUST stay inside screen bounds.
+Passing `jitter=0` MUST disable random coordinate offsets. A match from a
+lower-level helper without a bound `Device` MUST reject gestures. Each gesture
+is one device action and MUST NOT be retried automatically. Match coordinates
+are a snapshot and are not revalidated if the screen changes before a gesture.
 
 ## 6. UI dump contract
 

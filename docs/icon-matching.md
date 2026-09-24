@@ -41,8 +41,22 @@ returned coordinates remain screen-relative. `ImageMatch` exposes integer
 `x`, `y`, `width`, and `height`, a `(left, top, right, bottom)` `bounds`, a
 pixel-coordinate `center`, and the normalized OpenCV `score`. Matches returned
 by `phone.locate_icon()` can be tapped with `match.click()`; this sends one
-device action at the match center. The coordinates are not revalidated, so use
-the match promptly if the screen may change.
+device action near the match center, within its bounds. The coordinates are
+not revalidated, so use the match promptly if the screen may change.
+
+Image matches also support an explicit long press or directional swipe:
+
+```python
+match.long_press(duration_ms=900)
+match.swipe("left", distance=240, duration_ms=450)
+```
+
+The swipe direction can be `"up"`, `"down"`, `"left"`, or `"right"`. Gesture
+methods add up to 2 pixels of human-like coordinate jitter by default; click
+and long-press jitter stays inside the match bounds, and swipe paths receive
+small random curvature on multipoint backends. The standard ADB shell fallback
+uses jittered endpoints on a straight path. Pass `jitter=0` for deterministic
+coordinates.
 
 `min_score` must be between `0` and `1` and defaults to `0.85`. It is a
 similarity threshold, not a calibrated probability or a promised recognition
@@ -53,6 +67,7 @@ not installed, `VisionUnavailable` explains how to install the optional extra.
 
 Run this only against an authorized device and app. `DeviceSession` may retry
 the screenshot read after a transient backend failure; icon matching itself
-does not issue a device action. A call to `match.click()` is an explicit action
-and is never retried automatically. For OCR-based text matching, see
+does not issue a device action. Calls to `match.click()`, `match.long_press()`,
+and `match.swipe()` are explicit actions and are never retried automatically.
+For OCR-based text matching, see
 [`text-matching.md`](text-matching.md).
