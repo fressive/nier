@@ -50,9 +50,8 @@ pauses at the next one. **步入** waits for a STEP event at a deeper call level
 **步出** waits for one at a shallower level. These controls follow Nier STEP
 events rather than Python source lines. Normal runs remain uninterrupted and
 also stream the current script-relative Python file, line, and function to the
-**当前代码行** indicator and source panel. The runner samples location updates
-at up to 20 per second; it does not send source text or local variable values
-in those events.
+source panel. The runner samples location updates at up to 20 per second; it
+does not send source text or local variable values in those events.
 
 To rebuild the frontend from a source checkout:
 

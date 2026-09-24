@@ -4,7 +4,6 @@ import { ClipboardList, Code2, MonitorPlay, Workflow, XCircle } from "lucide-rea
 import { ExecutionGraph } from "./components/execution-graph";
 import { LogSidebar } from "./components/log-sidebar";
 import { RunConfirmDialog } from "./components/run-confirm-dialog";
-import { RunMetrics } from "./components/run-metrics";
 import { RunStatusBadge } from "./components/status-indicator";
 import { RunToolbar } from "./components/run-toolbar";
 import { ScreenPreview } from "./components/screen-preview";
@@ -142,15 +141,6 @@ export default function App() {
   const sourceLine = run.execution_location?.file === sourcePath ? run.execution_location.line : null;
   const sourceFunction = run.execution_location?.file === sourcePath ? run.execution_location.function : null;
   const busy = isBusy(run.status);
-  const successCount = pathEvents.filter((event) =>
-    event.type === "log" && event.category === "STEP" && (
-      event.details?.status === "ok"
-      || (event.message === "read" && events.some((candidate) =>
-        candidate.category === "READ RESULT" && candidate.step_id === event.event_id,
-      ))
-    ),
-  ).length;
-  const failureCount = pathEvents.filter((event) => event.type === "log" && event.category === "STEP" && event.details?.status === "failed").length;
 
   const handleStart = (debug: boolean) => {
     setPendingDebug(debug);
@@ -269,26 +259,6 @@ export default function App() {
             <button className="shrink-0 text-rose-300/70 hover:text-rose-200" onClick={() => setError("")} aria-label="关闭错误提示"><XCircle className="h-4 w-4" /></button>
           </div>
         )}
-
-        <RunMetrics script={run.script || selectedScript} pathCount={pathEvents.length} successCount={successCount} failureCount={failureCount} />
-
-        <div className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-[#10151c]/80 px-3 py-2">
-          <Code2 className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
-          <span className="shrink-0 text-[10px] text-slate-500">当前代码行</span>
-          {run.execution_location ? (
-            <>
-              <code
-                className="min-w-0 truncate text-[11px] font-medium text-emerald-200"
-                title={`${run.execution_location.file}:${run.execution_location.line}`}
-              >
-                {run.execution_location.file}:{run.execution_location.line}
-              </code>
-              <span className="min-w-0 truncate text-[10px] text-slate-500">{run.execution_location.function}</span>
-            </>
-          ) : (
-            <span className="truncate text-[10px] text-slate-600">{busy ? "等待 Python 执行…" : "暂无运行位置"}</span>
-          )}
-        </div>
 
         <nav aria-label="运行面板" className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-[#10151c]/80 p-1 xl:hidden">
           {([
