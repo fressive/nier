@@ -101,7 +101,15 @@ class IntentHookSession:
                 if self._closed.is_set():
                     return
                 event = self._assembler.feed(line)
-                if event is None or event.get("package") != self.package:
+                if event is None:
+                    continue
+                process_name = event.get("process")
+                process_package = (
+                    process_name.split(":", 1)[0]
+                    if isinstance(process_name, str)
+                    else None
+                )
+                if event.get("package") != self.package and process_package != self.package:
                     continue
                 kind = event.get("event")
                 if not isinstance(kind, str):
@@ -139,6 +147,7 @@ class IntentHookSession:
                     "enable Nier in LSPosed and add the package to its scope"
                 )
             if event.kind == "module_ready":
+                self._pending.append(event)
                 return
             if event.kind == "module_error":
                 raise HookUnavailable(

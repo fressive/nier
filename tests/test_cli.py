@@ -73,7 +73,17 @@ def test_intent_hook_uses_lsposed_events_without_frida(monkeypatch, tmp_path, ca
     class FakeSession:
         def __init__(self):
             self.events = [
-                IntentHookEvent("module_ready", {"pid": 123}),
+                IntentHookEvent(
+                    "module_ready",
+                    {
+                        "pid": 123,
+                        "hooks": 16,
+                        "hook_sources": {
+                            "Instrumentation": 4,
+                            "ActivityThread": 1,
+                        },
+                    },
+                ),
                 IntentHookEvent(
                     "intent",
                     {
@@ -128,6 +138,7 @@ def test_intent_hook_uses_lsposed_events_without_frida(monkeypatch, tmp_path, ca
 
     output = capsys.readouterr().out
     assert "Listening for LSPosed Intent events from com.example.app" in output
+    assert "16 hooks; Instrumentation=4, ActivityThread=1" in output
     assert "Reusable Nier Python launch code:" in output
     assert "phone.start_intent(intent)" in output
     assert hook_calls == [("init", 10.0), ("attach", "com.example.app", False, None)]

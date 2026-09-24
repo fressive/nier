@@ -60,11 +60,15 @@ serial/server is used for logcat and launch commands. No Frida package,
 `frida-server`, port forwarding, or device-side Nier server is used by this
 command.
 
-The module observes successful app-process calls through Android
-`Instrumentation` and `ContextImpl`. It reports the component, action, data
-URI, MIME type, package, flags, categories, and bounded extras. It does not
-capture the incoming launcher Intent from Android or infer the Intent that
-started the hooked process.
+The module observes successful app-process Activity launches through Android
+`Instrumentation`, `ContextImpl`, and the framework ActivityTaskManager binder
+proxy. An `ActivityThread` delivery hook provides a fallback only when no
+launch-side hook method is available. It skips the process's first Activity so
+the initial launcher Intent is not reported. Captures include the component,
+action, data URI, MIME type, package, flags, categories, and bounded extras.
+The CLI matches events by their app process as well as their loaded package,
+which handles Android WebView code running inside the target app process. It
+prints the installed hook count by source after LSPosed loads the module.
 
 ## Generated code and capture limits
 

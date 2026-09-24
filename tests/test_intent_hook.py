@@ -199,7 +199,8 @@ def test_session_filters_other_packages_and_decodes_events() -> None:
         {"event": "module_ready", "package": "com.example.app", "pid": 42},
         {
             "event": "intent",
-            "package": "com.example.app",
+            "package": "com.google.android.webview",
+            "process": "com.example.app",
             "source": "execStartActivity",
             "intent": {"action": "com.example.OPEN"},
         },
@@ -241,9 +242,60 @@ def test_session_filters_other_packages_and_decodes_events() -> None:
         assert session.next_event(timeout=1) == IntentHookEvent(
             "intent",
             {
-                "package": "com.example.app",
+                "package": "com.google.android.webview",
+                "process": "com.example.app",
                 "source": "execStartActivity",
                 "intent": {"action": "com.example.OPEN"},
+            },
+        )
+    finally:
+        session.close()
+
+
+def test_wait_ready_preserves_module_diagnostics_for_the_cli() -> None:
+    event = {
+        "event": "module_ready",
+        "package": "com.example.app",
+        "pid": 42,
+        "hooks": 16,
+        "hook_sources": {"ActivityThread": 1},
+    }
+    lines = _log_lines(event)
+
+    class FakeProcess:
+        def __init__(self):
+            self.stdout = io.StringIO("\n".join(lines) + "\n")
+            self.terminated = False
+
+        def poll(self):
+            return 0 if self.terminated else None
+
+        def terminate(self):
+            self.terminated = True
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            self.terminated = True
+
+    process = FakeProcess()
+
+    class FakeAdb:
+        def start_logcat(self, *_filters):
+            return process
+
+    session = IntentHookSession(FakeAdb(), "com.example.app")  # type: ignore[arg-type]
+    try:
+        session.wait_ready(timeout=1)
+        ready = session.next_event(timeout=1)
+        assert ready == IntentHookEvent(
+            "module_ready",
+            {
+                "package": "com.example.app",
+                "pid": 42,
+                "hooks": 16,
+                "hook_sources": {"ActivityThread": 1},
             },
         )
     finally:

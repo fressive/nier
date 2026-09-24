@@ -216,9 +216,24 @@ def _run_intent_hook(args: argparse.Namespace) -> int:
                     f"nier intent-hook: {event.payload.get('error', 'ADB logcat failed')}"
                 )
             if event.kind == "module_ready":
+                hook_sources = event.payload.get("hook_sources")
+                installed_hooks = []
+                if isinstance(hook_sources, Mapping):
+                    installed_hooks = [
+                        f"{source}={count}"
+                        for source, count in hook_sources.items()
+                        if isinstance(source, str) and isinstance(count, int)
+                    ]
+                hook_count = event.payload.get("hooks")
+                details = []
+                if isinstance(hook_count, int):
+                    details.append(f"{hook_count} hooks")
+                if installed_hooks:
+                    details.append(", ".join(installed_hooks))
+                diagnostic = "; " + "; ".join(details) if details else ""
                 print(
                     f"LSPosed hook active for {package} "
-                    f"(pid {event.payload.get('pid', 'unknown')}).",
+                    f"(pid {event.payload.get('pid', 'unknown')}{diagnostic}).",
                     flush=True,
                 )
                 continue
