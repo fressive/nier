@@ -104,6 +104,7 @@ class HookMode(str, Enum):
     AUTO = "auto"
     ROOT = "root"
     NON_ROOT = "non-root"
+    LSPOSED = "lsposed"
 
 
 @dataclass(frozen=True)
@@ -113,8 +114,10 @@ class HookConfig:
     force_system_back is a root-Frida opt-in. When enabled, the hook suppresses
     common application-owned Java back callbacks so a back action can reach
     the platform default behavior. Root WebView instrumentation uses the
-    Frida server settings. The intent-hook CLI uses the target package, spawn
-    mode, and timeout to listen for events from the installed LSPosed module.
+    Frida server settings. LSPosed mode uses the installed Nier Android module
+    to enable WebView debugging in its scoped app processes. The intent-hook
+    CLI also uses the target package and timeout to listen for events from that
+    module.
     The Back policy is deliberately disabled by default because it changes
     application navigation semantics.
     """
@@ -418,8 +421,8 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
         raise ConfigurationError(
             "hook.target_package is required when hook.force_system_back is enabled"
         )
-    if force_system_back and hook_mode is HookMode.NON_ROOT:
-        raise ConfigurationError("hook.force_system_back requires root or auto hook mode")
+    if force_system_back and hook_mode not in {HookMode.AUTO, HookMode.ROOT}:
+        raise ConfigurationError("hook.force_system_back requires root Frida or auto hook mode")
 
     try:
         input_text_mode = InputTextMode(str(input_text.get("mode", InputTextMode.SHELL.value)).lower())

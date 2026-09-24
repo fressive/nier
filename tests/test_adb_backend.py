@@ -319,6 +319,61 @@ def test_adb_dump_ui_uses_exec_out_without_a_device_file(monkeypatch) -> None:
     assert not any("cat /sdcard/nier-ui.xml" in " ".join(call) for call in calls)
 
 
+def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) -> None:
+    calls = fake_adb(monkeypatch)
+
+    class FakeSession:
+        pid = 321
+
+        def close(self) -> None:
+            calls.append(["lsposed-session-close"])
+
+    class FakeHook:
+        capabilities = HookCapabilities(
+            mode=HookMode.LSPOSED,
+            can_inject=True,
+            requires_app_integration=False,
+            can_enable_webview_debugging=True,
+        )
+
+        def __init__(self) -> None:
+            self.attach_calls = 0
+
+        def attach(self, package: str, *, spawn: bool | None = None) -> FakeSession:
+            assert package == "com.example.app"
+            assert spawn is None
+            self.attach_calls += 1
+            return FakeSession()
+
+    class FakeDevTools:
+        def __init__(self, _adb, *, package, pid, timeout) -> None:
+            assert package == "com.example.app"
+            assert pid == 321
+            assert timeout == 10.0
+
+        def dump_dom(self) -> str:
+            return "<html><body>lsposed</body></html>"
+
+    hook = FakeHook()
+    monkeypatch.setattr("nier.backends.adb.create_webview_hook", lambda *_args: hook)
+    monkeypatch.setattr("nier.backends.adb.WebViewDevTools", FakeDevTools)
+    backend = AdbBackend(
+        DeviceConfig(serial="device", use_uinput=False),
+        hook_config=HookConfig(
+            mode=HookMode.LSPOSED,
+            target_package="com.example.app",
+        ),
+    )
+
+    dump = backend.dump_ui()
+
+    assert dump.source.value == "WEBVIEW_DEVTOOLS"
+    assert dump.xml == "<html><body>lsposed</body></html>"
+    assert hook.attach_calls == 1
+    backend.close()
+    assert ["lsposed-session-close"] in calls
+
+
 def test_adb_dump_ui_keeps_file_fallback_and_cleans_up(monkeypatch) -> None:
     calls = fake_adb(monkeypatch)
     backend = AdbBackend(DeviceConfig(serial="device"))

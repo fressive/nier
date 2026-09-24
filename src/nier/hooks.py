@@ -1,28 +1,30 @@
-"""Authorized Frida instrumentation with explicit root/non-root modes.
+"""Authorized WebView instrumentation with explicit root and module modes.
 
 Root mode uses a Frida session attached to the target process. Non-root mode
 never attempts to attach to an arbitrary process; it requires the target app
 to opt in by calling the small Android WebView debug controller supplied with
 the repository. Root mode can also opt into a best-effort system-Back policy.
+LSPosed mode verifies that the installed Nier module enabled debugging in the
+target process and does not use Frida.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from collections.abc import Mapping
 import json
-from pathlib import Path
-from queue import Empty, Queue
 import re
 import shlex
 import threading
 import time
+from collections.abc import Mapping
+from dataclasses import dataclass
+from pathlib import Path
+from queue import Empty, Queue
 from typing import Any, Protocol
 
 from .adb import AdbClient
 from .config import HookConfig, HookMode
 from .errors import HookError, HookUnavailable
-
+from .protocol import validate_package_name
 
 DEFAULT_WEBVIEW_SCRIPT = """
 'use strict';
@@ -452,6 +454,88 @@ class _FridaHookSession:
             )
 
 
+class _LsposedWebViewSession:
+    """A handle for a target process managed by the LSPosed module."""
+
+    def __init__(self, pid: int) -> None:
+        self.pid = pid
+
+    def next_event(self, timeout: float | None = None) -> HookEvent | None:
+        del timeout
+        return None
+
+    def close(self) -> None:
+        """The LSPosed module lifetime follows the target app process."""
+
+
+class LsposedWebViewHook:
+    """Verify WebView debugging enabled by the scoped Nier LSPosed module."""
+
+    _READY_TAG = "NierWebViewHook:I"
+
+    def __init__(self, adb: AdbClient, config: HookConfig) -> None:
+        self._adb = adb
+        self._config = config
+
+    @property
+    def capabilities(self) -> HookCapabilities:
+        return HookCapabilities(
+            mode=HookMode.LSPOSED,
+            can_inject=True,
+            requires_app_integration=False,
+            can_enable_webview_debugging=True,
+            reason="requires the Nier LSPosed module enabled and scoped to the target app",
+        )
+
+    def attach(self, package: str | None = None, *, spawn: bool | None = None) -> HookSession:
+        raw_target = package or self._config.target_package or ""
+        target = validate_package_name(raw_target.strip())
+        should_spawn = self._config.spawn if spawn is None else spawn
+        if should_spawn:
+            raise HookUnavailable(
+                "LSPosed hooks run when the app process starts; enable Nier for this package "
+                "in LSPosed, then restart the target app before dumping its WebView"
+            )
+
+        pid_output = self._adb.shell("pidof", target, check=False)
+        pids = [int(value) for value in re.findall(r"\b\d+\b", pid_output)]
+        if not pids:
+            raise HookUnavailable(
+                f"target process {target} is not running; start it after enabling the Nier LSPosed module"
+            )
+        log_output = self._adb.shell(
+            "logcat",
+            "-d",
+            "-t",
+            "2000",
+            "-s",
+            self._READY_TAG,
+            check=False,
+        )
+        log_lines = log_output.splitlines()
+        for pid in pids:
+            ready_record = f"NIER_WEBVIEW_V1|READY|{target}|{pid}|"
+            if any(ready_record in line for line in log_lines):
+                return _LsposedWebViewSession(pid)
+
+        for pid in pids:
+            error_record = f"NIER_WEBVIEW_V1|ERROR|{target}|{pid}|"
+            for line in log_lines:
+                if error_record not in line:
+                    continue
+                error_kind = line.split(error_record, 1)[1].split("|", 1)[-1].strip()
+                if error_kind:
+                    raise HookUnavailable(
+                        f"LSPosed WebView hook failed for {target} ({error_kind}); "
+                        "check the Nier module status in LSPosed"
+                    )
+
+        raise HookUnavailable(
+            f"LSPosed did not report WebView debugging for {target}; enable Nier in LSPosed, "
+            "add the package to its scope, then force-stop and reopen the app"
+        )
+
+
 def _attach_root_frida_agent(
     adb: AdbClient,
     config: HookConfig,
@@ -590,6 +674,8 @@ def create_webview_hook(config: HookConfig, adb: AdbClient) -> WebViewHook:
         return RootFridaWebViewHook(adb, config)
     if config.mode is HookMode.NON_ROOT:
         return NonRootWebViewHook()
+    if config.mode is HookMode.LSPOSED:
+        return LsposedWebViewHook(adb, config)
     if adb.is_root():
         return RootFridaWebViewHook(adb, config)
     return NonRootWebViewHook()

@@ -6,6 +6,7 @@ from nier.config import HookConfig, HookMode
 from nier.errors import HookUnavailable
 from nier.hooks import (
     DEFAULT_WEBVIEW_SCRIPT,
+    LsposedWebViewHook,
     NonRootWebViewHook,
     RootFridaWebViewHook,
     _load_webview_script,
@@ -42,6 +43,77 @@ def test_auto_mode_selects_root_or_non_root() -> None:
     assert isinstance(rooted, RootFridaWebViewHook)
     assert rooted.capabilities.can_inject is True
     assert isinstance(unrooted, NonRootWebViewHook)
+
+
+def test_lsposed_mode_checks_module_readiness_without_root_or_frida() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def __init__(self) -> None:
+            super().__init__(rooted=False)
+            self.commands: list[tuple[str, ...]] = []
+
+        def is_root(self) -> bool:
+            raise AssertionError("LSPosed mode must not check root access")
+
+        def shell(self, *args: str, **_kwargs) -> str:
+            self.commands.append(args)
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            if args[:2] == ("logcat", "-d"):
+                return (
+                    "I/NierWebViewHook( 123): "
+                    "NIER_WEBVIEW_V1|READY|com.example.app|123|com.example.app\n"
+                )
+            raise AssertionError(f"unexpected command: {args}")
+
+    adb = FakeLsposedAdb()
+    hook = create_webview_hook(
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+        adb,  # type: ignore[arg-type]
+    )
+
+    assert isinstance(hook, LsposedWebViewHook)
+    assert hook.capabilities.can_enable_webview_debugging is True
+    session = hook.attach()
+    assert session.pid == 123  # type: ignore[attr-defined]
+    assert adb.commands == [
+        ("pidof", "com.example.app"),
+        ("logcat", "-d", "-t", "2000", "-s", "NierWebViewHook:I"),
+    ]
+
+
+def test_lsposed_mode_explains_missing_module_scope() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def shell(self, *args: str, **_kwargs) -> str:
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            return ""
+
+    hook = LsposedWebViewHook(
+        FakeLsposedAdb(rooted=True),
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+    )
+
+    with pytest.raises(HookUnavailable, match="add the package to its scope"):
+        hook.attach()
+
+
+def test_lsposed_mode_reports_module_hook_errors() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def shell(self, *args: str, **_kwargs) -> str:
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            return (
+                "E/NierWebViewHook( 123): "
+                "NIER_WEBVIEW_V1|ERROR|com.example.app|123|NoSuchMethodException\n"
+            )
+
+    hook = LsposedWebViewHook(
+        FakeLsposedAdb(rooted=True),
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+    )
+
+    with pytest.raises(HookUnavailable, match="NoSuchMethodException"):
+        hook.attach()
 
 
 def test_root_mode_rejects_unrooted_device_before_loading_frida() -> None:

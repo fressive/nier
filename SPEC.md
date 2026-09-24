@@ -292,6 +292,11 @@ package is configured and `false` otherwise. The optional hook controller in
 - `non-root` mode MUST NOT call `su`, ptrace, or Frida attach. It is cooperative
   only: the target application must call
   `WebViewDebugController.enable()` before creating its WebView;
+- `lsposed` mode MUST require the Nier Android module to be installed, enabled,
+  and scoped to the target package. The module MUST enable WebView debugging
+  during application startup and keep later calls from disabling it. The host
+  MUST verify the module's readiness record for the current process before
+  querying CDP. This mode MUST NOT use Frida, `su`, or restart the application;
 - `auto` mode selects root mode only after an ADB root check and otherwise
   selects the cooperative non-root mode.
 
@@ -302,25 +307,26 @@ successful access path.
 When `hook.force_system_back=true`, root Frida mode additionally installs the
 Back policy hook before the first configured Back action. This option MUST be
 disabled by default, MUST require `hook.target_package`, and MUST reject
-explicit `non-root` mode. The hook blocks common AndroidX and platform Back
-callback registrations and routes supported legacy Java callbacks to the
-platform `Activity` default. `spawn=true` SHOULD be used so callbacks are
+explicit `non-root` and `lsposed` modes. The hook blocks common AndroidX and
+platform Back callback registrations and routes supported legacy Java
+callbacks to the platform `Activity` default. `spawn=true` SHOULD be used so callbacks are
 blocked before the application registers them. This is an authorized,
 best-effort Java hook; native engines, already-registered callbacks in attach
 mode, and application-specific navigation layers may require a target-specific
 Frida script.
 
-The hook enables `WebView.setWebContentsDebuggingEnabled(true)`, and
-`src/nier/webview.py` performs the separate CDP extraction. Root and non-root
-therefore share the same DOM extraction path after debugging is enabled.
+The root Frida hook, LSPosed module, and cooperative non-root integration
+enable `WebView.setWebContentsDebuggingEnabled(true)`, and
+`src/nier/webview.py` performs the separate CDP extraction. All modes share the
+same DOM extraction path after debugging is enabled.
 
 ### LSPosed Activity Intent hook CLI
 
 `nier intent-hook` MUST consume Intent events from the LSPosed module packaged
 in `backend/nier-android` through the configured ADB logcat stream. This
 command MUST NOT use Frida, `frida-server`, root shell commands, or port
-forwarding. The host-side `frida` extra remains optional for the separate
-WebView hook.
+forwarding. The host-side `frida` extra remains optional for explicit root
+WebView mode; `lsposed` WebView mode uses the installed Android module.
 
 The module MUST declare the LSPosed module metadata and a legacy
 `assets/xposed_init` entry point. It MUST hook the app-process

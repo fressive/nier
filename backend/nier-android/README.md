@@ -5,9 +5,9 @@ server. It communicates through ADB directly. Rooted touch injection is kept
 in the standalone `backend/nier-uinput` executable, which the host invokes in
 persistent stdin/stdout session mode.
 
-This module contains the LSPosed Activity Intent capture module, the optional
-IME, and Android/JNI experiments. It is not required by the default ADB
-backend. Build the APK with an Android SDK and Gradle:
+This module contains the LSPosed Activity Intent capture and WebView debugging
+hooks, the optional IME, and Android/JNI experiments. It is not required by
+the default ADB backend. Build the APK with an Android SDK and Gradle:
 
 ```bash
 gradle :app:assembleDebug
@@ -16,8 +16,11 @@ gradle :app:assembleDebug
 Install `app/build/outputs/apk/debug/app-debug.apk`, enable **Nier Backend**
 in LSPosed Manager, and add only authorized target packages to its scope.
 LSPosed loads the module when each scoped application process starts. The
-nier intent-hook CLI reads its bounded, chunked Intent events from the
-configured ADB logcat stream.
+`nier intent-hook` CLI reads its bounded, chunked Intent events from the
+configured ADB logcat stream. For WebView DevTools, the module enables
+`WebView.setWebContentsDebuggingEnabled(true)` at app startup and reports
+readiness using the `NierWebViewHook` logcat tag; host configuration uses
+`hook.mode: lsposed` to verify that report without using Frida.
 
 The Intent module hooks `Instrumentation`, `ContextImpl`, and the framework
 ActivityTaskManager binder proxy. The binder hook also covers app code that
