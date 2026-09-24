@@ -5,9 +5,9 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from nier import Device, connect
+from nier import Device, Widget, WidgetList, connect
 from nier.config import from_mapping
-from nier.errors import ConfigurationError, ProtocolError, UiElementNotFound
+from nier.errors import ConfigurationError, ModelError, ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
 from nier.models.sysone import SysOneAnswer, SysOneResponse
 from nier.protocol import (
@@ -85,8 +85,16 @@ def test_public_goal_entry_points_use_llm_and_sysone_names() -> None:
 
     assert callable(phone.llm)
     assert callable(phone.sysone)
+    assert callable(phone.choice)
+    assert callable(phone.noul)
+    assert callable(phone.score)
+    assert callable(phone.widgets)
+    widgets = phone.widgets()
+    assert isinstance(widgets, WidgetList)
+    assert isinstance(widgets[0], Widget)
     assert not hasattr(phone, "run")
     assert not hasattr(phone, "run_jev_goal")
+    assert not hasattr(phone, "sysone_provider")
 
 
 def test_script_actions_build_protocol_actions() -> None:
@@ -290,6 +298,19 @@ def test_sysone_is_created_from_configuration_and_cached(monkeypatch) -> None:
     class FakeSysOne:
         def __init__(self) -> None:
             self.closed = False
+            self.calls: list[tuple[str, tuple, dict]] = []
+
+        def choice(self, *args, **kwargs):
+            self.calls.append(("choice", args, kwargs))
+            return SysOneAnswer(type="choice", choice="option_1")
+
+        def noul(self, *args, **kwargs):
+            self.calls.append(("noul", args, kwargs))
+            return SysOneAnswer(type="noul", noul=0.75)
+
+        def score(self, *args, **kwargs):
+            self.calls.append(("score", args, kwargs))
+            return SysOneAnswer(type="score", score=0.5)
 
         def close(self) -> None:
             self.closed = True
@@ -302,9 +323,22 @@ def test_sysone_is_created_from_configuration_and_cached(monkeypatch) -> None:
 
     monkeypatch.setattr(phone, "_configured_sysone", create)
 
-    assert phone.sysone_provider() is fake
-    assert phone.sysone_provider() is fake
+    choice = phone.choice(
+        {"screen": "settings"}, ["option_1"], instructions="pick"
+    )
+    noul = phone.noul({"screen": "settings"}, instructions="done?")
+    score = phone.score(
+        {"screen": "settings"}, ["low", "high"], instructions="rate"
+    )
+
+    assert choice.choice == "option_1"
+    assert noul.noul == 0.75
+    assert score.score == 0.5
     assert phone._sysone_cache == {"default": fake}
+    assert [call[0] for call in fake.calls] == ["choice", "noul", "score"]
+    assert fake.calls[0][2]["instructions"] == "pick"
+    assert fake.calls[1][2]["question_id"] == "noul"
+    assert fake.calls[2][1][1] == ["low", "high"]
 
     phone.close()
 
@@ -325,7 +359,7 @@ def test_sysone_configuration_builds_a_typesafe_provider(monkeypatch) -> None:
     )
     phone = Device(DeviceSession(FakeBackend()), app_config=config)
 
-    provider = phone.sysone_provider()
+    provider = phone._configured_sysone("default")
 
     assert provider.base_url == "https://api.typesafe.ai/v1/systemone"
     assert provider.model == "jev-latest"
@@ -359,7 +393,8 @@ def test_first_llm_ocr_and_explicit_sysone_providers_are_selected(monkeypatch) -
             return []
 
     class FakeSysOne:
-        pass
+        def choice(self, state, options, **kwargs):
+            return SysOneAnswer(type="choice", choice=next(iter(options)))
 
     monkeypatch.setattr(
         phone,
@@ -378,7 +413,7 @@ def test_first_llm_ocr_and_explicit_sysone_providers_are_selected(monkeypatch) -
     )
 
     phone.screenshot().ocr()
-    phone.sysone_provider()
+    phone.choice({}, ["one"], instructions="choose")
     selected["sysone"].clear()
     agent = phone.agent()
 
@@ -391,6 +426,75 @@ def test_first_llm_ocr_and_explicit_sysone_providers_are_selected(monkeypatch) -
 
     phone.agent(sysone_provider="backup")
     assert selected["sysone"] == ["backup"]
+
+
+def test_widget_choice_chain_can_filter_clickable_nodes_or_not(monkeypatch) -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node text="页面"><node text="标题" />'
+            '<node text="进入设置" content-desc="设置" clickable="true" '
+            'bounds="[10,20][30,40]" />'
+            '<node text="通知" clickable="true" bounds="[40,20][60,40]" />'
+            '<node text="隐藏" clickable="true" visible="false" '
+            'bounds="[70,20][90,40]" />'
+            '<node text="小控件" clickable="true" bounds="[1,1][5,5]" />'
+            '<node text="无边界" clickable="true" /></node></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+    model_requests: list[tuple[dict, dict, str]] = []
+
+    def choose(state, options, **kwargs):
+        model_requests.append((state, options, kwargs["instructions"]))
+        return SysOneAnswer(type="choice", choice="widget_0")
+
+    monkeypatch.setattr(phone, "choice", choose)
+
+    selected = phone.widgets().clickable().choice("进入设置")
+    selected.click()
+    phone.widgets().choice("进入设置").click()
+
+    assert [options for _, options, _ in model_requests] == [
+        {"widget_0": "进入设置 — 设置", "widget_1": "通知"},
+        {"widget_0": "进入设置 — 设置", "widget_1": "通知"},
+    ]
+    assert [instruction for _, _, instruction in model_requests] == [
+        "进入设置",
+        "进入设置",
+    ]
+    assert all(
+        all(
+            "bounds" not in widget and "center" not in widget
+            for widget in state["widgets"]
+        )
+        for state, _, _ in model_requests
+    )
+    assert backend.actions == [Click(Point(20, 30), 80), Click(Point(20, 30), 80)]
+    assert backend.dump_request == DumpUiRequest(prefer_webview=False)
+
+
+def test_widget_choice_requires_clickable_bounded_target_and_valid_choice(monkeypatch) -> None:
+    backend = FakeBackend(
+        ui_xml='<hierarchy><node text="not a button" bounds="[0,0][20,20]" /></hierarchy>'
+    )
+    phone, _ = make_device(backend)
+
+    with pytest.raises(UiElementNotFound, match="no clickable widgets"):
+        phone.widgets().choice("choose")
+
+    backend.ui_xml = (
+        '<hierarchy><node text="button" clickable="true" '
+        'bounds="[10,10][30,30]" /></hierarchy>'
+    )
+    monkeypatch.setattr(
+        phone,
+        "choice",
+        lambda *args, **kwargs: SysOneAnswer(type="choice", choice="unknown"),
+    )
+    with pytest.raises(ModelError, match="unknown widget id"):
+        phone.widgets().choice("choose")
+
+    assert backend.actions == []
 
 
 def test_sysone_goal_creates_configured_ocr_only_when_requested(monkeypatch) -> None:

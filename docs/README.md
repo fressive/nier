@@ -12,15 +12,16 @@ are integrating.
 | [`control.md`](control.md) | Click, swipe, text, key events, coordinates, and retry behavior |
 | [`apps.md`](apps.md) | Installed package/Activity inspection and app/Activity launches |
 | [`screenshot.md`](screenshot.md) | Screenshot options, encoding, dimensions, and digest |
-| [`uidump.md`](uidump.md) | UIAutomator/WebView dump APIs and fallback behavior |
+| [`uidump.md`](uidump.md) | UIAutomator/WebView dumps, widget choice chains, and fallback behavior |
 | [`webview-devtools.md`](webview-devtools.md) | Root/non-root WebView DevTools setup and CDP DOM dumps |
-| [`models.md`](models.md) | OCR, decision, LLM, TypeSafe SysOne, and SysOne-driven goal APIs |
+| [`models.md`](models.md) | OCR, LLM, TypeSafe Choice/Noul/Score, and SysOne-driven goal APIs |
 | [`web-dashboard.md`](web-dashboard.md) | Local script runner, live execution path, request/response logs, and step debugger |
 
 The normal Python entry point is `from nier import connect`. It returns a
 script-friendly `Device` with `tap`, `tap_label`, `swipe`, `text`, `key`,
 `list_apps`, `list_app_activities`, `open_app`, `start_activity`, `screenshot`,
-`uidump`, and natural-language `llm` and `sysone` methods. `tap_label` accepts
+`uidump`, typed `choice`, `noul`, and `score` methods, chainable `widgets`, and
+natural-language `llm` and `sysone` methods. `tap_label` accepts
 exact text or a compiled regex. `DeviceSession`, action dataclasses, and request dataclasses
 remain available as lower-level extension APIs for custom backends and
 transport adapters.

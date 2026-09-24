@@ -73,6 +73,36 @@ Each `UiNode` exposes `tag`, `attributes`, `text`, `text_content`,
 `resource_id`, `class_name`, `content_desc`, `bounds`, `center`, and
 `children`. `walk()` returns the node and all descendants in document order.
 
+## Choose and click a UI widget
+
+`Device.widgets()` binds parsed nodes to the current device so a typed Choice
+can select a candidate and the host can safely tap its center. The explicit
+`.clickable()` filter is optional; `.choice()` itself filters out nodes not
+marked clickable, explicitly hidden nodes, or nodes without usable bounds:
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    # Optional narrowing step:
+    selected = phone.widgets().clickable().choice("进入设置")
+    selected.click()
+
+    # Or let choice() filter the original widget list:
+    phone.widgets().choice("打开通知设置").click()
+```
+
+The configured TypeSafe provider sees bounded candidate IDs and labels, not
+coordinates. Selection failures raise `ModelError`; if there are no safely
+clickable candidates, `UiElementNotFound` is raised without tapping. A WebView
+DOM dump can still be searched, but DOM elements without screen-space `bounds`
+are not eligible for this click chain; use UIAutomator when screen bounds are
+needed. `Device.widgets()` prefers UIAutomator by default for this reason. Run
+this only against an authorized device. `DeviceSession` can retry
+read-style UI dumps, but the final tap is a device action and is never retried
+automatically.
+
 Use `to_dict()` when a UI tree must be passed to a model or serialized as
 JSON. `UiDocument.to_dict()` returns source/completeness metadata and a
 bounded `root` tree by default; `max_nodes=None` and

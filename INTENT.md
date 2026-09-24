@@ -57,8 +57,9 @@ The current foundation includes:
   with an Android shell-input fallback;
 - an optional Android IME text backend for Unicode/Chinese `InputText` actions,
   while retaining shell input as the default;
-- OCR, deterministic text-match decisions, TypeSafe SysOne typed decisions,
-  provider routing, and an OpenAI-compatible text/vision/tool-call adapter;
+- OCR, deterministic text-match decisions, TypeSafe SysOne `choice`, `noul`,
+  and `score` decisions (including bounded UI widget-selection chains), provider
+  routing, and an OpenAI-compatible text/vision/tool-call adapter;
 - a unified `Device.llm()` goal flow that uses the configured LLM as the
   primary planner, re-observes after each validated tool action, and accepts
   optional typed SysOne advice without letting SysOne failures block execution;
