@@ -56,11 +56,13 @@ jitter defaults to at most 2 pixels and stays inside the matched rectangle.
 Swipe starts at the match, defaults to 40% of the relevant screen dimension,
 and clips its endpoint at the screen edge. Its path has small random offsets
 and curvature when the backend supports multipoint paths; the standard ADB
-shell fallback still uses jittered endpoints on a straight path. Set
-`jitter=0` for deterministic motion; set `distance=` to choose a swipe length
-of at least one pixel. Invalid directions, distances, or a match with no room
-in the requested direction raise `ValueError`. Long-press duration must be a
-positive integer.
+shell fallback still uses jittered endpoints on a straight path. Pass
+`humanize=False` to disable random offsets and curvature for a gesture;
+`jitter=0` has the same effect. The `jitter=` value adjusts the maximum offset
+when humanization is enabled. Set `distance=` to choose a swipe length of at
+least one pixel. Invalid directions, distances, or a match with no room in the
+requested direction raise `ValueError`. Long-press duration must be a positive
+integer.
 
 Matching only reads the screenshot; the screenshot read may be retried by
 `DeviceSession`, but OCR matching is not a device action. Each gesture is one

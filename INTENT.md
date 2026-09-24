@@ -62,7 +62,7 @@ The current foundation includes:
   routing, and an OpenAI-compatible text/vision/tool-call adapter;
 - optional OpenCV screenshot-template matching and OCR fuzzy text locating,
   both returning screen-space matches that support explicit click, long-press,
-  and directional swipe gestures with bounded jitter;
+  and directional swipe gestures with bounded, opt-out human-like jitter;
 - a unified `Device.llm()` goal flow that uses the configured LLM as the
   primary planner, re-observes after each validated tool action, and accepts
   optional typed SysOne advice without letting SysOne failures block execution;

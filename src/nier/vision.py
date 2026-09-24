@@ -28,6 +28,13 @@ def _validate_jitter(jitter: float) -> float:
     return float(jitter)
 
 
+def _gesture_jitter(jitter: float, humanize: bool) -> float:
+    if not isinstance(humanize, bool):
+        raise ValueError("humanize must be a boolean")
+    amount = _validate_jitter(jitter)
+    return amount if humanize else 0.0
+
+
 @dataclass(frozen=True)
 class ImageMatch:
     """A visual match in absolute screen pixel coordinates.
@@ -75,31 +82,34 @@ class ImageMatch:
         duration_ms: int = 80,
         *,
         jitter: float = 2.0,
+        humanize: bool = True,
     ) -> ActionResult:
         """Tap within the matched region once, with small coordinate jitter.
 
         This is available on matches returned by ``Device.locate_icon()`` or
         ``Device.locate_text()``. A standalone ``ImageMatch`` has no device
         attached and raises ``RuntimeError``. ``jitter`` is the maximum
-        random pixel offset from the center, clamped to the matched bounds;
-        pass ``0`` for a deterministic center tap. Device actions are never
-        auto-retried.
+        random pixel offset from the center, clamped to the matched bounds.
+        Set ``humanize=False`` to disable jitter, or pass ``jitter=0``. Device
+        actions are never auto-retried.
         """
         if self._clicker is None:
             raise self._unbound_error()
-        return self._clicker(duration_ms, _validate_jitter(jitter))
+        return self._clicker(duration_ms, _gesture_jitter(jitter, humanize))
 
     def long_press(
         self,
         duration_ms: int = 800,
         *,
         jitter: float = 2.0,
+        humanize: bool = True,
     ) -> ActionResult:
         """Hold at the match for ``duration_ms`` with bounded finger jitter.
 
-        The coordinate wiggle stays inside the match rectangle. Set ``jitter=0``
-        for a stationary hold. ``duration_ms`` must be a positive integer.
-        This sends one non-retried device action.
+        The coordinate wiggle stays inside the match rectangle. Set
+        ``humanize=False`` (or ``jitter=0``) for a stationary hold.
+        ``duration_ms`` must be a positive integer. This sends one non-retried
+        device action.
         """
         if self._long_presser is None:
             raise self._unbound_error()
@@ -109,7 +119,7 @@ class ImageMatch:
             or duration_ms <= 0
         ):
             raise ValueError("duration_ms must be a positive integer")
-        return self._long_presser(duration_ms, _validate_jitter(jitter))
+        return self._long_presser(duration_ms, _gesture_jitter(jitter, humanize))
 
     def swipe(
         self,
@@ -118,15 +128,16 @@ class ImageMatch:
         distance: float | None = None,
         duration_ms: int = 350,
         jitter: float = 2.0,
+        humanize: bool = True,
     ) -> ActionResult:
         """Swipe from the match in a cardinal direction.
 
         ``distance`` is in pixels and defaults to 40% of the screen dimension
         for that direction. The endpoint is clipped to the screen. ``jitter``
-        controls small random offsets and path curvature in pixels; set it to
-        ``0`` for a straight deterministic swipe. Invalid directions,
-        distances, and requests with no room in the selected direction raise
-        ``ValueError``.
+        controls small random offsets and path curvature in pixels. Set
+        ``humanize=False`` (or ``jitter=0``) for a straight deterministic
+        swipe. Invalid directions, distances, and requests with no room in the
+        selected direction raise ``ValueError``.
         """
         if self._swiper is None:
             raise self._unbound_error()
@@ -143,7 +154,7 @@ class ImageMatch:
             direction,
             distance,
             duration_ms,
-            _validate_jitter(jitter),
+            _gesture_jitter(jitter, humanize),
         )
 
     @staticmethod
