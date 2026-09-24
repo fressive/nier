@@ -5,7 +5,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from nier import Device, Widget, WidgetList, connect
+from nier import Device, ImageMatch, Widget, WidgetList, connect
 from nier.config import from_mapping
 from nier.errors import ConfigurationError, ModelError, ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
@@ -115,6 +115,29 @@ def test_script_actions_build_protocol_actions() -> None:
     assert all(point.normalized for point in swipe.points)
     assert backend.actions[3] == InputText("hello")
     assert backend.actions[4] == Key(KeyCode.BACK)
+
+
+def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
+    phone, backend = make_device()
+    expected = ImageMatch(10, 20, 8, 12, 0.93)
+    calls = []
+
+    def fake_locate(screenshot, template, *, min_score, region):
+        calls.append((screenshot, template, min_score, region))
+        return expected
+
+    monkeypatch.setattr("nier.api.locate_template", fake_locate)
+
+    result = phone.locate_icon(
+        b"template image",
+        min_score=0.9,
+        region=(5, 6, 30, 40),
+    )
+
+    assert result == expected
+    assert calls == [(b"image", b"template image", 0.9, (5, 6, 30, 40))]
+    assert backend.screenshot_request == ScreenshotRequest()
+    assert backend.actions == []
 
 
 @pytest.mark.parametrize("label", ["登录", re.compile(r"登.*")])

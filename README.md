@@ -2,7 +2,8 @@
 
 Nier is an extensible Android automated-testing framework. It provides a
 Python runtime for ADB-based device control, screenshots, UI dumps, optional
-rooted `uinput` input, model providers, and replaceable backend transports.
+OpenCV icon matching, rooted `uinput` input, model providers, and replaceable
+backend transports.
 
 ## Quick start
 

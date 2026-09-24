@@ -33,6 +33,7 @@ from .results import RunRecorder
 from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
+from .vision import ImageMatch, locate_template
 from .widgets import WidgetList
 
 if TYPE_CHECKING:
@@ -329,6 +330,33 @@ class Device:
             target.parent.mkdir(parents=True, exist_ok=True)
             target.write_bytes(result.data)
         return replace(result, _ocr_callback=self._ocr_screenshot)
+
+    def locate_icon(
+        self,
+        template: str | Path | bytes,
+        *,
+        min_score: float = 0.85,
+        region: tuple[int, int, int, int] | None = None,
+    ) -> ImageMatch | None:
+        """Locate an icon template in a fresh screenshot without tapping it.
+
+        ``template`` is a path or encoded image bytes, preferably cropped from
+        this device's screenshot. ``region`` optionally limits matching to an
+        ``(x, y, width, height)`` screen-pixel rectangle. ``min_score`` is the
+        normalized OpenCV matching threshold, not a probability. Returns
+        ``None`` when the best match is below the threshold. Install
+        ``nier[vision]`` to enable matching.
+
+        The screenshot read follows the session's read retry policy. Locating
+        an icon is read-only and never performs a device action.
+        """
+        screenshot = self.screenshot()
+        return locate_template(
+            screenshot.data,
+            template,
+            min_score=min_score,
+            region=region,
+        )
 
     def _ocr_screenshot(self, image: bytes) -> Sequence[TextSpan]:
         """Run the first configured OCR provider on screenshot bytes."""

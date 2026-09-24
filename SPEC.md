@@ -198,6 +198,20 @@ lowercase SHA-256 digest of the returned bytes.
   Pillow. The aspect ratio MUST be preserved and each requested limit MUST be
   respected.
 - An empty or malformed image payload MUST raise a backend/protocol error.
+
+`Device.locate_icon(template, *, min_score=0.85, region=None)` MUST locate a
+known image template in one fresh screenshot without performing a device
+action. `template` is a local image path or encoded image bytes. The optional
+`region` is `(x, y, width, height)` in screenshot pixels; returned match
+coordinates remain relative to the full screenshot. `ImageMatch` MUST expose
+the matched rectangle, center, and normalized-correlation score. The method
+returns `None` when no match meets `min_score`; scores are similarity values,
+not calibrated probabilities. Invalid thresholds, regions, or image data MUST
+raise `ValueError`. The implementation MUST use the optional `vision` extra,
+load OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
+guidance if either dependency is missing. Screenshot acquisition follows the
+read retry policy; matching MUST NOT tap or otherwise mutate the device.
+
 ## 6. UI dump contract
 
 UIAutomator is the normal source for Android views. When

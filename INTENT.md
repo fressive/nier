@@ -60,6 +60,7 @@ The current foundation includes:
 - OCR, deterministic text-match decisions, TypeSafe SysOne `choice`, `noul`,
   and `score` decisions (including bounded UI widget-selection chains), provider
   routing, and an OpenAI-compatible text/vision/tool-call adapter;
+- optional OpenCV screenshot-template matching for locating known UI icons;
 - a unified `Device.llm()` goal flow that uses the configured LLM as the
   primary planner, re-observes after each validated tool action, and accepts
   optional typed SysOne advice without letting SysOne failures block execution;
