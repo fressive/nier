@@ -181,8 +181,8 @@ class UiNode:
         return matches[0] if matches else None
 
 
-def _format_tree(root: UiNode, *, color: bool) -> str:
-    """Render a compact tree, showing text and true-valued attributes only."""
+def _format_tree(root: UiNode, *, color: bool, full: bool = False) -> str:
+    """Render a compact tree or all node text and source attributes."""
     lines: list[str] = []
 
     def styled(value: str, code: str) -> str:
@@ -196,16 +196,20 @@ def _format_tree(root: UiNode, *, color: bool) -> str:
 
     def format_node(node: UiNode) -> str:
         details: list[str] = []
-        if node.text:
-            details.append(f"text={styled(repr(short(node.text)), '32')}")
-        details.extend(
-            styled(name, "33")
-            for name, value in node.attributes.items()
-            if (
-                name.lower() in _TREE_BOOLEAN_ATTRIBUTES
-                and _boolean_attribute(value) is True
+        if full:
+            details.append(f"text={styled(repr(node.text), '32')}")
+            details.append(f"attributes={styled(repr(node.attributes), '33')}")
+        else:
+            if node.text:
+                details.append(f"text={styled(repr(short(node.text)), '32')}")
+            details.extend(
+                styled(name, "33")
+                for name, value in node.attributes.items()
+                if (
+                    name.lower() in _TREE_BOOLEAN_ATTRIBUTES
+                    and _boolean_attribute(value) is True
+                )
             )
-        )
         rendered_tag = styled(node.tag, "1;36")
         if details:
             return f"{rendered_tag} [{', '.join(details)}]"

@@ -180,10 +180,12 @@ mode does not inject into an arbitrary application; the target app must call
 The runnable [`07_webview_uidump.py`](../examples/07_webview_uidump.py) example
 calls `phone.uidump(..., prefer_webview=True)`, formats the parsed tree through
 `phone.format_tree(document)`, and saves both that tree and the complete raw
-HTML/XML. The formatter shortens text, shows only true-valued boolean
-attributes by name without appending `=True`, and uses ANSI colors by default.
-Pass `color=False` for plain text such as a file. Use the raw dump for exact
-source data and `dump_ui()` when source and fallback warnings are needed.
+HTML/XML. By default, the formatter shortens text and shows only true-valued
+boolean attributes by name without appending `=True`. Pass `full=True` to show
+unshortened text and every source attribute, including false and non-boolean
+values. ANSI colors are enabled by default; pass `color=False` for plain text
+such as a file. Use the raw dump for exact source data and `dump_ui()` when
+source and fallback warnings are needed.
 
 ```python
 from nier import connect
@@ -193,6 +195,7 @@ with connect("config/nier.yaml") as phone:
     document = phone.parse_uidump(prefer_webview=True)
     print(phone.format_tree(document))
     print(phone.format_tree(document.root, color=False))
+    print(phone.format_tree(document, full=True, color=False))
 ```
 
 The `include_invisible` field is part of the domain contract. The ADB

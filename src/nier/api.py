@@ -689,13 +689,15 @@ class Device:
         root: UiNode | UiDocument,
         *,
         color: bool = True,
+        full: bool = False,
     ) -> str:
-        """Render a compact UI tree with true attributes and optional ANSI color.
+        """Render a compact UI tree, or all node text and source attributes.
 
         ``root`` may be a parsed :class:`UiNode` or its containing
-        :class:`UiDocument`. Text is shortened for readability. Attributes
-        whose values are false or non-boolean are omitted. Set ``color=False``
-        when saving the result to a text file.
+        :class:`UiDocument`. By default, text is shortened for readability
+        and attributes whose values are false or non-boolean are omitted. Set
+        ``full=True`` to show unshortened text and every source attribute. Set
+        ``color=False`` when saving the result to a text file.
         """
         if isinstance(root, UiDocument):
             node = root.root
@@ -703,7 +705,7 @@ class Device:
             node = root
         else:
             raise TypeError("root must be a UiNode or UiDocument")
-        return _format_tree(node, color=color)
+        return _format_tree(node, color=color, full=full)
 
     def choice(
         self,
