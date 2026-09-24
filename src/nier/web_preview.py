@@ -37,6 +37,7 @@ class ScrcpyPreview:
         self._error: str | None = None
         self._active = False
         self._connected = False
+        self._screen_size: tuple[int, int] | None = None
         self._server: subprocess.Popen[bytes] | None = None
         self._ffmpeg: subprocess.Popen[bytes] | None = None
         self._pending_server: subprocess.Popen[bytes] | None = None
@@ -62,6 +63,8 @@ class ScrcpyPreview:
                 "serial": self._serial,
                 "connected": self._connected,
                 "frame_ready": self._latest_frame is not None,
+                "screen_width": self._screen_size[0] if self._screen_size else None,
+                "screen_height": self._screen_size[1] if self._screen_size else None,
                 "error": self._error,
                 "device_error": device_error,
                 "dependencies": {
@@ -97,6 +100,7 @@ class ScrcpyPreview:
         if device is None or device["state"] != "device":
             detail = f"：{device_error}" if device_error else ""
             raise PreviewRequestError(f"ADB 设备不可用或未授权：{serial}{detail}")
+        screen_size = self._read_screen_size(adb_path, serial)
 
         with self._lock:
             if not (self._active and self._serial == serial):
@@ -107,6 +111,7 @@ class ScrcpyPreview:
                 self._error = None
                 self._connected = False
                 self._latest_frame = None
+                self._screen_size = screen_size
                 self._stderr = {"scrcpy": deque(maxlen=12), "ffmpeg": deque(maxlen=12)}
 
                 try:
@@ -128,7 +133,32 @@ class ScrcpyPreview:
                 self._pending_server = None
                 self._pending_ffmpeg = None
                 self._start_readers_locked(generation)
+            else:
+                self._screen_size = screen_size
         return self.status()
+
+    @staticmethod
+    def _read_screen_size(adb_path: str, serial: str) -> tuple[int, int] | None:
+        """Read Android's absolute input-coordinate dimensions."""
+        try:
+            result = subprocess.run(
+                [adb_path, "-s", serial, "shell", "wm", "size"],
+                check=False,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                timeout=8,
+            )
+        except (OSError, subprocess.SubprocessError):
+            return None
+        if result.returncode != 0:
+            return None
+        matches = re.findall(r"(\d+)x(\d+)", result.stdout)
+        if not matches:
+            return None
+        width, height = (int(value) for value in matches[-1])
+        return (width, height) if width > 0 and height > 0 else None
 
     def stop(self) -> dict[str, Any]:
         self.close()
@@ -527,6 +557,7 @@ class ScrcpyPreview:
         self._error = error
         self._connected = False
         self._latest_frame = None
+        self._screen_size = None
 
         for subscriber in tuple(self._subscribers):
             if subscriber.full():

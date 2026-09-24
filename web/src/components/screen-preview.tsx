@@ -4,6 +4,7 @@ import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { fetchJson, postJson } from "../lib/api";
+import { mapPreviewPoint } from "../lib/screen-coordinates.mjs";
 import { cn } from "../lib/utils";
 
 type PreviewDevice = {
@@ -18,6 +19,8 @@ type PreviewState = {
   serial: string | null;
   connected: boolean;
   frame_ready: boolean;
+  screen_width: number | null;
+  screen_height: number | null;
   error: string | null;
   device_error: string | null;
   dependencies: { adb: boolean; scrcpy: boolean; scrcpy_server: boolean; ffmpeg: boolean };
@@ -91,24 +94,25 @@ export function ScreenPreview() {
     const image = event.currentTarget;
     const { naturalWidth, naturalHeight } = image;
     if (!naturalWidth || !naturalHeight) return;
-
-    const bounds = image.getBoundingClientRect();
-    const scale = Math.min(bounds.width / naturalWidth, bounds.height / naturalHeight);
-    const renderedWidth = naturalWidth * scale;
-    const renderedHeight = naturalHeight * scale;
-    const left = bounds.left + (bounds.width - renderedWidth) / 2;
-    const top = bounds.top + (bounds.height - renderedHeight) / 2;
-    const localX = event.clientX - left;
-    const localY = event.clientY - top;
-
-    if (localX < 0 || localY < 0 || localX >= renderedWidth || localY >= renderedHeight) {
+    if (!state?.screen_width || !state.screen_height) {
+      setCoordinateMessage("无法读取设备分辨率，不能生成坐标");
+      return;
+    }
+    const point = mapPreviewPoint({
+      clientX: event.clientX,
+      clientY: event.clientY,
+      bounds: image.getBoundingClientRect(),
+      frameWidth: naturalWidth,
+      frameHeight: naturalHeight,
+      screenWidth: state.screen_width,
+      screenHeight: state.screen_height,
+    });
+    if (!point) {
       setCoordinateMessage("请点击设备画面范围内");
       return;
     }
 
-    const x = Math.min(naturalWidth - 1, Math.floor((localX / renderedWidth) * naturalWidth));
-    const y = Math.min(naturalHeight - 1, Math.floor((localY / renderedHeight) * naturalHeight));
-    const snippet = `phone.click(${x}, ${y})`;
+    const snippet = `phone.click(${point.x}, ${point.y})`;
     try {
       await navigator.clipboard.writeText(snippet);
       setCoordinateMessage(`已复制 ${snippet}`);
