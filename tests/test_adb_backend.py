@@ -431,6 +431,24 @@ def test_adb_backend_can_open_apps_and_start_activities(monkeypatch) -> None:
     )
 
 
+def test_adb_backend_force_stops_app_before_restart(monkeypatch) -> None:
+    calls = fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+
+    result = backend.open_app("com.example.app", restart=True)
+
+    assert result.success is True
+    force_stop_call = [
+        "adb", "-s", "device", "shell", "am", "force-stop", "com.example.app"
+    ]
+    launch_call = [
+        "adb", "-s", "device", "shell", "am", "start", "--activity-clear-task",
+        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
+        "-p", "com.example.app",
+    ]
+    assert calls.index(force_stop_call) < calls.index(launch_call)
+
+
 def test_adb_backend_reports_launch_errors(monkeypatch) -> None:
     fake_adb(monkeypatch)
     backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))

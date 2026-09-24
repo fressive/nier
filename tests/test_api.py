@@ -37,6 +37,7 @@ class FakeBackend:
     dump_request: DumpUiRequest | None = None
     ui_xml: str = "<hierarchy />"
     closed: bool = False
+    opened_apps: list[tuple[str, bool]] = field(default_factory=list)
 
     def health(self) -> bool:
         return True
@@ -65,7 +66,8 @@ class FakeBackend:
     def list_app_activities(self, package: str) -> list[str]:
         return [f"{package}.MainActivity"]
 
-    def open_app(self, package: str) -> ActionResult:
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        self.opened_apps.append((package, restart))
         return ActionResult(True, f"opened {package}")
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
@@ -473,10 +475,18 @@ def test_device_lists_apps_and_app_activities() -> None:
 
 
 def test_device_can_open_apps_and_start_activities() -> None:
-    phone, _ = make_device()
+    phone, backend = make_device()
 
     assert phone.open_app("com.example.one").success is True
     assert phone.launch_app("com.example.one").success is True
+    assert phone.open_app("com.example.one", restart=True).success is True
+    assert phone.launch_app("com.example.one", restart=True).success is True
+    assert backend.opened_apps == [
+        ("com.example.one", False),
+        ("com.example.one", False),
+        ("com.example.one", True),
+        ("com.example.one", True),
+    ]
     assert phone.start_activity("com.example.one", ".MainActivity").success is True
     assert phone.open_activity(
         "com.example.one", "com.example.one.MainActivity"

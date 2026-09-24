@@ -12,7 +12,7 @@ must provide:
 | `dump_ui(request=None)` | `UiDump` |
 | `list_apps()` | `list[str]` |
 | `list_app_activities(package)` | `list[str]` |
-| `open_app(package)` | `ActionResult` |
+| `open_app(package, *, restart=False)` | `ActionResult` |
 | `start_activity(package, activity)` | `ActionResult` |
 | `start_intent(intent)` | `ActionResult` |
 | `close()` | `None` |
@@ -77,7 +77,7 @@ class RecordingBackend:
     def list_app_activities(self, package: str) -> list[str]:
         raise NotImplementedError
 
-    def open_app(self, package: str) -> ActionResult:
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
         raise NotImplementedError
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
@@ -101,3 +101,6 @@ successful result. `DeviceSession` retries read operations only; `execute`,
 `open_app`, `start_activity`, and `start_intent` are never automatically
 retried. `start_intent` receives the validated mapping emitted by
 `nier intent-hook`.
+
+When `restart=True`, `open_app` must stop the app process and clear its Activity
+task before launching its launcher Activity, without clearing stored app data.

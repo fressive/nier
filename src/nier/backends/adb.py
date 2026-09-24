@@ -508,24 +508,36 @@ class AdbBackend:
         """Compatibility alias for :meth:`list_app_activities`."""
         return self.list_app_activities(package)
 
-    def open_app(self, package: str) -> ActionResult:
-        """Open the package's launcher Activity without retrying the action."""
-        package = validate_package_name(package)
-        output = self.adb.shell(
-            "am",
-            "start",
-            "-a",
-            "android.intent.action.MAIN",
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "-p",
-            package,
-        )
-        return _launch_result(output, f"open app {package!r}")
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        """Open the package's launcher Activity, optionally restarting it.
 
-    def launch_app(self, package: str) -> ActionResult:
+        Restarting force-stops the app process and clears its Activity task
+        before launch, but does not clear its stored data. The operation is
+        sent once and is never automatically retried.
+        """
+        package = validate_package_name(package)
+        if restart:
+            self.adb.shell("am", "force-stop", package)
+        start_arguments = ["am", "start"]
+        if restart:
+            start_arguments.append("--activity-clear-task")
+        start_arguments.extend(
+            [
+                "-a",
+                "android.intent.action.MAIN",
+                "-c",
+                "android.intent.category.LAUNCHER",
+                "-p",
+                package,
+            ]
+        )
+        output = self.adb.shell(*start_arguments)
+        operation = "restart" if restart else "open"
+        return _launch_result(output, f"{operation} app {package!r}")
+
+    def launch_app(self, package: str, *, restart: bool = False) -> ActionResult:
         """Compatibility alias for :meth:`open_app`."""
-        return self.open_app(package)
+        return self.open_app(package, restart=restart)
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         """Start one Activity identified by a class name or component."""

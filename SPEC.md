@@ -45,7 +45,7 @@ Every backend MUST provide these synchronous operations:
 | `current_activity()` | `ActivityInfo | None` | Return the foreground Android Activity when the backend can inspect it. |
 | `list_apps()` | `list[str]` | Return installed Android package names visible to the backend. |
 | `list_app_activities(package)` | `list[str]` | Return fully qualified Activity class names declared by `package`. |
-| `open_app(package)` | `ActionResult` | Launch the package's launcher Activity once. |
+| `open_app(package, *, restart=False)` | `ActionResult` | Launch the package's launcher Activity, optionally restarting it first. |
 | `start_activity(package, activity)` | `ActionResult` | Launch one Activity in the package once. |
 | `start_intent(intent)` | `ActionResult` | Launch one validated captured Intent once. |
 | `close()` | `None` | Release persistent resources; repeated close calls SHOULD be safe. |
@@ -117,8 +117,10 @@ application twice after a lost reply.
 - `list_app_activities(package)` MUST reject an empty or malformed Android
   package name before sending a device command. It returns class names, not
   launch results, and MUST NOT start an Activity.
-- `open_app(package)` MUST validate the package name, launch its Android
-  `MAIN`/`LAUNCHER` entry point, and MUST NOT be automatically retried.
+- `open_app(package, restart=False)` MUST validate the package name and launch
+  its Android `MAIN`/`LAUNCHER` entry point. When `restart=True`, it MUST
+  force-stop the app process and clear its Activity task before launching,
+  MUST NOT clear its stored app data, and MUST NOT be automatically retried.
 - `start_activity(package, activity)` MUST validate that the target belongs to
   `package`. It accepts a short class name, a relative `.ClassName`, a fully
   qualified class name, or a `package/class` component, normalizes it to

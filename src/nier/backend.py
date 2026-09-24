@@ -46,8 +46,8 @@ class Backend(Protocol):
         """Return fully qualified Activity class names for ``package``."""
         ...
 
-    def open_app(self, package: str) -> ActionResult:
-        """Open the package's launcher Activity without retrying the action."""
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        """Open the launch Activity, optionally restarting the app first."""
         ...
 
     def start_activity(self, package: str, activity: str) -> ActionResult:

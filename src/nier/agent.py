@@ -56,7 +56,7 @@ class AgentDevice(Protocol):
     def list_app_activities(self, package: str) -> list[str]:
         ...
 
-    def open_app(self, package: str) -> ActionResult:
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
         ...
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
@@ -269,11 +269,12 @@ _AGENT_TOOL_DEFINITIONS: tuple[dict[str, object], ...] = (
         "type": "function",
         "function": {
             "name": "open_app",
-            "description": "Open an installed app through its launcher Activity. This changes device state.",
+            "description": "Open an installed app through its launcher Activity. Set restart=true to force-stop it and clear its task stack first (stored data is preserved). This changes device state.",
             "parameters": {
                 "type": "object",
                 "properties": {
                     "package": {"type": "string"},
+                    "restart": {"type": "boolean"},
                     "reason": {"type": "string"},
                 },
                 "required": ["package"],
@@ -513,7 +514,8 @@ class AgentStep:
                 package = validate_package_name(package)
             except ValueError as exc:
                 raise ModelError(f"invalid open_app package: {exc}") from exc
-            canonical = {"package": package}
+            restart = _boolean(params.get("restart"), "restart")
+            canonical = {"package": package, "restart": restart}
         elif action == "start_activity":
             package = params.get("package", params.get("package_name"))
             activity = params.get("activity", params.get("activity_name"))
@@ -1189,7 +1191,9 @@ class Agent:
                 message=_read_tool_message("activities", activities, package=package),  # type: ignore[arg-type]
             )
         if step.action == "open_app":
-            return self.device.open_app(params["package"])  # type: ignore[arg-type]
+            return self.device.open_app(
+                params["package"], restart=params["restart"]
+            )  # type: ignore[arg-type]
         if step.action == "start_activity":
             return self.device.start_activity(
                 params["package"],
@@ -1302,6 +1306,8 @@ class Agent:
                 summary = f"points={item.params['points']}"
             elif item.action == "open_app":
                 summary = f"package={item.params['package']}"
+                if item.params["restart"]:
+                    summary += " restart=true"
             elif item.action == "start_activity":
                 summary = (
                     f"component={item.params['package']}/{item.params['activity']}"
@@ -1364,6 +1370,7 @@ Available device tools are {tools_text}. The list and `inspect_ocr` tools are re
 
 Navigation and change-safety rules:
 - If the user names an app to open, prefer `open_app` for its known package. If the exact package is uncertain, call `list_apps` and choose an installed matching package; do not use launcher or notification-shade gestures to hunt for the app.
+- If the user explicitly asks to restart an app, call `open_app` with `restart=true`; this stops the app process and clears its task stack but does not clear its stored data. Otherwise use the default `restart=false` behavior.
 - Once in the app, navigate through visible UI labels and the current UI bounds. If the target is not visible, scroll the relevant visible list and observe again; never tap unexplained coordinates.
 - Make only changes required by the goal. Do not toggle settings, grant permissions, submit forms, delete data, or confirm unrelated dialogs unless the user explicitly asks for that change.
 
