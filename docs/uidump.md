@@ -93,6 +93,24 @@ with connect("config/nier.yaml") as phone:
     phone.widgets().choice("打开通知设置").click()
 ```
 
+When you already selected a specific `UiNode`, use `phone.widget(node)` to bind
+that node directly to the device:
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    ui = phone.parse_uidump()
+    icon = ui.find(class_name="android.widget.ImageView")
+    if icon is not None:
+        phone.widget(icon).click()
+```
+
+`Widget.click()` taps once and raises `UiElementNotFound` if the node is not
+marked clickable, is explicitly hidden, or has unusable screen bounds. The
+device action is never retried automatically.
+
 The configured TypeSafe provider sees bounded candidate IDs and labels, not
 coordinates. Selection failures raise `ModelError`; if there are no safely
 clickable candidates, `UiElementNotFound` is raised without tapping. A WebView

@@ -6,7 +6,7 @@ from dataclasses import dataclass, field
 
 import pytest
 
-from nier import Device, ImageMatch, Widget, WidgetList, connect
+from nier import Device, ImageMatch, UiNode, Widget, WidgetList, connect
 from nier.config import from_mapping
 from nier.errors import ConfigurationError, ModelError, ProtocolError, UiElementNotFound
 from nier.models.base import BoundingBox, LlmToolCall, TextSpan
@@ -102,6 +102,7 @@ def test_public_goal_entry_points_use_llm_and_sysone_names() -> None:
     assert callable(phone.noul)
     assert callable(phone.score)
     assert callable(phone.widgets)
+    assert callable(phone.widget)
     widgets = phone.widgets()
     assert isinstance(widgets, WidgetList)
     assert isinstance(widgets[0], Widget)
@@ -801,6 +802,34 @@ def test_widget_choice_chain_can_filter_clickable_nodes_or_not(monkeypatch) -> N
     )
     assert backend.actions == [Click(Point(20, 30), 80), Click(Point(20, 30), 80)]
     assert backend.dump_request == DumpUiRequest(prefer_webview=False)
+
+
+def test_device_can_bind_ui_node_as_widget_and_click_it() -> None:
+    backend = FakeBackend(
+        ui_xml=(
+            '<hierarchy><node class="android.widget.ImageView" '
+            'clickable="true" bounds="[10,20][30,40]" /></hierarchy>'
+        )
+    )
+    phone, _ = make_device(backend)
+    document = phone.parse_uidump()
+    node = document.find(class_name="android.widget.ImageView")
+
+    assert isinstance(node, UiNode)
+    widget = phone.widget(node)
+
+    assert isinstance(widget, Widget)
+    assert widget.node is node
+    assert widget.device is phone
+    widget.click()
+    assert backend.actions == [Click(Point(20, 30), 80)]
+
+
+def test_device_widget_rejects_non_ui_node() -> None:
+    phone, _ = make_device()
+
+    with pytest.raises(TypeError, match="node must be a UiNode"):
+        phone.widget("not a node")  # type: ignore[arg-type]
 
 
 def test_widget_choice_requires_clickable_bounded_target_and_valid_choice(monkeypatch) -> None:
