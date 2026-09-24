@@ -143,7 +143,7 @@ def test_uidump_result_log_omits_xml(capsys) -> None:
     try:
         configure_logging(2)
         session.dump_ui()
-        output = capsys.readouterr().err
+        output = capsys.readouterr().out
     finally:
         configure_logging(0)
 

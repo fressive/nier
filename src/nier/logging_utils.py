@@ -84,7 +84,7 @@ class _NierFormatter(logging.Formatter):
 
 
 def configure_logging(verbosity: int) -> None:
-    """Configure Nier's stderr logger for verbosity levels 0 through 3."""
+    """Configure Nier's stdout logger for verbosity levels 0 through 3."""
     global _VERBOSITY
     if isinstance(verbosity, bool) or not isinstance(verbosity, int):
         raise ValueError("logging verbosity must be an integer from 0 to 3")
@@ -104,7 +104,7 @@ def configure_logging(verbosity: int) -> None:
     # a finished capture context.
     for handler in list(_LOGGER.handlers):
         _LOGGER.removeHandler(handler)
-    handler = logging.StreamHandler(sys.stderr)
+    handler = logging.StreamHandler(sys.stdout)
     handler.setFormatter(
         _NierFormatter(use_color=_supports_color(handler.stream))
     )

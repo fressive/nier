@@ -27,7 +27,9 @@ def test_logging_levels_add_steps_requests_and_responses(capsys) -> None:
             body={"api_key": "secret", "file": "data:image/png;base64,AAAA"},
         )
         response("http", 200, body={"answer": "ok"})
-        output = capsys.readouterr().err
+        captured = capsys.readouterr()
+        output = captured.out
+        assert captured.err == ""
         assert "[nier vvv] HTTP REQUEST" in output
         assert "[nier vvv] HTTP RESPONSE" in output
         assert output.count("HTTP REQUEST") == 1

@@ -82,8 +82,9 @@ Request and response payloads are bounded and sensitive headers such as
 Authorization and API keys are redacted in `vvv` transport logs. At `vv`, OCR,
 UI dump, SysOne, and LLM results are logged with the same payload size limits.
 Screenshot data sent to OCR is shown as a size marker rather than a Base64
-payload. Terminal logs and CLI summaries use labeled text rather than JSON;
-saved run records remain JSON files for machine-readable inspection.
+payload. Nier terminal logs are written to stdout. Logs and CLI summaries use
+labeled text rather than JSON; saved run records remain JSON files for
+machine-readable inspection.
 SysOne answers are shown by question and type; at `vvv`, SysOne context logs render UI
 summaries and OCR spans as readable lines.
 
