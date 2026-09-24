@@ -735,8 +735,9 @@ the script-relative filename, line number, and function name; they MUST NOT
 include source text or local variable values. Updates MAY be sampled or
 coalesced and MUST NOT evict retained STEP or request/response history. The
 dashboard MUST display the latest location while the script runs.
-The dashboard MUST provide a source panel that displays the active script file,
-highlights its current line, and scrolls that line into view as execution moves.
+The dashboard MUST provide a source panel that displays syntax-highlighted
+Python source for the active script file, highlights its current line, and
+scrolls that line into view as execution moves.
 When no execution location is available, the panel SHOULD display the selected
 or currently running script without a highlighted line. Source text MUST be
 fetched separately from location events, only for listed Python files inside

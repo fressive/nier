@@ -1,8 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AlertCircle, Code2, LoaderCircle } from "lucide-react";
+import hljs from "highlight.js/lib/core";
+import python from "highlight.js/lib/languages/python";
 import { Card, CardHeader, CardTitle } from "./ui/card";
 import { fetchJson } from "../lib/api";
 import { cn } from "../lib/utils";
+
+hljs.registerLanguage("python", python);
 
 type SourceFile = { path: string; source: string };
 
@@ -12,6 +16,32 @@ type Props = {
   functionName: string | null;
   panelActive: boolean;
 };
+
+function splitHighlightedLines(markup: string): string[] {
+  // Keep each row valid HTML while preserving scopes such as multiline strings.
+  const lines: string[] = [];
+  const openSpans: string[] = [];
+  let current = "";
+
+  for (const part of markup.split(/(<span class="[^"]*">|<\/span>|\n)/g)) {
+    if (!part) continue;
+    if (part === "\n") {
+      lines.push(current + "</span>".repeat(openSpans.length));
+      current = openSpans.join("");
+    } else if (part.startsWith('<span class="')) {
+      openSpans.push(part);
+      current += part;
+    } else if (part === "</span>") {
+      openSpans.pop();
+      current += part;
+    } else {
+      current += part;
+    }
+  }
+
+  lines.push(current + "</span>".repeat(openSpans.length));
+  return lines;
+}
 
 export function SourceViewer({ path, line, functionName, panelActive }: Props) {
   const [sourceFile, setSourceFile] = useState<SourceFile | null>(null);
@@ -47,7 +77,13 @@ export function SourceViewer({ path, line, functionName, panelActive }: Props) {
   }, [path]);
 
   const source = sourceFile?.path === path ? sourceFile.source : null;
-  const lines = source?.split(/\r?\n/) ?? [];
+  const normalizedSource = source?.replace(/\r\n?/g, "\n") ?? null;
+  const lines = normalizedSource?.split("\n") ?? [];
+  const highlightedLines = useMemo(() => {
+    if (normalizedSource === null) return [];
+    const highlighted = hljs.highlight(normalizedSource, { language: "python", ignoreIllegals: true });
+    return splitHighlightedLines(highlighted.value);
+  }, [normalizedSource]);
 
   useEffect(() => {
     if (!line || line < 1 || source === null || !activeLineRef.current) return;
@@ -137,7 +173,10 @@ export function SourceViewer({ path, line, functionName, panelActive }: Props) {
                   >
                     {lineNumber}
                   </span>
-                  <code className="whitespace-pre px-3">{text || " "}</code>
+                  <code
+                    className="source-code whitespace-pre px-3"
+                    dangerouslySetInnerHTML={{ __html: highlightedLines[index] || (text ? "" : " ") }}
+                  />
                 </li>
               );
             })}
