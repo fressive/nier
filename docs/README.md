@@ -7,6 +7,7 @@ are integrating.
 | Page | Covers |
 | --- | --- |
 | [`getting-started.md`](getting-started.md) | Installation, configuration, sessions, CLI, errors, and authorization |
+| [`api-examples.md`](api-examples.md) | One-page index and examples for the public script-facing API |
 | [`cli.md`](cli.md) | Screenshot, OCR, UI dump, locate, and ADB passthrough commands |
 | [`backend.md`](backend.md) | Backend protocol and custom backend implementations |
 | [`remote-adb.md`](remote-adb.md) | ADB-over-TCP devices and remote ADB servers |
