@@ -22,6 +22,11 @@ present, the singular `models.ocr` section is used. Pass a provider name only
 when an explicit selection is needed; user code does not need to create an
 `OcrProvider` instance.
 
+For fuzzy screen-text lookup, `phone.locate_text("设置")` runs the configured
+OCR provider on a fresh screenshot and returns screen-space bounds and a
+similarity score. See the [text-matching guide](text-matching.md) for its
+threshold and explicit click behavior.
+
 ```python
 from nier.models.base import BoundingBox, TextSpan
 from nier.models.decision import TextMatchDecisionProvider

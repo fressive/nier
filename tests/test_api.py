@@ -140,6 +140,79 @@ def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
     assert backend.actions == []
 
 
+def test_locate_icon_match_clicks_its_center_only_when_requested(monkeypatch) -> None:
+    phone, backend = make_device()
+    monkeypatch.setattr(
+        "nier.api.locate_template",
+        lambda *_args, **_kwargs: ImageMatch(10, 20, 8, 12, 0.93),
+    )
+
+    match = phone.locate_icon(b"template image")
+    assert match is not None
+    assert backend.actions == []
+
+    match.click()
+
+    assert backend.actions == [Click(Point(14, 26), 80)]
+
+
+def test_locate_text_returns_best_fuzzy_match_and_clicks_its_center() -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(10.2, 20.1, 50.8, 40.2)),
+        TextSpan("Setings", 0.99, BoundingBox(60, 20, 90, 40)),
+    ]
+
+    match = phone.locate_text("ＳＥＴＴＩＮＧＳ", min_score=0.9)
+
+    assert match == ImageMatch(10, 20, 41, 21, 1.0)
+    assert match is not None
+    assert backend.screenshot_request == ScreenshotRequest()
+    assert backend.actions == []
+
+    match.click()
+
+    assert backend.actions == [Click(Point(30.5, 30.5), 80)]
+
+
+def test_locate_text_scores_fuzzy_candidates_and_returns_none_below_threshold() -> None:
+    phone, _ = make_device()
+    phone._ocr_screenshot = lambda _image: [
+        TextSpan("setings", 0.99, BoundingBox(10, 20, 50, 40))
+    ]
+
+    match = phone.locate_text("settings", min_score=0.9)
+
+    assert match is not None
+    assert match.score == pytest.approx(0.9333, abs=0.001)
+    assert phone.locate_text("unrelated", min_score=0.9) is None
+
+
+@pytest.mark.parametrize(
+    ("text", "min_score", "error", "message"),
+    [
+        ("  ", 0.6, ValueError, "text must not be empty"),
+        ("settings", -0.1, ValueError, "min_score"),
+        ("settings", True, ValueError, "min_score"),
+        (None, 0.6, TypeError, "text must be a string"),
+    ],
+)
+def test_locate_text_validates_query_and_threshold(
+    text, min_score, error, message
+) -> None:
+    phone, backend = make_device()
+
+    with pytest.raises(error, match=message):
+        phone.locate_text(text, min_score=min_score)
+
+    assert backend.screenshot_request is None
+
+
+def test_unbound_image_match_cannot_click() -> None:
+    with pytest.raises(RuntimeError, match="not bound to a device"):
+        ImageMatch(10, 20, 8, 12, 0.93).click()
+
+
 @pytest.mark.parametrize("label", ["登录", re.compile(r"登.*")])
 def test_tap_label_supports_exact_text_and_regex(label: str | re.Pattern[str]) -> None:
     backend = FakeBackend(

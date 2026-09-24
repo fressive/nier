@@ -212,6 +212,24 @@ load OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
 guidance if either dependency is missing. Screenshot acquisition follows the
 read retry policy; matching MUST NOT tap or otherwise mutate the device.
 
+`Device.locate_text(text, *, min_score=0.6)` MUST use the connection's
+configured OCR provider to recognize one fresh screenshot and fuzzy-match the
+requested text against recognized spans. Matching MUST normalize text with
+Unicode NFKC, case-folding, and whitespace normalization, and calculate
+similarity with `SequenceMatcher` on a `[0, 1]` scale. It MUST return the best
+span meeting the threshold as an `ImageMatch` with screen-space integer bounds
+and similarity score, or `None` if no span meets the threshold. It MUST reject
+empty text and thresholds outside `[0, 1]`. OCR/model failures MUST remain
+typed provider errors. OCR matching and screenshot acquisition MUST NOT click
+or otherwise mutate the device.
+
+`ImageMatch` values returned by `Device.locate_icon()` and
+`Device.locate_text()` MUST provide `click(duration_ms=80)`, which emits one
+click at the center of the matched bounds. A match from a lower-level helper
+without a bound `Device` MUST reject `click()`. This click is a device action
+and MUST NOT be retried automatically. Match coordinates are a snapshot and
+are not revalidated if the screen changes before the click.
+
 ## 6. UI dump contract
 
 UIAutomator is the normal source for Android views. When
