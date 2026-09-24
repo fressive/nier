@@ -79,10 +79,10 @@ The following are intentionally outside the completed foundation:
   subsequent recovery candidates;
 - continuous post-action verification;
 - autonomous WebView interaction beyond DOM extraction; the optional root
-  Frida hook and cooperative non-root integration now enable WebView DevTools
-  DOM dumps. Root mode also has an explicit, best-effort configuration for
-  bypassing common application-owned Back callbacks, while richer CDP actions
-  remain a future extension.
+  Frida hook, LSPosed module, and cooperative non-root integration enable
+  WebView DevTools DOM dumps. Root mode also has an explicit, best-effort
+  configuration for bypassing common application-owned Back callbacks, while
+  richer CDP actions remain a future extension.
 
 These are future extensions, not reasons to change the default ADB topology.
 

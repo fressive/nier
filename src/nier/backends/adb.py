@@ -664,8 +664,8 @@ class AdbBackend:
 
         hook = self._get_webview_hook()
         try:
-            if hook.capabilities.mode is HookMode.ROOT:
-                self._ensure_root_hook_session(target_package)
+            if hook.capabilities.mode in {HookMode.ROOT, HookMode.LSPOSED}:
+                self._ensure_webview_hook_session(target_package)
             return WebViewDevTools(
                 self.adb,
                 package=target_package,
@@ -673,9 +673,9 @@ class AdbBackend:
                 timeout=self.hook_config.timeout_seconds,
             ).dump_dom()
         except Exception:
-            # A dead target must not leave a stale Frida session attached for
-            # the next read attempt. The outer dump_ui method still provides
-            # the normal UIAutomator fallback.
+            # A dead target must not leave a stale instrumentation session
+            # attached for the next read attempt. dump_ui still provides the
+            # normal UIAutomator fallback.
             self._discard_webview_hook()
             raise
 
@@ -694,15 +694,15 @@ class AdbBackend:
         if hook.capabilities.mode is not HookMode.ROOT:
             raise HookUnavailable(
                 "hook.force_system_back requires root Frida mode; "
-                "non-root mode cannot intercept an arbitrary application"
+                "LSPosed and non-root modes do not install the Back policy"
             )
         try:
-            self._ensure_root_hook_session(target_package)
+            self._ensure_webview_hook_session(target_package)
         except Exception:
             self._discard_webview_hook()
             raise
 
-    def _ensure_root_hook_session(self, target_package: str) -> HookSession:
+    def _ensure_webview_hook_session(self, target_package: str) -> HookSession:
         if self._webview_hook is None:
             raise BackendError("WebView hook has not been initialized")
         if self._webview_hook_session is None:
@@ -710,7 +710,7 @@ class AdbBackend:
             pid = getattr(session, "pid", None)
             if not isinstance(pid, int) or pid <= 0:
                 session.close()
-                raise BackendError("root Frida hook did not return a process id")
+                raise BackendError("WebView hook did not return a process id")
             self._webview_hook_session = session
             self._webview_pid = pid
         return self._webview_hook_session

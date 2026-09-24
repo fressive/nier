@@ -10,16 +10,17 @@ Set the target application package in `config/nier.yaml`:
 
 ```yaml
 hook:
-  mode: auto
+  mode: lsposed
   target_package: com.example.authorized.app
   spawn: false
   force_system_back: false
   timeout_seconds: 10
 ```
 
-`auto` selects root mode only when ADB can execute a root shell. Set `mode:
-root` to require Frida injection, or `mode: non-root` to require cooperative
-application integration.
+`auto` selects root mode only when ADB can execute a root shell. Set
+`mode: root` to require Frida injection, `mode: non-root` to require
+cooperative application integration, or `mode: lsposed` to use the installed
+Nier LSPosed module without Frida.
 
 Root detection accepts an already-root `adbd` shell, `su -M -c`, or standard
 `su -c`. When root comes from `su`, its manager must grant root access to the
@@ -45,7 +46,21 @@ action, blocks common platform/AndroidX callback registrations, and redirects
 loaded Java activity handlers to the platform default. Use `spawn: true` when
 possible so the hook is installed before the app registers callbacks. This is
 best-effort and does not guarantee behavior for native or application-specific
-navigation code; it is unavailable in non-root mode.
+navigation code; it is unavailable in non-root and LSPosed modes.
+
+## LSPosed mode
+
+Build and install the Nier Android APK, enable **Nier Backend** in LSPosed
+Manager, and add only authorized target packages to its scope. Set
+`hook.mode: lsposed`. The module enables WebView debugging during application
+startup and overrides later calls that attempt to disable it. The host checks
+the module's readiness record for the running process before requesting the
+DOM through CDP. This mode does not use Frida or root shell access.
+
+LSPosed applies hooks when an application process starts. After enabling the
+module, changing its scope, or installing an updated APK, force-stop and reopen
+the target app before running `uidump`. Nier does not restart the app
+automatically in LSPosed mode.
 
 ## Non-root mode
 

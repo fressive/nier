@@ -163,6 +163,11 @@ def test_hook_modes_are_parsed_and_validated() -> None:
     assert config.hook.auto_start_frida_server is True
     assert config.hook.force_system_back is True
 
+    lsposed_config = from_mapping(
+        {"hook": {"mode": "lsposed", "target_package": "com.example.app"}}
+    )
+    assert lsposed_config.hook.mode is HookMode.LSPOSED
+
 
 def test_invalid_hook_mode_is_rejected() -> None:
     with pytest.raises(ConfigurationError):
@@ -172,11 +177,21 @@ def test_invalid_hook_mode_is_rejected() -> None:
 def test_force_system_back_requires_a_root_capable_target() -> None:
     with pytest.raises(ConfigurationError, match="target_package"):
         from_mapping({"hook": {"force_system_back": True}})
-    with pytest.raises(ConfigurationError, match="root or auto"):
+    with pytest.raises(ConfigurationError, match="root Frida or auto"):
         from_mapping(
             {
                 "hook": {
                     "mode": "non-root",
+                    "target_package": "com.example.app",
+                    "force_system_back": True,
+                }
+            }
+        )
+    with pytest.raises(ConfigurationError, match="root Frida or auto"):
+        from_mapping(
+            {
+                "hook": {
+                    "mode": "lsposed",
                     "target_package": "com.example.app",
                     "force_system_back": True,
                 }

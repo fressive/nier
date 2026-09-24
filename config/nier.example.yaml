@@ -27,10 +27,10 @@ runtime:
 logging:
   verbosity: 0
 
-# WebView instrumentation is opt-in. Root mode uses Frida; non-root mode
-# requires the target app to call WebViewDebugController.enable() itself.
+# WebView instrumentation is opt-in. Root mode uses Frida; LSPosed mode uses
+# the installed Nier module; non-root mode requires target-app integration.
 hook:
-  mode: auto  # auto, root, or non-root
+  mode: auto  # auto, root, non-root, or lsposed
   target_package: null
   spawn: false
   frida_server_path: /data/local/tmp/frida-server

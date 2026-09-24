@@ -171,8 +171,9 @@ and removes that forward after the request. If the target is not debug-enabled,
 not running, or CDP fails, the backend returns `UIAUTOMATOR_FALLBACK` with a
 warning. Use `prefer_webview=False` to request UIAutomator directly.
 
-Root mode enables debugging with Frida. Non-root mode does not inject into an
-arbitrary application; the target app must call
+Root mode enables debugging with Frida. LSPosed mode uses the installed Nier
+module and requires it to be enabled and scoped to the target package. Non-root
+mode does not inject into an arbitrary application; the target app must call
 `WebViewDebugController.enable()` before creating its WebView. See the
 [WebView DevTools guide](webview-devtools.md) for setup and examples.
 
