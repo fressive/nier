@@ -488,13 +488,20 @@ def _attach_root_frida_agent(
             frida_session = device.attach(pid)
         script = frida_session.create_script(source)
         hook_session = _FridaHookSession(frida_session, script, device=device, pid=pid)
+        resume_attempted = False
         try:
             hook_session.load()
-            if should_spawn:
-                device.resume(pid)
             hook_session.wait_ready(config.timeout_seconds)
-        except Exception:
+            if should_spawn:
+                resume_attempted = True
+                device.resume(pid)
+        except BaseException:
             hook_session.close()
+            if should_spawn and not resume_attempted:
+                try:
+                    device.resume(pid)
+                except Exception:
+                    pass
             raise
         return hook_session
     except (HookError, HookUnavailable):
@@ -533,6 +540,7 @@ class RootFridaWebViewHook:
             ),
             agent_name="WebView",
         )
+
 
 class RootFridaIntentHook:
     """Capture app-originated Activity Intents through root Frida injection."""

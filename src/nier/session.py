@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import Any, TypeVar
 
 from .backend import Backend
@@ -21,6 +21,7 @@ from .protocol import (
     ScreenshotRequest,
     UiDump,
     normalize_activity_component,
+    normalize_intent,
     validate_package_name,
 )
 from .results import RunRecorder
@@ -254,7 +255,7 @@ class DeviceSession:
             record.finish(result.success, message=result.message, error_code=result.error_code)
             step("action", action=operation, status="ok" if result.success else "failed")
             return result
-        except (BackendError, HookError, TimeoutError) as exc:
+        except (BackendError, HookError, TimeoutError, ValueError) as exc:
             record.error = str(exc)
             record.finish(False)
             step("action", action=operation, status="failed", error=str(exc))
@@ -291,6 +292,17 @@ class DeviceSession:
     def open_activity(self, package: str, activity: str) -> ActionResult:
         """Compatibility alias for :meth:`start_activity`."""
         return self.start_activity(package, activity)
+
+    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
+        """Start one captured Activity Intent without retrying it."""
+        normalized = normalize_intent(intent)
+        callback = getattr(self.backend, "start_intent", None)
+        if not callable(callback):
+            raise BackendError("backend does not support starting captured Intents")
+        return self._run_named_action(
+            "start_intent",
+            lambda: callback(normalized),
+        )
 
     def close(self) -> None:
         self.backend.close()

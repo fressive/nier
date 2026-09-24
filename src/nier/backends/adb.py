@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import re
+import shlex
 import xml.etree.ElementTree as ET
+from collections.abc import Mapping
 from io import BytesIO
 
 from ..adb import AdbClient, PersistentRootShell
@@ -37,6 +39,7 @@ from ..protocol import (
     UiDump,
     UiSource,
     normalize_activity_component,
+    normalize_intent,
     validate_package_name,
 )
 from ..webview import WebViewDevTools
@@ -313,6 +316,7 @@ class AdbBackend:
                 "list_app_activities",
                 "open_app",
                 "start_activity",
+                "start_intent",
             ),
         )
 
@@ -516,6 +520,78 @@ class AdbBackend:
         component = normalize_activity_component(package, activity)
         output = self.adb.shell("am", "start", "-n", component)
         return _launch_result(output, f"start Activity {component!r}")
+
+    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
+        """Start a validated captured Intent once through Android's ``am``."""
+        value = normalize_intent(intent)
+        arguments = ["am", "start"]
+        component = value["component"]
+        if component is not None:
+            assert isinstance(component, Mapping)
+            arguments.extend(
+                ["-n", f"{component['package']}/{component['class']}"]
+            )
+        for option, field_name in (
+            ("-a", "action"),
+            ("-d", "data"),
+            ("-t", "type"),
+            ("-p", "package"),
+        ):
+            field_value = value[field_name]
+            if field_value is not None:
+                arguments.extend([option, str(field_value)])
+        flags = value["flags"]
+        if flags is not None:
+            arguments.extend(["-f", str(flags)])
+        categories = value["categories"]
+        assert isinstance(categories, list)
+        for category in categories:
+            arguments.extend(["-c", category])
+
+        extras = value["extras"]
+        assert isinstance(extras, Mapping)
+        extra_options = {
+            "null": "--esn",
+            "string": "--es",
+            "boolean": "--ez",
+            "int": "--ei",
+            "long": "--el",
+            "float": "--ef",
+            "uri": "--eu",
+            "component": "--ecn",
+            "string_array": "--esa",
+            "int_array": "--eia",
+            "long_array": "--ela",
+            "float_array": "--efa",
+        }
+        for name, extra in extras.items():
+            assert isinstance(extra, Mapping)
+            kind = str(extra["type"])
+            option = extra_options[kind]
+            extra_value = extra["value"]
+            arguments.extend([option, name])
+            if kind == "null":
+                continue
+            if kind == "component":
+                assert isinstance(extra_value, Mapping)
+                rendered = f"{extra_value['package']}/{extra_value['class']}"
+            elif kind.endswith("_array"):
+                assert isinstance(extra_value, list)
+                rendered = ",".join(str(item) for item in extra_value)
+            elif kind == "boolean":
+                rendered = "true" if extra_value else "false"
+            else:
+                rendered = str(extra_value)
+            arguments.append(rendered)
+
+        # ``adb shell`` parses one remote command string. Quote each token so
+        # captured values with spaces or shell metacharacters remain data.
+        command = shlex.join(arguments)
+        if len(command.encode("utf-8")) > 64 * 1024:
+            raise ValueError("captured Intent exceeds the 64 KiB ADB command limit")
+        output = self.adb.shell(command)
+        _launch_result(output, "start captured Activity Intent")
+        return ActionResult(success=True, message="captured Activity Intent started")
 
     def open_activity(self, package: str, activity: str) -> ActionResult:
         """Compatibility alias for :meth:`start_activity`."""

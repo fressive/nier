@@ -47,6 +47,7 @@ Every backend MUST provide these synchronous operations:
 | `list_app_activities(package)` | `list[str]` | Return fully qualified Activity class names declared by `package`. |
 | `open_app(package)` | `ActionResult` | Launch the package's launcher Activity once. |
 | `start_activity(package, activity)` | `ActionResult` | Launch one Activity in the package once. |
+| `start_intent(intent)` | `ActionResult` | Launch one validated captured Intent once. |
 | `close()` | `None` | Release persistent resources; repeated close calls SHOULD be safe. |
 
 The domain types in `src/nier/protocol.py` are transport-independent. Backend
@@ -65,6 +66,7 @@ with connect("config/nier.yaml") as phone:
     activities = phone.list_app_activities("com.android.settings")
     phone.open_app("com.android.settings")
     phone.start_activity("com.android.settings", ".Settings")
+    phone.start_intent(captured_intent)  # mapping printed by nier intent-hook
     phone.screenshot("artifacts/screen.png", max_width=1280)
     xml = phone.uidump("artifacts/ui.xml", prefer_webview=False)
 ```
@@ -94,9 +96,9 @@ Expected failures MUST use `NierError` subclasses. In particular:
 `DeviceSession` MAY retry read-style operations (`health`, `capabilities`,
 `screenshot`, `dump_ui`, `current_activity`, `list_apps`, and
 `list_app_activities`) after `BackendUnavailable` or `TimeoutError`, using
-bounded backoff. It MUST NOT retry `execute`, `open_app`, or
-`start_activity`: repeating a tap, text input, key event, or launch can mutate
-the application twice after a lost reply.
+bounded backoff. It MUST NOT retry `execute`, `open_app`, `start_activity`, or
+`start_intent`: repeating a tap, text input, key event, or launch can mutate the
+application twice after a lost reply.
 
 ## 3. Domain and action rules
 
@@ -121,6 +123,13 @@ the application twice after a lost reply.
   `package`. It accepts a short class name, a relative `.ClassName`, a fully
   qualified class name, or a `package/class` component, normalizes it to
   `package/full.class`, and MUST NOT be automatically retried.
+- `start_intent(intent)` MUST accept the JSON-compatible mapping emitted by
+  `nier intent-hook`, validate it before device access, and MUST NOT be
+  automatically retried. It MUST preserve the component, action, data URI, MIME
+  type, package, flags, categories, and supported extras. The ADB backend MUST
+  reject truncated values and extra types it cannot recreate with Android's
+  `am start` command rather than silently changing their types. It MUST reject
+  a quoted command larger than 64 KiB before device access.
 
 Actions operate in screen coordinates by default. Backends MUST preserve the
 meaning of normalized and absolute coordinates when converting to a transport
@@ -285,6 +294,36 @@ Frida script.
 The hook enables `WebView.setWebContentsDebuggingEnabled(true)`, and
 `src/nier/webview.py` performs the separate CDP extraction. Root and non-root
 therefore share the same DOM extraction path after debugging is enabled.
+
+### Root Activity Intent hook CLI
+
+`nier intent-hook` MUST use root Frida injection and MUST NOT silently fall
+back to non-root mode. It MUST require a rooted device, the optional host
+`frida` dependency, and a compatible root-capable `frida-server`. The target
+package comes from `--package` or `hook.target_package`; `--spawn` installs the
+agent before the process resumes and `--attach` selects an existing process.
+Without either flag, `hook.spawn` applies. An explicit `hook.mode: non-root`
+configuration MUST be rejected.
+
+The agent MUST observe app-process Activity launches through Android's
+`Instrumentation` and `ContextImpl` Java entry points without changing their
+arguments or return values. Each captured Intent MUST include its component,
+action, data URI, MIME type, package, flags, categories, and bounded extras.
+String values MUST be limited to 4096 characters, extras to 100 keys, and
+arrays to 64 values. Primitive and string extras SHOULD be represented with
+their Java type. The Python snippet restores types supported by Android's
+`am start` interface and MUST identify unsupported or truncated values.
+Unsupported Parcelable or custom Serializable values MUST be reported by type
+and MUST NOT be invoked or serialized through arbitrary application methods.
+The agent MUST NOT force a still-parcelled Bundle to expand; it MUST report
+that those extras were not read.
+
+The CLI MUST print captured Intent data and a reusable Nier Python snippet that
+calls `phone.start_intent(...)`. The snippet MUST use the configured Nier YAML
+path and MUST call out captured fields or extras it omits because Android's
+`am start` cannot recreate them. The command MUST continue listening until
+Ctrl-C, except with `--once`, and MUST detach the Frida session when it exits.
+It MUST NOT persist captured Intents or retry any device action.
 
 ## 7. Rooted uinput helper
 

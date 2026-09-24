@@ -113,6 +113,19 @@ nier --config config/nier.yaml dump-ui
 
 Artifacts are written to `runtime.output_dir` (default: `artifacts`).
 
+To capture Activity Intents from a rooted app process, install the optional
+Frida dependency and configure a matching `frida-server`:
+
+```bash
+python -m pip install -e '.[hook]'
+nier --config config/nier.yaml intent-hook --spawn --once
+```
+
+The command prints the Intent fields and a reusable Nier Python snippet that
+calls `phone.start_intent(...)`. Use `--attach` for an existing process, and
+omit `--once` to keep listening. See the [Activity Intent hook guide](intent-hook.md)
+for root requirements and supported extras.
+
 To run Python scripts from the local live dashboard:
 
 ```bash

@@ -66,7 +66,9 @@ The current foundation includes:
   primary planner, re-observes after each validated tool action, and accepts
   optional typed SysOne advice without letting SysOne failures block execution;
 - a SysOne-first goal API for callers that need finite, host-validated UI/OCR
-  candidates, with bounded LLM recovery subgoals.
+  candidates, with bounded LLM recovery subgoals;
+- a root-only `nier intent-hook` CLI subcommand that captures app-originated
+  Activity Intents and prints reusable Nier Python launch code.
 
 The following are intentionally outside the completed foundation:
 

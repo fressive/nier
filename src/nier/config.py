@@ -108,12 +108,14 @@ class HookMode(str, Enum):
 
 @dataclass(frozen=True)
 class HookConfig:
-    """Configuration for optional root/non-root WebView instrumentation.
+    """Configuration for optional root/non-root instrumentation.
 
     ``force_system_back`` is a root-Frida opt-in. When enabled, the hook
     suppresses common application-owned Java back callbacks so a back action
-    can reach the platform default behavior. It is deliberately disabled by
-    default because it changes application navigation semantics.
+    can reach the platform default behavior. The CLI's ``intent-hook`` command
+    uses the target package, spawn mode, Frida server path, and timeout. The
+    Back policy is deliberately disabled by default because it changes
+    application navigation semantics.
     """
 
     mode: HookMode = HookMode.AUTO

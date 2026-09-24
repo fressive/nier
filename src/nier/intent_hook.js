@@ -9,8 +9,12 @@ function clipped(value, limit) {
   return text.length > limit ? text.slice(0, limit) + '…' : text;
 }
 
-function tagged(type, value) {
-  return {type: type, value: value};
+function tagged(type, value, truncated) {
+  const result = {type: type, value: value};
+  if (truncated) {
+    result.truncated = true;
+  }
+  return result;
 }
 
 function unsupported(value) {
@@ -41,7 +45,8 @@ function safeExtra(value, depth) {
   try {
     if (className === 'java.lang.String' ||
         className === 'java.lang.CharSequence') {
-      return tagged('string', clipped(value.toString(), MAX_TEXT_LENGTH));
+      const text = String(value.toString());
+      return tagged('string', clipped(text, MAX_TEXT_LENGTH), text.length > MAX_TEXT_LENGTH);
     }
     if (className === 'java.lang.Boolean') {
       return tagged('boolean', !!value.booleanValue());
@@ -59,10 +64,12 @@ function safeExtra(value, depth) {
       return tagged('long', String(value.toString()));
     }
     if (className === 'java.lang.Float') {
-      return tagged('float', Number(value.floatValue()));
+      const number = Number(value.floatValue());
+      return isFinite(number) ? tagged('float', number) : unsupported(value);
     }
     if (className === 'java.lang.Double') {
-      return tagged('double', Number(value.doubleValue()));
+      const number = Number(value.doubleValue());
+      return isFinite(number) ? tagged('double', number) : unsupported(value);
     }
     if (className === 'java.lang.Character') {
       return tagged('char', String(value.charValue()));
@@ -70,11 +77,14 @@ function safeExtra(value, depth) {
 
     const valueClass = value.getClass();
     if (valueClass.isArray()) {
+      const componentClass = valueClass.getComponentType();
+      const componentName = String(componentClass.getName());
+      if (!componentClass.isPrimitive() && componentName !== 'java.lang.String') {
+        return unsupported(value);
+      }
       const ReflectArray = Java.use('java.lang.reflect.Array');
-      const arrayLength = Math.min(
-        Number(ReflectArray.getLength(value)),
-        MAX_ARRAY_ITEMS
-      );
+      const fullLength = Number(ReflectArray.getLength(value));
+      const arrayLength = Math.min(fullLength, MAX_ARRAY_ITEMS);
       const values = [];
       let itemType = null;
       for (let index = 0; index < arrayLength; index += 1) {
@@ -94,11 +104,12 @@ function safeExtra(value, depth) {
       if (itemType === null || !primitiveArrayTypes[itemType]) {
         return unsupported(value);
       }
-      return tagged(primitiveArrayTypes[itemType], values);
+      return tagged(primitiveArrayTypes[itemType], values, fullLength > MAX_ARRAY_ITEMS);
     }
 
     if (className === 'android.net.Uri') {
-      return tagged('uri', clipped(value.toString(), MAX_TEXT_LENGTH));
+      const text = String(value.toString());
+      return tagged('uri', clipped(text, MAX_TEXT_LENGTH), text.length > MAX_TEXT_LENGTH);
     }
     if (className === 'android.content.ComponentName') {
       return tagged('component', {
@@ -110,6 +121,60 @@ function safeExtra(value, depth) {
     return {type: 'unsupported', value: className + ': ' + String(error)};
   }
   return {type: 'unsupported', value: className};
+}
+
+function readMaterializedExtras(bundle) {
+  let map = null;
+  try {
+    const BaseBundle = Java.use('android.os.BaseBundle');
+    map = Java.cast(bundle, BaseBundle).mMap.value;
+  } catch (ignored) {
+    // Fall through to reflection for Android releases where Frida does not
+    // expose the framework field directly.
+  }
+  if (map === null) {
+    try {
+      let currentClass = bundle.getClass();
+      while (currentClass !== null && map === null) {
+        try {
+          const field = currentClass.getDeclaredField('mMap');
+          field.setAccessible(true);
+          map = field.get(bundle);
+        } catch (ignored) {
+          currentClass = currentClass.getSuperclass();
+        }
+      }
+    } catch (ignored) {
+      return {values: {}, truncated: false, unavailable: true};
+    }
+  }
+  if (map === null) {
+    return {values: {}, truncated: false, unavailable: true};
+  }
+
+  const values = Object.create(null);
+  let truncated = false;
+  try {
+    const iterator = map.entrySet().iterator();
+    let count = 0;
+    while (iterator.hasNext()) {
+      if (count >= MAX_EXTRA_COUNT) {
+        truncated = true;
+        break;
+      }
+      const entry = iterator.next();
+      const key = String(entry.getKey());
+      try {
+        values[key] = safeExtra(entry.getValue(), 0);
+      } catch (error) {
+        values[key] = {type: 'unsupported', value: String(error)};
+      }
+      count += 1;
+    }
+  } catch (ignored) {
+    return {values: {}, truncated: false, unavailable: true};
+  }
+  return {values: values, truncated: truncated, unavailable: false};
 }
 
 const KNOWN_FLAGS = [
@@ -142,7 +207,7 @@ function intentToObject(intent) {
     }
   }
 
-  const flags = Number(intent.getFlags());
+  const flags = Number(intent.getFlags()) | 0;
   const flagNames = [];
   KNOWN_FLAGS.forEach(function (entry) {
     if ((flags & entry[0]) !== 0) {
@@ -150,20 +215,10 @@ function intentToObject(intent) {
     }
   });
 
-  const extras = {};
   const bundle = intent.getExtras();
-  if (bundle !== null) {
-    const keys = bundle.keySet().toArray();
-    const count = Math.min(Number(keys.length), MAX_EXTRA_COUNT);
-    for (let index = 0; index < count; index += 1) {
-      const key = String(keys[index]);
-      try {
-        extras[key] = safeExtra(bundle.get(key), 0);
-      } catch (error) {
-        extras[key] = {type: 'unsupported', value: String(error)};
-      }
-    }
-  }
+  const extrasResult = bundle === null
+    ? {values: {}, truncated: false, unavailable: false}
+    : readMaterializedExtras(bundle);
 
   const data = intent.getData();
   return {
@@ -171,25 +226,40 @@ function intentToObject(intent) {
       package: String(component.getPackageName()),
       class: String(component.getClassName()),
     },
-    action: intent.getAction() === null ? null : String(intent.getAction()),
+    action: intent.getAction() === null ? null : clipped(intent.getAction(), MAX_TEXT_LENGTH),
+    action_truncated: intent.getAction() !== null && String(intent.getAction()).length > MAX_TEXT_LENGTH,
     data: data === null ? null : clipped(data.toString(), MAX_TEXT_LENGTH),
-    type: intent.getType() === null ? null : String(intent.getType()),
-    package: intent.getPackage() === null ? null : String(intent.getPackage()),
+    data_truncated: data !== null && String(data.toString()).length > MAX_TEXT_LENGTH,
+    type: intent.getType() === null ? null : clipped(intent.getType(), MAX_TEXT_LENGTH),
+    package: intent.getPackage() === null ? null : clipped(intent.getPackage(), MAX_TEXT_LENGTH),
     flags: flags,
     flags_hex: '0x' + (flags >>> 0).toString(16).padStart(8, '0'),
     flag_names: flagNames,
-    categories: categories,
-    extras: extras,
-    extras_truncated: bundle !== null && Number(bundle.size()) > MAX_EXTRA_COUNT,
+    categories: categories.map(function (category) { return clipped(category, MAX_TEXT_LENGTH); }),
+    extras: extrasResult.values,
+    extras_truncated: extrasResult.truncated,
+    extras_unavailable: extrasResult.unavailable,
   };
 }
 
-function emitIntents(source, values) {
+const activeIntentHashes = Object.create(null);
+
+function emitIntents(source, values, seenInCall, claimed) {
   values.forEach(function (intent) {
     if (intent === null || intent === undefined) {
       return;
     }
     try {
+      const System = Java.use('java.lang.System');
+      const key = String(System.identityHashCode(intent));
+      if (activeIntentHashes[key] && !seenInCall[key]) {
+        return;
+      }
+      if (!seenInCall[key]) {
+        seenInCall[key] = true;
+        activeIntentHashes[key] = true;
+        claimed.push(key);
+      }
       send({type: 'intent_started', source: source, intent: intentToObject(intent)});
     } catch (error) {
       send({type: 'intent_hook_warning', source: source, error: String(error)});
@@ -223,8 +293,9 @@ function hookIntentMethods(className, methodNames) {
       for (let index = 0; index < parameters.length; index += 1) {
         const typeName = String(parameters[index].className);
         if (typeName === 'android.content.Intent' ||
-            typeName === '[Landroid.content.Intent;') {
-          intentIndexes.push({index: index, array: typeName.charAt(0) === '['});
+            typeName === '[Landroid.content.Intent;' ||
+            typeName === 'android.content.Intent[]') {
+          intentIndexes.push({index: index, array: typeName.indexOf('[]') !== -1 || typeName.charAt(0) === '['});
         }
       }
       if (intentIndexes.length === 0) {
@@ -233,6 +304,8 @@ function hookIntentMethods(className, methodNames) {
 
       overload.implementation = function () {
         const args = Array.prototype.slice.call(arguments);
+        const seenInCall = Object.create(null);
+        const claimed = [];
         intentIndexes.forEach(function (info) {
           try {
             if (info.array) {
@@ -243,9 +316,9 @@ function hookIntentMethods(className, methodNames) {
               for (let index = 0; index < length; index += 1) {
                 intents.push(ReflectArray.get(array, index));
               }
-              emitIntents(className + '.' + methodName, intents);
+              emitIntents(className + '.' + methodName, intents, seenInCall, claimed);
             } else {
-              emitIntents(className + '.' + methodName, [args[info.index]]);
+              emitIntents(className + '.' + methodName, [args[info.index]], seenInCall, claimed);
             }
           } catch (error) {
             send({
@@ -255,7 +328,13 @@ function hookIntentMethods(className, methodNames) {
             });
           }
         });
-        return overload.apply(this, args);
+        try {
+          return overload.apply(this, args);
+        } finally {
+          claimed.forEach(function (key) {
+            delete activeIntentHashes[key];
+          });
+        }
       };
       installed.push(methodName + '(' + intentIndexes.length + ' Intent argument(s))');
     });
@@ -271,7 +350,8 @@ Java.perform(function () {
 
     const groups = [
       hookIntentMethods('android.app.Instrumentation', [
-        'execStartActivity', 'execStartActivities', 'execStartActivitiesAsUser',
+        'execStartActivity', 'execStartActivityAsCaller', 'execStartActivities',
+        'execStartActivitiesAsUser',
       ]),
       hookIntentMethods('android.app.ContextImpl', ['startActivity', 'startActivities']),
     ];
@@ -282,6 +362,9 @@ Java.perform(function () {
         send({type: 'intent_hook_warning', error: group.warning});
       }
     });
+    if (installed.length === 0) {
+      send({type: 'intent_hook_warning', error: 'no Intent launch methods were available to hook'});
+    }
 
     send({type: 'ready', mode: 'root', hooks: installed});
   } catch (error) {
