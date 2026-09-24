@@ -136,8 +136,18 @@ def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
     expected = ImageMatch(10, 20, 8, 12, 0.93)
     calls = []
 
-    def fake_locate(screenshot, template, *, min_score, region):
-        calls.append((screenshot, template, min_score, region))
+    def fake_locate(
+        screenshot,
+        template,
+        *,
+        min_score,
+        region,
+        scale_range,
+        scale_steps,
+    ):
+        calls.append(
+            (screenshot, template, min_score, region, scale_range, scale_steps)
+        )
         return expected
 
     monkeypatch.setattr("nier.api.locate_template", fake_locate)
@@ -146,10 +156,14 @@ def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
         b"template image",
         min_score=0.9,
         region=(5, 6, 30, 40),
+        scale_range=(0.8, 1.2),
+        scale_steps=9,
     )
 
     assert result == expected
-    assert calls == [(b"image", b"template image", 0.9, (5, 6, 30, 40))]
+    assert calls == [
+        (b"image", b"template image", 0.9, (5, 6, 30, 40), (0.8, 1.2), 9)
+    ]
     assert backend.screenshot_request == ScreenshotRequest()
     assert backend.actions == []
 
