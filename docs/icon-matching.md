@@ -55,8 +55,10 @@ The swipe direction can be `"up"`, `"down"`, `"left"`, or `"right"`. Gesture
 methods add up to 2 pixels of human-like coordinate jitter by default; click
 and long-press jitter stays inside the match bounds, and swipe paths receive
 small random curvature on multipoint backends. The standard ADB shell fallback
-uses jittered endpoints on a straight path. Pass `jitter=0` for deterministic
-coordinates.
+uses jittered endpoints on a straight path. Pass `humanize=False` to disable
+random offsets and curvature for one gesture; `jitter=0` has the same effect.
+Pass a different `jitter=` value to adjust the maximum offset while
+humanization is enabled.
 
 `min_score` must be between `0` and `1` and defaults to `0.85`. It is a
 similarity threshold, not a calibrated probability or a promised recognition

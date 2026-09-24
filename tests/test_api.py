@@ -270,6 +270,31 @@ def test_directional_swipe_adds_bounded_path_jitter(monkeypatch) -> None:
     )
 
 
+def test_humanize_switch_disables_randomness_for_all_match_gestures(monkeypatch) -> None:
+    phone, backend = make_device()
+    phone._ocr_screenshot = lambda image: [
+        TextSpan("Settings", 0.9, BoundingBox(30, 80, 70, 120))
+    ]
+    monkeypatch.setattr(
+        "nier.api.random.uniform",
+        lambda *_args: pytest.fail("humanize=False must not add randomness"),
+    )
+    match = phone.locate_text("Settings")
+    assert match is not None
+
+    match.click(humanize=False)
+    match.long_press(humanize=False)
+    match.swipe("right", distance=10, humanize=False)
+
+    assert backend.actions[0] == Click(Point(50, 100), 80)
+    assert backend.actions[1] == Click(Point(50, 100), 800)
+    swipe = backend.actions[2]
+    assert isinstance(swipe, Swipe)
+    assert swipe.points[0] == Point(50, 100)
+    assert swipe.points[-1] == Point(60, 100)
+    assert all(point.y == 100 for point in swipe.points)
+
+
 def test_image_match_gesture_validation() -> None:
     phone, _ = make_device()
     phone._ocr_screenshot = lambda image: [
@@ -282,6 +307,8 @@ def test_image_match_gesture_validation() -> None:
         match.swipe("diagonal")
     with pytest.raises(ValueError, match="jitter"):
         match.long_press(jitter=-1)
+    with pytest.raises(ValueError, match="humanize"):
+        match.click(humanize=1)
     with pytest.raises(ValueError, match="duration_ms"):
         match.long_press(duration_ms=0)
     with pytest.raises(ValueError, match="distance"):
