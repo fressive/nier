@@ -29,7 +29,7 @@ from nier.session import DeviceSession
 @dataclass
 class FakeBackend:
     actions: list[Action] = field(default_factory=list)
-    opened_apps: list[str] = field(default_factory=list)
+    opened_apps: list[tuple[str, bool]] = field(default_factory=list)
     started_activities: list[tuple[str, str]] = field(default_factory=list)
 
     def health(self) -> bool:
@@ -66,8 +66,8 @@ class FakeBackend:
     def list_app_activities(self, package: str) -> list[str]:
         return [f"{package}.MainActivity", f"{package}.SettingsActivity"]
 
-    def open_app(self, package: str) -> ActionResult:
-        self.opened_apps.append(package)
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        self.opened_apps.append((package, restart))
         return ActionResult(True, f"opened {package}")
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
@@ -183,6 +183,28 @@ def test_agent_compiles_natural_language_to_recorded_actions() -> None:
     assert "Structured UI elements" in llm.prompt
     assert "app:id/login" in llm.prompt
     assert any(record.operation == "agent" and record.success for record in phone.session.recorder.records)
+
+
+def test_agent_forwards_explicit_app_restart_request() -> None:
+    phone, backend = make_device()
+    llm = FakeLlm(
+        [],
+        responses=[
+            [tool("open_app", package="com.example.app", restart=True)],
+            [tool("goal_complete", reason="app restarted")],
+        ],
+    )
+
+    result = phone.llm("重启 com.example.app", llm=llm)
+
+    assert result.success is True
+    assert backend.opened_apps == [("com.example.app", True)]
+    open_app_tool = next(
+        item["function"] for item in llm.tools if item["function"]["name"] == "open_app"
+    )
+    assert open_app_tool["parameters"]["properties"]["restart"] == {
+        "type": "boolean"
+    }
 
 
 def test_agent_can_query_apps_and_start_an_activity() -> None:

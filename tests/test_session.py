@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 import pytest
 
@@ -28,6 +28,7 @@ class FakeBackend:
     screenshot_calls: int = 0
     execute_calls: int = 0
     open_app_calls: int = 0
+    open_app_restarts: list[bool] = field(default_factory=list)
     start_activity_calls: int = 0
     fail_open_app: bool = False
     fail_start_activity: bool = False
@@ -64,11 +65,12 @@ class FakeBackend:
     def list_app_activities(self, package: str) -> list[str]:
         return [f"{package}.MainActivity"]
 
-    def open_app(self, package: str) -> ActionResult:
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
         self.open_app_calls += 1
+        self.open_app_restarts.append(restart)
         if self.fail_open_app:
             raise BackendUnavailable("launch response unavailable")
-        return ActionResult(True, f"opened {package}")
+        return ActionResult(True, f"{'restarted' if restart else 'opened'} {package}")
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         self.start_activity_calls += 1
@@ -180,3 +182,14 @@ def test_session_does_not_retry_launch_actions() -> None:
         session.start_activity("com.example.app", ".MainActivity")
     assert backend.open_app_calls == 1
     assert backend.start_activity_calls == 1
+
+
+def test_session_passes_app_restart_option_once() -> None:
+    backend = FakeBackend()
+    session = DeviceSession(backend, retries=3)
+
+    result = session.open_app("com.example.app", restart=True)
+
+    assert result.message == "restarted com.example.app"
+    assert backend.open_app_calls == 1
+    assert backend.open_app_restarts == [True]

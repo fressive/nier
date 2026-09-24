@@ -35,6 +35,10 @@ with connect("config/nier.yaml") as phone:
     if result.message:
         print(f"Details: {result.message}")
 
+    # Stop the process, clear the Activity task, then launch the app fresh.
+    # This does not clear the app's stored data.
+    result = phone.open_app("com.example.authorized.app", restart=True)
+
     result = phone.start_activity(
         "com.example.authorized.app",
         ".SettingsActivity",
@@ -52,7 +56,13 @@ Activity from another package before sending it to the device. The aliases
 
 Opening an app and starting an Activity change device state. They are sent
 once and are never automatically retried, because repeating a launch after a
-lost response could produce an unintended navigation.
+lost response could produce an unintended navigation. By default,
+`open_app(package)` launches the app without stopping it first. Set
+`restart=True` to run Android `am force-stop`, clear the app's Activity task,
+and start the launcher Activity fresh. It preserves the app's stored data.
+`launch_app()` accepts the same option as an alias. The `phone.llm()` agent
+also exposes this option to its `open_app` tool and uses it only when the goal
+explicitly asks to restart the app.
 
 To relaunch an Intent captured by `nier intent-hook`, pass its printed mapping
 to `start_intent()`:

@@ -261,19 +261,26 @@ class DeviceSession:
             step("action", action=operation, status="failed", error=str(exc))
             raise
 
-    def open_app(self, package: str) -> ActionResult:
-        """Open an app's launcher Activity; the action is never retried."""
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        """Open an app's launcher Activity, optionally force-stopping it first.
+
+        The action is never retried.
+        """
         package = validate_package_name(package)
         callback = getattr(self.backend, "open_app", None)
         if not callable(callback):
             callback = getattr(self.backend, "launch_app", None)
         if not callable(callback):
             raise BackendError("backend does not support opening apps")
+        if restart:
+            return self._run_named_action(
+                "open_app", lambda: callback(package, restart=True)
+            )
         return self._run_named_action("open_app", lambda: callback(package))
 
-    def launch_app(self, package: str) -> ActionResult:
+    def launch_app(self, package: str, *, restart: bool = False) -> ActionResult:
         """Compatibility alias for :meth:`open_app`."""
-        return self.open_app(package)
+        return self.open_app(package, restart=restart)
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         """Start an Activity; the action is never retried."""

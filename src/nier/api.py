@@ -315,13 +315,18 @@ class Device:
         """Compatibility alias for :meth:`list_app_activities`."""
         return self.list_app_activities(package)
 
-    def open_app(self, package: str) -> ActionResult:
-        """Open an app through its launcher Activity."""
-        return self.session.open_app(package)
+    def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
+        """Open an app through its launcher Activity.
 
-    def launch_app(self, package: str) -> ActionResult:
+        Set ``restart=True`` to force-stop the app and clear its task stack
+        before launching. This does not clear the app's stored data, and the
+        action is never retried.
+        """
+        return self.session.open_app(package, restart=restart)
+
+    def launch_app(self, package: str, *, restart: bool = False) -> ActionResult:
         """Compatibility alias for :meth:`open_app`."""
-        return self.open_app(package)
+        return self.open_app(package, restart=restart)
 
     def start_activity(self, package: str, activity: str) -> ActionResult:
         """Start an Activity by class name or ``package/class`` component."""
