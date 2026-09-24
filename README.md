@@ -108,6 +108,11 @@ for that command. `v` shows steps. `vv` adds OCR, UI dump, SysOne, and LLM resul
 `vvv` adds bounded, sanitized ADB and HTTP request/response details.
 SysOne answers are shown by question and type; `vvv` renders their UI summaries
 and OCR spans as readable lines.
+
+The CLI includes configurable `screenshot` and `uidump` commands, read-only
+`locate text` and `locate icon` commands (`--tap` explicitly requests a click),
+and `adb` for raw ADB passthrough. See the [CLI device tools guide](docs/cli.md)
+for options and optional OCR/OpenCV dependencies.
 Nier terminal logs are written to stdout, and logs and CLI summaries use labeled
 text rather than JSON output; machine-readable run records remain saved as JSON
 files.
@@ -134,6 +139,9 @@ is configured, `dump-ui` uses the WebView DevTools DOM through a temporary
 host-local ADB forward and falls back to UIAutomator if the target is not
 available. Root mode also supports the opt-in `hook.force_system_back` policy
 for bypassing common application-owned Back callbacks on authorized targets.
+The root-only `nier intent-hook` subcommand captures app-originated Activity
+Intents and prints reusable Nier Python launch code; see the
+[Intent hook guide](docs/intent-hook.md).
 
 Remote ADB over TCP is supported through `device.remote_host` and
 `device.remote_port`; see the [remote ADB guide](docs/remote-adb.md).
@@ -152,7 +160,7 @@ nier web --scripts=./examples
 The dashboard binds to `127.0.0.1` by default. Select a script and confirm
 each run in the browser. It streams bounded, sanitized Nier log events. See the
 [web dashboard guide](docs/web-dashboard.md) for setup, live logs, and the
-optional STEP-level debugger controls.
+current Python file/line display and optional STEP-level debugger controls.
 
 ## Disclaimer
 

@@ -25,6 +25,7 @@ export type DebugLocation = {
   function: string;
   stack: DebugFrame[];
 };
+export type ExecutionLocation = { file: string; line: number; function: string };
 
 export type RunState = {
   id: string | null;
@@ -37,6 +38,7 @@ export type RunState = {
   debug: boolean;
   debug_state: DebugState;
   debug_location: DebugLocation | null;
+  execution_location: ExecutionLocation | null;
 };
 
 export type WebEvent = {
@@ -87,4 +89,5 @@ export const initialRun: RunState = {
   debug: false,
   debug_state: "inactive",
   debug_location: null,
+  execution_location: null,
 };

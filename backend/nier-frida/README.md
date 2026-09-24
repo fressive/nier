@@ -3,6 +3,10 @@
 This optional component separates WebView instrumentation from the uinput
 input backend.
 
+The root-only `nier intent-hook` CLI command also uses Frida to capture
+app-originated Activity Intents and generate reusable Kotlin or Java launch
+helpers. See [`docs/intent-hook.md`](../../docs/intent-hook.md).
+
 ## Root mode
 
 Root mode uses a host-side `frida` package and a root-capable

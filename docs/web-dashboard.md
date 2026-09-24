@@ -40,8 +40,10 @@ provides **继续**, **步入**, **单步**, and **步出** controls, plus the c
 STEP details and call path. **单步** runs through exactly one STEP event and
 pauses at the next one. **步入** waits for a STEP event at a deeper call level;
 **步出** waits for one at a shallower level. These controls follow Nier STEP
-events rather than Python source lines. Normal script runs keep their existing
-uninterrupted behavior.
+events rather than Python source lines. Normal runs remain uninterrupted and
+also stream the current script-relative Python file, line, and function to the
+**当前代码行** indicator. The runner samples location updates at up to 20 per
+second; it does not send source text or local variable values.
 
 To rebuild the frontend from a source checkout:
 
@@ -72,6 +74,11 @@ for the selected control command. Stopping the run terminates the paused
 process. STEP details retain structured-event redaction. Call paths show
 script-relative paths or library file names, line numbers, and function names;
 they omit source text and local variable values.
+
+The current execution location is tracked only for Python files inside the
+selected scripts directory. Line tracing runs in the dashboard child process
+and may add execution overhead for heavily Python-bound scripts; dashboard UI
+updates are sampled to keep the event stream compact.
 
 The dashboard enables the existing `vvv` request/response logging level in the
 child script and streams structured Nier events after applying the existing

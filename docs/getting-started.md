@@ -108,10 +108,27 @@ After copying the example configuration, the basic commands are:
 nier --config config/nier.yaml health
 nier --config config/nier.yaml capabilities
 nier --config config/nier.yaml screenshot
-nier --config config/nier.yaml dump-ui
+nier --config config/nier.yaml uidump --format json
+nier --config config/nier.yaml locate text "进入设置"
+nier --config config/nier.yaml adb shell dumpsys activity activities
 ```
 
-Artifacts are written to `runtime.output_dir` (default: `artifacts`).
+Artifacts are written to `runtime.output_dir` (default: `artifacts`) unless an
+output path is supplied. See the [CLI device tools guide](cli.md) for screenshot
+options, UI dump formats, locate dependencies, and ADB passthrough.
+
+To capture Activity Intents from a rooted app process, install the optional
+Frida dependency and configure a matching `frida-server`:
+
+```bash
+python -m pip install -e '.[hook]'
+nier --config config/nier.yaml intent-hook --spawn --once
+```
+
+The command prints the Intent fields and a reusable Nier Python snippet that
+calls `phone.start_intent(...)`. Use `--attach` for an existing process, and
+omit `--once` to keep listening. See the [Activity Intent hook guide](intent-hook.md)
+for root requirements and supported extras.
 
 To run Python scripts from the local live dashboard:
 

@@ -45,6 +45,18 @@ export default function App() {
         debug: incoming.debug ?? false,
         debug_state: incoming.debug ? "running" : "inactive",
         debug_location: null,
+        execution_location: null,
+      }));
+      return;
+    }
+    if (incoming.type === "execution.location") {
+      setRun((current) => ({
+        ...current,
+        execution_location: {
+          file: incoming.file ?? "",
+          line: incoming.line ?? 0,
+          function: incoming.function ?? "",
+        },
       }));
       return;
     }
@@ -93,7 +105,10 @@ export default function App() {
       if (!mounted) return;
       setScripts(scriptResponse.scripts);
       setSelectedScript((current) => current || scriptResponse.scripts[0]?.path || "");
-      setRun(state.run);
+      setRun((current) => ({
+        ...state.run,
+        execution_location: current.execution_location ?? state.run.execution_location,
+      }));
       setEvents(state.events);
       setConnected(true);
     }).catch((reason: Error) => {
@@ -143,7 +158,12 @@ export default function App() {
     setError("");
     try {
       const state = await postJson<ApiState>("/api/run", { script: selectedScript, confirmed: true, debug: pendingDebug });
-      setRun(state.run);
+      setRun((current) => ({
+        ...state.run,
+        execution_location: current.id === state.run.id
+          ? current.execution_location ?? state.run.execution_location
+          : state.run.execution_location,
+      }));
       setShowConfirm(false);
       setConfirmed(false);
     } catch (reason) {
@@ -247,6 +267,24 @@ export default function App() {
         )}
 
         <RunMetrics script={run.script || selectedScript} pathCount={pathEvents.length} successCount={successCount} failureCount={failureCount} />
+
+        <div className="flex min-w-0 shrink-0 items-center gap-2 rounded-lg border border-border/70 bg-[#10151c]/80 px-3 py-2">
+          <Code2 className="h-3.5 w-3.5 shrink-0 text-emerald-300" />
+          <span className="shrink-0 text-[10px] text-slate-500">当前代码行</span>
+          {run.execution_location ? (
+            <>
+              <code
+                className="min-w-0 truncate text-[11px] font-medium text-emerald-200"
+                title={`${run.execution_location.file}:${run.execution_location.line}`}
+              >
+                {run.execution_location.file}:{run.execution_location.line}
+              </code>
+              <span className="min-w-0 truncate text-[10px] text-slate-500">{run.execution_location.function}</span>
+            </>
+          ) : (
+            <span className="truncate text-[10px] text-slate-600">{busy ? "等待 Python 执行…" : "暂无运行位置"}</span>
+          )}
+        </div>
 
         <nav aria-label="运行面板" className="flex h-9 shrink-0 items-center gap-1 rounded-lg border border-border/70 bg-[#10151c]/80 p-1 xl:hidden">
           {([

@@ -16,10 +16,18 @@ def test_dashboard_filters_stdout_log_lines_but_keeps_script_output(tmp_path) ->
         "message": "tap",
         "details": {},
     }
+    location = {
+        "type": "execution.location",
+        "run_id": "run-1",
+        "file": "example.py",
+        "line": 23,
+        "function": "main",
+    }
     stdout = StringIO(
         "12:34:56.789 [nier v] STEP tap\n"
         "  x: 10\n"
         f"\x1eNIER_EVENT {json.dumps(event)}\n"
+        f"\x1eNIER_EVENT {json.dumps(location)}\n"
         "script output\n"
     )
 
@@ -27,3 +35,8 @@ def test_dashboard_filters_stdout_log_lines_but_keeps_script_output(tmp_path) ->
 
     assert [item["type"] for item in dashboard.history] == ["log", "console"]
     assert dashboard.history[-1]["text"] == "script output"
+    assert dashboard.run_state["execution_location"] == {
+        "file": "example.py",
+        "line": 23,
+        "function": "main",
+    }

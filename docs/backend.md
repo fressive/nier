@@ -14,6 +14,7 @@ must provide:
 | `list_app_activities(package)` | `list[str]` |
 | `open_app(package)` | `ActionResult` |
 | `start_activity(package, activity)` | `ActionResult` |
+| `start_intent(intent)` | `ActionResult` |
 | `close()` | `None` |
 
 The interface is defined by [`src/nier/backend.py`](../src/nier/backend.py).
@@ -27,6 +28,8 @@ For a device reachable over TCP, see the [remote ADB guide](remote-adb.md).
 Any object implementing the protocol can be passed to `DeviceSession`:
 
 ```python
+from collections.abc import Mapping
+
 from nier.backend import Backend
 from nier.protocol import (
     Action,
@@ -80,6 +83,9 @@ class RecordingBackend:
     def start_activity(self, package: str, activity: str) -> ActionResult:
         raise NotImplementedError
 
+    def start_intent(self, intent: Mapping[str, object]) -> ActionResult:
+        raise NotImplementedError
+
     def close(self) -> None:
         pass
 
@@ -92,4 +98,6 @@ session.close()
 
 Backends must report failed device operations as errors rather than returning a
 successful result. `DeviceSession` retries read operations only; `execute`,
-`open_app`, and `start_activity` are never automatically retried.
+`open_app`, `start_activity`, and `start_intent` are never automatically
+retried. `start_intent` receives the validated mapping emitted by
+`nier intent-hook`.
