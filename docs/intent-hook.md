@@ -2,7 +2,7 @@
 
 The root-only `nier intent-hook` command observes Activity launch Intents made
 by an authorized app process. For each launch it prints the captured fields
-and a reusable Kotlin helper by default, or Java with `--format java`.
+and a reusable Python snippet that calls Nier's `phone.start_intent()` API.
 
 ## Requirements and configuration
 
@@ -40,7 +40,7 @@ nier --config config/nier.yaml intent-hook --spawn --once
 For an already running process, attach instead:
 
 ```bash
-nier --config config/nier.yaml intent-hook --attach --format java
+nier --config config/nier.yaml intent-hook --attach
 ```
 
 The package comes from `hook.target_package`, or can be supplied as
@@ -57,31 +57,51 @@ Intent that started the hooked process.
 
 ## Generated code and capture limits
 
-Output includes JSON for the captured fields and a helper such as:
+Output includes JSON for the captured fields and a runnable Nier Python
+snippet such as:
 
-```kotlin
-import android.app.Activity
-import android.content.ComponentName
-import android.content.Intent
-import android.net.Uri
+```python
+from nier import connect
 
-fun launchCapturedIntent(activity: Activity) {
-    val intent = Intent()
-    intent.setComponent(ComponentName("com.example.authorized.app", "com.example.authorized.app.DetailActivity"))
-    intent.setAction("com.example.OPEN_DETAIL")
-    intent.putExtra("item_id", 42)
-    activity.startActivity(intent)
+intent = {
+    'component': {
+        'package': 'com.example.authorized.app',
+        'class': 'com.example.authorized.app.DetailActivity',
+    },
+    'action': 'com.example.OPEN_DETAIL',
+    'data': None,
+    'type': None,
+    'package': None,
+    'flags': 268435456,
+    'categories': [],
+    'extras': {'item_id': {'type': 'int', 'value': 42}},
 }
+
+with connect('config/nier.yaml') as phone:
+    result = phone.start_intent(intent)
+    print('Activity launch:', 'succeeded' if result.success else 'failed')
 ```
 
-Primitive and string extras preserve their Java types, including primitive
-arrays. Strings are limited to 4096 characters, captures include up to 100
-extra keys and 64 array values. Parcelable, custom Serializable, and other
-unsupported values are shown by type; the generated helper includes TODO
-comments for them because Nier does not invoke arbitrary app serialization
-code. If Android still holds the extras in a parcelled Bundle, Nier leaves
-them unread and marks them unavailable. The command prints results to the
-terminal and does not save captured Intents.
+The generated snippet uses the `--config` path passed to the CLI. The ADB
+backend restores the component, action, data URI, MIME type, package, flags,
+categories, and these extras: null, string, boolean, int, long, float, URI,
+component, string-array, int-array, long-array, and float-array. The Android
+`am start` interface does not preserve every Java type. For example, byte,
+short, char, double, boolean-array, and custom Parcelable extras cannot be
+reconstructed exactly; those extras are omitted from the generated snippet and
+reported in TODO comments. Truncated values are also omitted. Review the TODOs
+before running the snippet. Android encodes string arrays as comma-separated
+values, so string-array items that are empty or contain commas are also omitted.
+Direct `phone.start_intent()` calls reject unsupported, truncated, or unavailable
+extras before sending any device command. A quoted ADB launch command is limited
+to 64 KiB; remove extras if a large captured Intent exceeds that limit.
+
+Strings are limited to 4096 characters, captures include up to 100 extra keys
+and 64 array values. If Android still holds the extras in a parcelled Bundle,
+Nier leaves them unread and marks them unavailable. The hook command prints
+results to the terminal and does not save captured Intents. Calling
+`phone.start_intent()` launches an Activity and changes device state; it is
+sent once and is never automatically retried.
 
 The hook is read-only: it observes launches and does not call device action
 APIs or retry an Activity launch. Missing Frida, an unrooted device, a missing

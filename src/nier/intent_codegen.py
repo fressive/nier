@@ -1,233 +1,76 @@
-"""Render captured Android Intent fields as reusable Kotlin or Java code."""
+"""Render a captured Android Intent as a reusable Nier Python snippet."""
 
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-import json
-import math
-import re
+from collections.abc import Mapping
+from pprint import pformat
+
+from .protocol import normalize_intent
 
 
-_INTEGER = re.compile(r"-?\d+\Z")
+def generate_intent_python(
+    intent: Mapping[str, object],
+    *,
+    config_path: str = "config/nier.yaml",
+) -> str:
+    """Return runnable Python that reconnects to Nier and starts the Intent.
 
-
-def _string(value: object) -> str:
-    return json.dumps(str(value), ensure_ascii=False)
-
-
-def _number(value: object, *, integer: bool = False) -> str:
-    if integer:
-        raw = str(value)
-        if not _INTEGER.fullmatch(raw):
-            raise ValueError(f"invalid integer Intent extra: {value!r}")
-        return raw
-    number = float(value)
-    if not math.isfinite(number):
-        raise ValueError(f"non-finite Intent extra: {value!r}")
-    rendered = repr(number)
-    if rendered.endswith(".0"):
-        rendered = rendered[:-2]
-    return rendered
-
-
-def _char(value: object) -> str:
-    text = str(value)
-    if len(text) != 1:
-        raise ValueError(f"invalid char Intent extra: {value!r}")
-    escaped = text.replace("\\", "\\\\").replace("'", "\\'")
-    escaped = escaped.replace("\n", "\\n").replace("\r", "\\r").replace("\t", "\\t")
-    return f"'{escaped}'"
-
-
-def _extra_expression(extra: object, language: str) -> str | None:
-    if not isinstance(extra, Mapping):
-        return None
-    kind = extra.get("type")
-    value = extra.get("value")
-
-    if kind == "string":
-        return _string(value)
-    if kind == "boolean" and isinstance(value, bool):
-        return "true" if value else "false"
-    if kind in {"byte", "short", "int", "long"}:
-        literal = _number(value, integer=True)
-        if kind == "long":
-            if literal == "-9223372036854775808":
-                return "Long.MIN_VALUE"
-            return f"{literal}L"
-        if language == "kotlin" and kind in {"byte", "short"}:
-            cast = "Byte" if kind == "byte" else "Short"
-            return f"{literal}.to{cast}()"
-        if language == "java" and kind in {"byte", "short"}:
-            cast = "byte" if kind == "byte" else "short"
-            return f"({cast}) {literal}"
-        return literal
-    if kind in {"float", "double"}:
-        literal = _number(value)
-        if kind == "float":
-            return f"{literal}f"
-        return literal if any(char in literal for char in ".eE") else f"{literal}.0"
-    if kind == "char":
-        return _char(value)
-    if kind == "uri":
-        return f"Uri.parse({_string(value)})"
-    if kind == "component" and isinstance(value, Mapping):
-        package = value.get("package")
-        class_name = value.get("class")
-        if package is None or class_name is None:
-            return None
-        return f"ComponentName({_string(package)}, {_string(class_name)})"
-
-    array_types = {
-        "string_array": "string",
-        "boolean_array": "boolean",
-        "byte_array": "byte",
-        "short_array": "short",
-        "char_array": "char",
-        "int_array": "int",
-        "long_array": "long",
-        "float_array": "float",
-        "double_array": "double",
-    }
-    if kind in array_types and isinstance(value, Sequence) and not isinstance(value, str):
-        element_type = array_types[kind]
-        rendered_items: list[str] = []
-        for item in value:
-            rendered = _extra_expression({"type": element_type, "value": item}, language)
-            if rendered is None:
-                return None
-            if element_type in {"byte", "short"} and language == "kotlin":
-                rendered = _number(item, integer=True)
-            rendered_items.append(rendered)
-        if language == "kotlin":
-            factory = "arrayOf" if element_type == "string" else f"{element_type}ArrayOf"
-            return f"{factory}({', '.join(rendered_items)})"
-        java_types = {
-            "string": "String",
-            "boolean": "boolean",
-            "byte": "byte",
-            "short": "short",
-            "char": "char",
-            "int": "int",
-            "long": "long",
-            "float": "float",
-            "double": "double",
-        }
-        return f"new {java_types[element_type]}[] {{{', '.join(rendered_items)}}}"
-    return None
-
-
-def _render_fields(intent: Mapping[str, object], language: str) -> list[str]:
-    lines: list[str] = []
-    component = intent.get("component")
-    if isinstance(component, Mapping):
-        package = component.get("package")
-        class_name = component.get("class")
-        if package and class_name:
-            lines.append(
-                f"intent.setComponent(ComponentName({_string(package)}, {_string(class_name)}))"
-            )
-
-    action = intent.get("action")
-    action_truncated = bool(intent.get("action_truncated"))
-    if action is not None and not action_truncated:
-        lines.append(f"intent.setAction({_string(action)})")
-
-    package_name = intent.get("package")
-    if package_name is not None:
-        lines.append(f"intent.setPackage({_string(package_name)})")
-
-    data = intent.get("data")
-    mime_type = intent.get("type")
-    data_truncated = bool(intent.get("data_truncated"))
-    if data is not None and not data_truncated and mime_type is not None:
-        lines.append(f"intent.setDataAndType(Uri.parse({_string(data)}), {_string(mime_type)})")
-    elif data is not None and not data_truncated:
-        lines.append(f"intent.setData(Uri.parse({_string(data)}))")
-    elif mime_type is not None:
-        lines.append(f"intent.setType({_string(mime_type)})")
-
-    categories = intent.get("categories")
-    if isinstance(categories, Sequence) and not isinstance(categories, str):
-        for category in categories:
-            lines.append(f"intent.addCategory({_string(category)})")
-
-    flags = intent.get("flags")
-    if isinstance(flags, int):
-        if flags == -(2**31):
-            literal = "Int.MIN_VALUE" if language == "kotlin" else "Integer.MIN_VALUE"
-        else:
-            literal = str(flags)
-        lines.append(f"intent.setFlags({literal})")
-    if action_truncated:
-        lines.append("// TODO: the captured action was truncated to the text limit.")
-    if data_truncated:
-        lines.append("// TODO: the captured data URI was truncated to the text limit.")
-
-    extras = intent.get("extras")
-    unsupported: list[tuple[str, object]] = []
-    if isinstance(extras, Mapping):
-        for key, extra in extras.items():
-            if isinstance(extra, Mapping) and extra.get("truncated"):
-                lines.append(f"// TODO: extra {_string(key)} was truncated; it was omitted.")
-                continue
-            expression = _extra_expression(extra, language)
-            if expression is None:
-                extra_type = extra.get("value", "unknown") if isinstance(extra, Mapping) else "unknown"
-                unsupported.append((str(key), extra_type))
-                continue
-            lines.append(f"intent.putExtra({_string(key)}, {expression})")
-
-    for key, extra_type in unsupported:
-        lines.append(f"// TODO: extra {_string(key)} ({extra_type}) was not reconstructed.")
-    if intent.get("extras_truncated"):
-        lines.append("// TODO: some extras were omitted because the capture limit was reached.")
-    if intent.get("extras_unavailable"):
-        lines.append("// TODO: extras were left unread because the Bundle was still parcelled.")
-    return lines
-
-
-def generate_intent_code(intent: Mapping[str, object], language: str = "kotlin") -> str:
-    """Return reusable Activity code that launches a captured Intent.
-
-    Supported scalar and primitive-array extras are restored with their
-    original Java types. Parcelable and custom Serializable extras are shown
-    as TODO comments because their class-specific reconstruction is unsafe.
+    Extras or fields that cannot be reconstructed through Android's ``am``
+    command are omitted from the snippet and called out with TODO comments.
     """
-    selected = language.strip().lower()
-    if selected not in {"kotlin", "java"}:
-        raise ValueError("language must be 'kotlin' or 'java'")
     if not isinstance(intent, Mapping):
         raise ValueError("intent must be a mapping")
+    if not isinstance(config_path, str) or not config_path:
+        raise ValueError("config_path must be a non-empty string")
 
-    lines = _render_fields(intent, selected)
-    if selected == "kotlin":
-        output = [
-            "import android.app.Activity",
-            "import android.content.ComponentName",
-            "import android.content.Intent",
-            "import android.net.Uri",
+    payload = dict(intent)
+    notes: list[str] = []
+    if payload.get("action_truncated"):
+        payload["action"] = None
+        payload["action_truncated"] = False
+        notes.append("The captured action was truncated and has been omitted.")
+    if payload.get("data_truncated"):
+        payload["data"] = None
+        payload["data_truncated"] = False
+        notes.append("The captured data URI was truncated and has been omitted.")
+
+    if payload.get("extras_truncated"):
+        notes.append("Some extras were omitted by the capture limit.")
+        payload["extras_truncated"] = False
+    if payload.get("extras_unavailable"):
+        notes.append("The captured Bundle was still parcelled; its extras were not read.")
+        payload["extras_unavailable"] = False
+
+    raw_extras = payload.get("extras", {})
+    if not isinstance(raw_extras, Mapping):
+        raise ValueError("intent extras must be a mapping")
+    extras: dict[str, object] = {}
+    for key, extra in raw_extras.items():
+        try:
+            candidate = dict(payload)
+            candidate["extras"] = {key: extra}
+            normalized = normalize_intent(candidate)
+        except (TypeError, ValueError) as exc:
+            kind = extra.get("type", "unknown") if isinstance(extra, Mapping) else "unknown"
+            notes.append(f"Extra {key!r} ({kind}) was omitted: {exc}.")
+            continue
+        normalized_extras = normalized["extras"]
+        assert isinstance(normalized_extras, Mapping)
+        extras[str(key)] = normalized_extras[str(key)]
+    payload["extras"] = extras
+
+    normalized_payload = normalize_intent(payload)
+    code_lines = ["from nier import connect", ""]
+    code_lines.extend(f"# TODO: {note}" for note in notes)
+    if notes:
+        code_lines.append("")
+    code_lines.extend(
+        [
+            f"intent = {pformat(normalized_payload, width=88, sort_dicts=False)}",
             "",
-            "fun launchCapturedIntent(activity: Activity) {",
-            "    val intent = Intent()",
+            f"with connect({config_path!r}) as phone:",
+            "    result = phone.start_intent(intent)",
+            "    print('Activity launch:', 'succeeded' if result.success else 'failed')",
         ]
-        output.extend(f"    {line}" for line in lines)
-        output.extend(("    activity.startActivity(intent)", "}"))
-        return "\n".join(output) + "\n"
-
-    output = [
-        "import android.app.Activity;",
-        "import android.content.ComponentName;",
-        "import android.content.Intent;",
-        "import android.net.Uri;",
-        "",
-        "public final class CapturedIntentLauncher {",
-        "    private CapturedIntentLauncher() {}",
-        "",
-        "    public static void launch(Activity activity) {",
-        "        Intent intent = new Intent();",
-    ]
-    for line in lines:
-        output.append(f"        {line}" if line.startswith("//") else f"        {line};")
-    output.extend(("        activity.startActivity(intent);", "    }", "}"))
-    return "\n".join(output) + "\n"
+    )
+    return "\n".join(code_lines) + "\n"

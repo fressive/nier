@@ -66,7 +66,7 @@ The current foundation includes:
 - a SysOne-first goal API for callers that need finite, host-validated UI/OCR
   candidates, with bounded LLM recovery subgoals;
 - a root-only `nier intent-hook` CLI subcommand that captures app-originated
-  Activity Intents and prints reusable Kotlin or Java launch code.
+  Activity Intents and prints reusable Nier Python launch code.
 
 The following are intentionally outside the completed foundation:
 
