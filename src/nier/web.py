@@ -231,6 +231,7 @@ class _DashboardState:
         for line in stream:
             line = line.rstrip("\r\n")
             if label == "stdout" and line.startswith(_EVENT_PREFIX):
+                in_nier_block = False
                 try:
                     event = json.loads(line[len(_EVENT_PREFIX) :])
                 except json.JSONDecodeError:
@@ -242,13 +243,12 @@ class _DashboardState:
                     event["run_id"] = run_id
                     self.publish(event)
                 continue
-            if label == "stderr":
-                if _NIER_TERMINAL_LINE.match(line):
-                    in_nier_block = True
-                    continue
-                if in_nier_block and (not line or line[0].isspace()):
-                    continue
-                in_nier_block = False
+            if _NIER_TERMINAL_LINE.match(line):
+                in_nier_block = True
+                continue
+            if in_nier_block and (not line or line[0].isspace()):
+                continue
+            in_nier_block = False
             if line:
                 self.publish(
                     {

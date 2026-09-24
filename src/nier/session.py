@@ -45,7 +45,7 @@ def _read_response_details(value: Any) -> Any:
         }
     if isinstance(value, Screenshot):
         return {
-            "format": value.format.value,
+            "format": getattr(value.format, "value", value.format),
             "width": value.width,
             "height": value.height,
             "sha256": value.sha256,
@@ -56,7 +56,6 @@ def _read_response_details(value: Any) -> Any:
             "source": value.source.value,
             "complete": value.complete,
             "warning": value.warning,
-            "xml": value.xml,
         }
     if isinstance(value, ActivityInfo):
         return value.to_dict()

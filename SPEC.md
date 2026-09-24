@@ -301,8 +301,9 @@ logs bounded, sanitized response payloads. The CLI flags `-v`, `-vv`, and
 `-vvv` MUST select at least the corresponding level for that invocation.
 Authorization headers, API keys, and screenshot data URIs MUST NOT appear in
 logs. Terminal logs and CLI command summaries MUST use labeled, human-readable
-text rather than print JSON-encoded event objects. Persisted run records and
-wire-protocol payloads remain structured data and are not changed by this rule.
+text rather than print JSON-encoded event objects. Nier's terminal log handler
+MUST write to standard output. Persisted run records and wire-protocol payloads
+remain structured data and are not changed by this rule.
 
 The model layer exposes these stable interfaces:
 
@@ -620,8 +621,10 @@ compact and indicate when response data is available. The sidebar MUST show a
 bounded response preview in a separate panel for the selected node, plus the
 bounded, sanitized read response and related request/response events.
 Structured Nier events MUST pass through the existing bounded redaction policy
-before leaving the child script process. Ordinary script stdout and stderr MAY
-be displayed as emitted by the script and MUST be identified as unsanitized.
+before leaving the child script process. When a Nier log is forwarded as a
+structured event, its human-readable stdout line MAY be filtered from console
+output to avoid duplicates. Ordinary script stdout and stderr MAY be displayed
+as emitted by the script and MUST be identified as unsanitized.
 The dashboard MAY offer an explicitly started, view-only scrcpy preview. It MUST
 target a serial currently reported by `adb devices -l` as `device`, disable
 scrcpy control and audio, and stop its scrcpy/FFmpeg processes when stopped or
