@@ -58,11 +58,15 @@ action. See the
 [model and Agent guide](docs/models.md).
 
 Typed decisions from the TypeSafe SysOne provider are available through
-`phone.sysone_provider()` for bounded choice, score, and noul questions. The
+`phone.choice(...)`, `phone.noul(...)`, and `phone.score(...)`. To choose and tap
+a UI control from a dump, use
+`phone.widgets().clickable().choice("进入设置").click()`; the `clickable()`
+filter is optional because `choice()` filters unsafe candidates itself.
+`widgets()` prefers UIAutomator to retain screen bounds. The
 provider is configured under `models.sysone` with `provider: typesafe`, created
 on first use, and reused for the connection. The default credential variable is
 `SYS_ONE_API_KEY`; `TYPESAFE_API_KEY` is also recognized. See the
-[model guide](docs/models.md) for configuration and examples.
+[model guide](docs/models.md) and [UI dump guide](docs/uidump.md) for details.
 
 For goals where SysOne should select only from host-generated UI/OCR actions,
 `phone.sysone(...)` uses Noul for completion and Choice for the next candidate,

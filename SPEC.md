@@ -319,6 +319,18 @@ confidence/probability data when supplied by the service. SysOne is a decision
 provider, not an `LlmProvider`; it MUST NOT be used as the free-form planner for
 `Device.agent()`.
 
+The script-facing `Device` API MUST expose `choice`, `noul`, and `score` methods
+that forward one typed request to the configured TypeSafe provider and return a
+`SysOneAnswer`. `Device.widgets()` MUST return a chainable collection of
+device-bound parsed UI nodes. Its optional `clickable()` filter MUST narrow the
+collection to explicitly clickable nodes not marked hidden. `WidgetList.choice()`
+MUST independently restrict model candidates to clickable nodes not marked
+hidden and with usable screen bounds, and MUST send semantic labels/attributes
+without screen coordinates. An unknown or missing selection MUST fail without
+dispatching an action. `Widget.click()` MUST validate the selected node again,
+tap its bounds center exactly once, and MUST NOT retry that device action. DOM
+nodes without screen-space bounds are not clickable candidates.
+
 OCR providers MUST preserve each recognized text span's screen bounding box.
 Decision providers SHOULD consume those coordinates instead of asking an LLM to
 localize an already recognized control. The current implementations are

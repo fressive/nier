@@ -22,6 +22,7 @@ from .models.sysone import (
 )
 from .protocol import ActivityInfo
 from .ui import UiDocument, UiNode, parse_uidump
+from .widgets import Widget, WidgetList
 
 __version__ = "0.1.0"
 __all__ = [
@@ -45,6 +46,8 @@ __all__ = [
     "ActivityInfo",
     "UiDocument",
     "UiNode",
+    "Widget",
+    "WidgetList",
     "__version__",
     "connect",
     "parse_uidump",

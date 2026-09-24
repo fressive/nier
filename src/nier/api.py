@@ -6,13 +6,14 @@ from collections.abc import Callable, Mapping
 from dataclasses import replace
 from pathlib import Path
 from re import Pattern
-from typing import TYPE_CHECKING, Sequence, TypeAlias
+from typing import Any, TYPE_CHECKING, Sequence, TypeAlias
 
 from .backends.adb import AdbBackend
 from .config import AppConfig, load_config
 from .errors import ConfigurationError, ModelError, UiElementNotFound
 from .logging_utils import configure_logging, step
 from .models.base import select_provider_name
+from .models.sysone import SysOneAnswer, SysOneOptions, SysOneProvider
 from .protocol import (
     ActionResult,
     ActivityInfo,
@@ -32,12 +33,12 @@ from .results import RunRecorder
 from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
+from .widgets import WidgetList
 
 if TYPE_CHECKING:
     from .agent import Agent, AgentRun
     from .sysone_goal import SysOneGoal
     from .models.base import LlmProvider, OcrProvider, TextSpan
-    from .models.sysone import SysOneProvider
     from .models.router import ModelRouter
 
 PointLike: TypeAlias = Point | tuple[float, float]
@@ -370,7 +371,7 @@ class Device:
 
     def parse_uidump(
         self,
-        dump: str | Path | None = None,
+        dump: str | Path | UiDump | None = None,
         *,
         prefer_webview: bool = True,
         include_invisible: bool = False,
@@ -388,6 +389,34 @@ class Device:
                 )
             )
         return parse_ui_dump(dump)
+
+    def widgets(
+        self,
+        dump: str | Path | UiDump | UiDocument | None = None,
+        *,
+        prefer_webview: bool = False,
+        include_invisible: bool = False,
+    ) -> WidgetList:
+        """Capture or parse a UI dump as device-bound, chainable widgets.
+
+        With no ``dump`` argument, capture one UI dump. Pass an existing
+        ``UiDocument``, ``UiDump``, XML/HTML string, or saved path to reuse it.
+        Use ``widgets.clickable().choice(instruction).click()`` to let the
+        configured TypeSafe Choice provider select a visible control. The
+        ``clickable()`` filter is optional; ``choice()`` itself excludes
+        candidates that cannot safely be clicked. UIAutomator is preferred by
+        default because it supplies clickable flags and screen-space bounds;
+        WebView DOM nodes without those bounds cannot be tapped by this chain.
+        """
+        if isinstance(dump, UiDocument):
+            document = dump
+        else:
+            document = self.parse_uidump(
+                dump,
+                prefer_webview=prefer_webview,
+                include_invisible=include_invisible,
+            )
+        return WidgetList(self, document.walk(), source=document.source)
 
     def format_tree(
         self,
@@ -410,19 +439,74 @@ class Device:
             raise TypeError("root must be a UiNode or UiDocument")
         return _format_tree(node, color=color)
 
-    def sysone_provider(
+    def choice(
+        self,
+        state: Any,
+        options: SysOneOptions | None = None,
+        *,
+        instructions: Any,
+        question_id: str = "choice",
+        criteria: SysOneOptions | None = None,
+        provider: str | None = None,
+        router: ModelRouter | None = None,
+    ) -> SysOneAnswer:
+        """Ask TypeSafe Choice to select among explicit options.
+
+        ``options`` may be a sequence of labels or a mapping from stable option
+        IDs to descriptions. Pass ``criteria`` as an alternative keyword. The
+        configured TypeSafe provider is created lazily and cached. ``router``
+        and ``provider`` select an existing model provider explicitly.
+        """
+        return self._sysone_client(provider=provider, router=router).choice(
+            state,
+            options,
+            instructions=instructions,
+            question_id=question_id,
+            criteria=criteria,
+        )
+
+    def noul(
+        self,
+        state: Any,
+        *,
+        instructions: Any,
+        question_id: str = "noul",
+        criteria: Any = (),
+        provider: str | None = None,
+        router: ModelRouter | None = None,
+    ) -> SysOneAnswer:
+        """Ask TypeSafe Noul for a normalized truth-value score."""
+        return self._sysone_client(provider=provider, router=router).noul(
+            state,
+            instructions=instructions,
+            question_id=question_id,
+            criteria=criteria,
+        )
+
+    def score(
+        self,
+        state: Any,
+        criteria: Sequence[Any],
+        *,
+        instructions: Any,
+        question_id: str = "score",
+        provider: str | None = None,
+        router: ModelRouter | None = None,
+    ) -> SysOneAnswer:
+        """Ask TypeSafe Score to rate state against ordered criteria."""
+        return self._sysone_client(provider=provider, router=router).score(
+            state,
+            criteria,
+            instructions=instructions,
+            question_id=question_id,
+        )
+
+    def _sysone_client(
         self,
         *,
         provider: str | None = None,
         router: ModelRouter | None = None,
     ) -> SysOneProvider:
-        """Return a configured SysOne typed-decision client.
-
-        Pass a ``router`` to reuse an already-created provider. Without one,
-        the first configured SysOne provider is created lazily from this device's
-        config and reused for the lifetime of this device. Pass ``provider``
-        to select a named entry explicitly.
-        """
         if router is not None:
             try:
                 return router.sysone(provider=provider)
@@ -868,7 +952,8 @@ class Device:
     def _configured_sysone(self, provider: str) -> SysOneProvider:
         if self.app_config is None:
             raise ConfigurationError(
-                "no model configuration is attached; pass router= to device.sysone()"
+                "no model configuration is attached; pass router= to "
+                "device.choice(), device.noul(), or device.score()"
             )
         spec = self.app_config.models.sysone_providers.get(provider)
         if spec is None and (provider == "default" or not self.app_config.models.sysone_providers):

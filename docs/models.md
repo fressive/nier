@@ -426,59 +426,85 @@ models:
 The default key variable is `SYS_ONE_API_KEY`; the TypeSafe-specific
 `TYPESAFE_API_KEY` variable is also recognized.
 
-The direct API is intentionally small:
+The direct Device API exposes one method per typed question:
 
 ```python
 from nier import connect
 
 
 with connect("config/nier.yaml") as phone:
-    answer = phone.sysone_provider().choice(
+    route = phone.choice(
         {"instruction": "find the account settings button"},
         ["account", "notifications", "help"],
         instructions="Which option best matches the instruction?",
     )
-    print(answer.choice, answer.confidence, answer.probabilities)
+    urgent = phone.noul(
+        {"message": "The payment failed twice"},
+        instructions="Does this need immediate attention?",
+    )
+    severity = phone.score(
+        {"message": "The payment failed twice"},
+        ["low", "medium", "high"],
+        instructions="Rate the severity",
+    )
+    print(route.choice, route.confidence, route.probabilities)
+    print(urgent.noul, severity.score)
 ```
 
-`phone.sysone_provider()` loads the first TypeSafe provider from `models.sysone_providers` on first use
-and caches it for the connection lifetime. If no named mapping is present,
-the singular `models.sysone` section is used. Scripts do not need to construct
-or close a `SysOneProvider` themselves. Use `provider="name"` only when selecting
-a named entry explicitly.
+These methods return `SysOneAnswer` and lazily create/cache the first configured
+TypeSafe provider for the connection. Pass `provider="name"` to select a named
+entry, or `router=router` to reuse a `ModelRouter`. If no named provider mapping
+is present, the singular `models.sysone` section is used. The standard-library
+client needs no SysOne SDK; missing credentials and remote failures raise typed
+errors. Only call them for a task the user has authorized.
 
-For more than one question, use the typed request API:
+For a UI task, `phone.widgets()` parses the current UI dump into device-bound
+widgets. `clickable()` is optional: it can narrow the list explicitly, while
+`choice()` always considers clickable widgets not marked hidden and with usable
+screen bounds. The model receives labels and semantic attributes, not coordinates.
+WebView DOM nodes without screen bounds are therefore not eligible for a tap.
+See [the UI dump guide](uidump.md#choose-and-click-a-ui-widget) for the fluent
+selection-and-click example. `DeviceSession` retries reads according to its
+configured policy, but never automatically retries the eventual tap.
+
+Scripts that need a single request with several questions can use the lower-
+level `SysOneProvider.ask()` extension API via a configured router. This
+requires a named entry under `models.sysone_providers`:
+
+```yaml
+models:
+  sysone_providers:
+    typed:
+      provider: typesafe
+      base_url: https://api.typesafe.ai/v1/systemone
+      api_key_env: SYS_ONE_API_KEY
+      model: jev-latest
+```
 
 ```python
-from nier import SysOneQuestion, connect
+from nier.config import load_config
+from nier.models.factory import create_model_router
 
 
-with connect("config/nier.yaml") as phone:
-    response = phone.sysone_provider().ask(
-        {"message": "The payment failed twice"},
-        {
-            "route": SysOneQuestion.choice(
-                "Choose the support route",
-                ["billing", "technical", "general"],
-            ),
-            "urgent": SysOneQuestion.noul("Is immediate attention needed?"),
-            "severity": SysOneQuestion.score(
-                "Rate the severity",
-                ["low", "medium", "high"],
-            ),
+config = load_config("config/nier.yaml")
+router = create_model_router(config)
+response = router.sysone(provider="typed").ask(
+    {"message": "The payment failed twice"},
+    {
+        "urgent": {"type": "noul", "instructions": "Is immediate attention needed?"},
+        "severity": {
+            "type": "score",
+            "instructions": "Rate the severity",
+            "criteria": ["low", "medium", "high"],
         },
-    )
-    print(f"Route: {response.answer('route').choice}")
-    print(f"Urgency score: {response.answer('urgent').noul}")
-    print(f"Severity score: {response.answer('severity').score}")
+    },
+)
+print(f"Urgency score: {response.answer('urgent').noul}")
+print(f"Severity score: {response.answer('severity').score}")
 ```
 
 `SysOneAnswer` preserves the typed value, confidence, probabilities, and raw
-answer. The client uses the standard library HTTP implementation; no SysOne SDK
-package is required. `phone.sysone_provider(provider="name")` selects a named
-provider from `models.sysone_providers`; omitting the argument selects the first
-one. A configured router can be reused with
-`phone.sysone_provider(router=router)` or `router.sysone(provider="name")`.
+answer. `router.sysone(provider="name")` selects a named low-level client.
 
 When OCR coordinates are available, `SysOneDecisionProvider` can turn a SysOne choice
 of `span_0`, `span_1`, and so on into a safe `Decision` with the original screen
