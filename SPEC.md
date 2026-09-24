@@ -325,6 +325,37 @@ path and MUST call out captured fields or extras it omits because Android's
 Ctrl-C, except with `--once`, and MUST detach the Frida session when it exits.
 It MUST NOT persist captured Intents or retry any device action.
 
+### CLI device utility commands
+
+The `nier` CLI MUST provide `screenshot`, `uidump`, `locate text`, `locate
+icon`, and `adb` subcommands. `dump-ui` MUST remain an alias for `uidump`.
+Device commands MUST use the selected Nier configuration and ADB target.
+
+`screenshot` MUST accept an optional output path, PNG/JPEG format, JPEG
+quality, and maximum width and height. Without an output path it MUST save to
+`runtime.output_dir`; without a format it MUST infer JPEG from a `.jpg` or
+`.jpeg` path and otherwise use PNG.
+
+`uidump` MUST save XML by default and MUST support JSON output containing the
+parsed tree and dump metadata. JSON MAY include the original XML/HTML when
+`--include-raw` is selected. The command MUST support disabling the WebView
+path and requesting invisible nodes.
+
+`locate text` MUST use the configured OCR provider. `locate icon` MUST use the
+optional `vision` dependencies and accept a local template image and optional
+screen-pixel region. Both commands MUST report match bounds, center, and score
+without mutating the device by default. They MUST issue a single click only
+when `--tap` is explicitly supplied, and MUST NOT retry that action. Screenshot
+reads MAY follow the session's read retry policy.
+
+`adb` MUST forward arbitrary ADB arguments using the configured ADB executable
+and server. A configured device MUST be selected for device-scoped commands by
+default; explicit ADB device selectors (`-s`, `-t`, `-d`, or `-e`) MUST take
+precedence. Configured remote ADB auto-connect MUST run before device-scoped
+commands using the configured remote target, not ADB server-management
+commands. Standard input, output, and error MUST pass through to ADB without
+capture or Nier log output, and the CLI MUST return ADB's exit status.
+
 ## 7. Rooted uinput helper
 
 `backend/nier-uinput` is a root-only standalone executable. It MUST:

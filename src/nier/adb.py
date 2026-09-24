@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
 import select
 import shlex
 import subprocess
 import threading
 import time
+from dataclasses import dataclass, field
 
 from .config import DeviceConfig
 from .errors import BackendError, BackendUnavailable
@@ -110,6 +110,85 @@ class AdbClient:
             detail = self._decode(result.stderr).strip() or self._decode(result.stdout).strip()
             raise BackendUnavailable(detail or f"ADB exited with {result.returncode}")
         return result
+
+    def passthrough(self, *args: str) -> int:
+        """Run an ADB command with stdin, stdout, and stderr attached.
+
+        Unlike :meth:`run`, this method does not capture output, so it can
+        stream binary data and long-running commands such as ``logcat``. The
+        configured ADB server and device are selected by default for
+        device-scoped commands; explicit ADB selectors in ``args`` take
+        precedence. ADB server-management commands are passed through without
+        adding the configured device or auto-connecting a remote target.
+        """
+        if not args:
+            raise ValueError("an ADB command is required")
+
+        value_options = {"-s", "-t", "-H", "-P", "-L", "--one-device"}
+        explicit_selector = False
+        explicit_server = False
+        command: str | None = None
+        skip_value = False
+        for argument in args:
+            if skip_value:
+                skip_value = False
+                continue
+            if argument in value_options:
+                skip_value = True
+                explicit_selector = explicit_selector or argument in {"-s", "-t"}
+                explicit_server = explicit_server or argument in {"-H", "-P", "-L"}
+                continue
+            if argument in {"-d", "-e"}:
+                explicit_selector = True
+                continue
+            if argument.startswith("--serial="):
+                explicit_selector = True
+                continue
+            if argument.startswith(("-H", "-P", "-L")) and len(argument) > 2:
+                explicit_server = True
+                continue
+            if argument.startswith("-"):
+                continue
+            command = argument
+            break
+
+        server_commands = {
+            "connect",
+            "devices",
+            "disconnect",
+            "help",
+            "kill-server",
+            "start-server",
+            "version",
+        }
+        device_scoped = command is not None and command not in server_commands
+
+        if (
+            device_scoped
+            and not explicit_selector
+            and not explicit_server
+            and self.config.remote_host
+            and self.config.auto_connect
+        ):
+            self._ensure_remote_connection()
+
+        adb_command = [self.config.adb_path]
+        if not explicit_server:
+            if self.config.adb_server_host:
+                adb_command.extend(["-H", self.config.adb_server_host])
+            if self.config.adb_server_port != 5037:
+                adb_command.extend(["-P", str(self.config.adb_server_port)])
+        if device_scoped and not explicit_selector:
+            serial = self._target_serial()
+            if serial:
+                adb_command.extend(["-s", serial])
+        adb_command.extend(args)
+
+        try:
+            result = subprocess.run(adb_command, check=False)
+        except OSError as exc:
+            raise BackendUnavailable(f"ADB command failed: {exc}") from exc
+        return result.returncode
 
     @staticmethod
     def _decode(value: bytes | None) -> str:
