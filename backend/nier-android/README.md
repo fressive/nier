@@ -19,6 +19,14 @@ LSPosed loads the module when each scoped application process starts. The
 nier intent-hook CLI reads its bounded, chunked Intent events from the
 configured ADB logcat stream.
 
+The Intent module hooks `Instrumentation`, `ContextImpl`, and the framework
+ActivityTaskManager binder proxy. The binder hook also covers app code that
+starts Activities directly through the framework or submits multiple Intents
+at once. `ActivityThread` is used as a receiving-side fallback only when none
+of the launch-side hook methods are available; its first Activity is skipped
+to avoid reporting the launcher Intent. Events are scoped to the app process,
+including when Android WebView code runs inside that process.
+
 For the default flow, build and push the standalone helper instead:
 
 ```bash

@@ -22,8 +22,15 @@ import java.util.concurrent.atomic.AtomicLong
 
 class IntentHookModule : IXposedHookLoadPackage {
     override fun handleLoadPackage(loadPackageParam: XC_LoadPackage.LoadPackageParam) {
-        val packageName = loadPackageParam.packageName ?: return
-        if (packageName == MODULE_PACKAGE) return
+        val loadedPackageName = loadPackageParam.packageName ?: return
+        val processName = loadPackageParam.processName ?: loadedPackageName
+        val processPackageName = processName.substringBefore(':')
+        val packageName = if (processPackageName.contains('.')) {
+            processPackageName
+        } else {
+            loadedPackageName
+        }
+        if (loadedPackageName == MODULE_PACKAGE || packageName == MODULE_PACKAGE) return
 
         val captureHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
@@ -33,13 +40,24 @@ class IntentHookModule : IXposedHookLoadPackage {
             override fun afterHookedMethod(param: MethodHookParam) {
                 try {
                     if (param.throwable != null) return
-                    val intent = param.args.firstOrNull { it is Intent } as? Intent ?: return
-                    IntentEventLogger.capture(
-                        packageName = packageName,
-                        processName = loadPackageParam.processName ?: packageName,
-                        intent = intent,
-                        source = param.method.name,
-                    )
+                    param.args.forEach { argument ->
+                        when (argument) {
+                            is Intent -> IntentEventLogger.capture(
+                                packageName = packageName,
+                                processName = processName,
+                                intent = argument,
+                                source = param.method.name,
+                            )
+                            is Array<*> -> argument.filterIsInstance<Intent>().forEach { intent ->
+                                IntentEventLogger.capture(
+                                    packageName = packageName,
+                                    processName = processName,
+                                    intent = intent,
+                                    source = param.method.name,
+                                )
+                            }
+                        }
+                    }
                 } finally {
                     IntentEventLogger.endLaunchCall()
                 }
@@ -47,29 +65,104 @@ class IntentHookModule : IXposedHookLoadPackage {
         }
 
         var installed = 0
-        try {
-            installed += XposedBridge.hookAllMethods(
-                Instrumentation::class.java,
-                "execStartActivity",
-                captureHook,
-            ).size
-        } catch (error: Throwable) {
-            XposedBridge.log("Nier Intent hook: Instrumentation hook failed: " + error)
-        }
+        val hookSources = JSONObject()
+        val instrumentationHooks = hookMethods(
+            Instrumentation::class.java,
+            setOf("execStartActivity", "execStartActivities"),
+            captureHook,
+        )
+        installed += instrumentationHooks
+        hookSources.put("Instrumentation", instrumentationHooks)
 
+        var contextImplHooks = 0
         try {
             val contextImpl = XposedHelpers.findClass("android.app.ContextImpl", null)
-            installed += XposedBridge.hookAllMethods(contextImpl, "startActivity", captureHook).size
+            contextImplHooks = hookMethods(
+                contextImpl,
+                setOf("startActivity", "startActivities"),
+                captureHook,
+            )
+            installed += contextImplHooks
         } catch (error: Throwable) {
             XposedBridge.log("Nier Intent hook: ContextImpl hook failed: " + error)
         }
+        hookSources.put("ContextImpl", contextImplHooks)
+
+        val activityManagerProxyClasses = listOf(
+            "android.app.IActivityTaskManager\$Stub\$Proxy",
+            "android.app.IActivityManager\$Stub\$Proxy",
+        )
+        val activityManagerLaunchMethods = setOf(
+            "startActivity",
+            "startActivityAsUser",
+            "startActivityWithFeature",
+            "startActivityAsUserWithFeature",
+            "startActivities",
+            "startActivitiesAsUser",
+        )
+        activityManagerProxyClasses.forEach { className ->
+            val proxyClass = XposedHelpers.findClassIfExists(className, null) ?: return@forEach
+            val proxyHooks = hookMethods(proxyClass, activityManagerLaunchMethods, captureHook)
+            installed += proxyHooks
+            hookSources.put(className, proxyHooks)
+        }
+
+        var activityThreadHooks = 0
+        if (installed == 0) {
+            try {
+                val activityThread = XposedHelpers.findClass("android.app.ActivityThread", null)
+                val activityDeliveryHook = object : XC_MethodHook() {
+                    override fun beforeHookedMethod(param: MethodHookParam) {
+                        if (IntentEventLogger.consumeInitialActivityLaunch()) return
+                        IntentEventLogger.beginLaunchCall()
+                        try {
+                            val intent = param.args.firstOrNull { it is Intent } as? Intent
+                                ?: param.args.asSequence()
+                                    .filterNotNull()
+                                    .mapNotNull { record ->
+                                        try {
+                                            XposedHelpers.getObjectField(record, "intent") as? Intent
+                                        } catch (_: Throwable) {
+                                            null
+                                        }
+                                    }
+                                    .firstOrNull()
+                                ?: return
+                            IntentEventLogger.capture(
+                                packageName = packageName,
+                                processName = processName,
+                                intent = intent,
+                                source = param.method.name,
+                                activityDelivery = true,
+                            )
+                        } finally {
+                            IntentEventLogger.endLaunchCall()
+                        }
+                    }
+                }
+                activityThreadHooks = hookMethods(
+                    activityThread,
+                    setOf("performLaunchActivity"),
+                    activityDeliveryHook,
+                )
+                installed += activityThreadHooks
+            } catch (error: Throwable) {
+                XposedBridge.log("Nier Intent hook: ActivityThread hook failed: " + error)
+            }
+        }
+        hookSources.put("ActivityThread", activityThreadHooks)
 
         if (installed > 0) {
-            IntentEventLogger.moduleReady(packageName, loadPackageParam.processName ?: packageName, installed)
+            IntentEventLogger.moduleReady(
+                packageName,
+                processName,
+                installed,
+                hookSources,
+            )
         } else {
             IntentEventLogger.moduleError(
                 packageName,
-                loadPackageParam.processName ?: packageName,
+                processName,
                 "no Activity launch methods were available to hook",
             )
         }
@@ -77,6 +170,28 @@ class IntentHookModule : IXposedHookLoadPackage {
 
     private companion object {
         const val MODULE_PACKAGE = "icu.rina.nier.backend"
+
+        fun hookMethods(
+            targetClass: Class<*>,
+            methodNames: Set<String>,
+            callback: XC_MethodHook,
+        ): Int {
+            var installed = 0
+            methodNames.forEach { methodName ->
+                try {
+                    installed += XposedBridge.hookAllMethods(
+                        targetClass,
+                        methodName,
+                        callback,
+                    ).size
+                } catch (error: Throwable) {
+                    XposedBridge.log(
+                        "Nier Intent hook: ${targetClass.name}#$methodName hook failed: $error",
+                    )
+                }
+            }
+            return installed
+        }
     }
 }
 
@@ -85,19 +200,32 @@ private object IntentEventLogger {
     private const val MAX_LOG_MESSAGE = 2400
     private const val MAX_EVENT_BYTES = 512 * 1024
     private val nextEventId = AtomicLong()
+    private val initialActivityLaunch = java.util.concurrent.atomic.AtomicBoolean(true)
     private val launchDepth = ThreadLocal<Int>()
     private val capturedInCall = ThreadLocal<MutableSet<Intent>>()
+    private val recentLaunchLock = Any()
+    private val recentLaunches = mutableListOf<RecentLaunch>()
 
-    fun moduleReady(packageName: String, processName: String, hookCount: Int) {
+    private data class RecentLaunch(val intent: Intent, val elapsedRealtime: Long)
+
+    fun moduleReady(
+        packageName: String,
+        processName: String,
+        hookCount: Int,
+        hookSources: JSONObject,
+    ) {
         emit(
             JSONObject()
                 .put("event", "module_ready")
                 .put("package", packageName)
                 .put("process", processName)
                 .put("pid", android.os.Process.myPid())
-                .put("hooks", hookCount),
+                .put("hooks", hookCount)
+                .put("hook_sources", hookSources),
         )
     }
+
+    fun consumeInitialActivityLaunch(): Boolean = initialActivityLaunch.getAndSet(false)
 
     fun moduleError(packageName: String, processName: String, message: String) {
         emit(
@@ -110,8 +238,15 @@ private object IntentEventLogger {
         )
     }
 
-    fun capture(packageName: String, processName: String, intent: Intent, source: String) {
+    fun capture(
+        packageName: String,
+        processName: String,
+        intent: Intent,
+        source: String,
+        activityDelivery: Boolean = false,
+    ) {
         if (!currentCaptureSet().add(intent)) return
+        if (activityDelivery && consumeRecentLaunch(intent)) return
 
         try {
             val payload = JSONObject()
@@ -122,6 +257,7 @@ private object IntentEventLogger {
                 .put("source", source)
                 .put("intent", intentToJson(intent))
             emit(payload)
+            if (!activityDelivery) rememberLaunch(intent)
         } catch (error: Throwable) {
             emit(
                 JSONObject()
@@ -157,6 +293,25 @@ private object IntentEventLogger {
         val created = Collections.newSetFromMap(IdentityHashMap<Intent, Boolean>())
         capturedInCall.set(created)
         return created
+    }
+
+    private fun rememberLaunch(intent: Intent) {
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(recentLaunchLock) {
+            recentLaunches.removeAll { now - it.elapsedRealtime > RECENT_LAUNCH_WINDOW_MS }
+            recentLaunches.add(RecentLaunch(Intent(intent), now))
+        }
+    }
+
+    private fun consumeRecentLaunch(intent: Intent): Boolean {
+        val now = android.os.SystemClock.elapsedRealtime()
+        synchronized(recentLaunchLock) {
+            recentLaunches.removeAll { now - it.elapsedRealtime > RECENT_LAUNCH_WINDOW_MS }
+            val index = recentLaunches.indexOfFirst { it.intent.filterEquals(intent) }
+            if (index < 0) return false
+            recentLaunches.removeAt(index)
+            return true
+        }
     }
 
     private fun intentToJson(intent: Intent): JSONObject {
@@ -381,6 +536,7 @@ private object IntentEventLogger {
     private const val MAX_EXTRA_COUNT = 100
     private const val MAX_ARRAY_ITEMS = 64
     private const val MAX_TEXT_LENGTH = 4096
+    private const val RECENT_LAUNCH_WINDOW_MS = 10_000L
     private val KNOWN_FLAGS = listOf(
         0x10000000 to "FLAG_ACTIVITY_NEW_TASK",
         0x04000000 to "FLAG_ACTIVITY_CLEAR_TOP",
