@@ -29,6 +29,7 @@ class AdbClient:
 
     config: DeviceConfig
     _remote_connected: bool = field(default=False, init=False, repr=False)
+    _root_shell_mode: str | None = field(default=None, init=False, repr=False)
 
     def _base(self, *, include_serial: bool = True) -> list[str]:
         command = [self.config.adb_path]
@@ -212,12 +213,18 @@ class AdbClient:
         timeout: float | None = None,
         check: bool = True,
     ) -> subprocess.CompletedProcess[bytes]:
-        """Run a safely quoted command through the device's root ``su``."""
+        """Run a safely quoted command through the root ADB shell or ``su``."""
         if not args:
             raise ValueError("root_shell requires a command")
-        command = shlex.join(args)
-        remote = f"su -M -c {shlex.quote(command)}"
+        remote = self._root_shell_command(args)
         return self.run("shell", remote, timeout=timeout, check=check)
+
+    def _root_shell_command(self, args: tuple[str, ...]) -> str:
+        command = shlex.join(args)
+        if self._root_shell_mode == "adb":
+            return command
+        su_prefix = "su -c" if self._root_shell_mode == "su" else "su -M -c"
+        return f"{su_prefix} {shlex.quote(command)}"
 
     def start_root_shell(self, *args: str, timeout: float | None = None) -> PersistentRootShell:
         """Start a root shell whose stdin/stdout stay attached to the host.
@@ -229,8 +236,7 @@ class AdbClient:
         if not args:
             raise ValueError("start_root_shell requires a command")
         self._ensure_remote_connection()
-        command = shlex.join(args)
-        remote = f"su -M -c {shlex.quote(command)}"
+        remote = self._root_shell_command(args)
         try:
             process = subprocess.Popen(
                 [*self._base(), "shell", remote],
@@ -256,8 +262,18 @@ class AdbClient:
             raise BackendUnavailable(f"ADB device is not ready: {state or 'unknown'}")
 
     def is_root(self) -> bool:
-        result = self.run("shell", "su", "-M", "-c", "id -u", check=False)
-        return result.returncode == 0 and self._decode(result.stdout).strip() == "0"
+        """Check root access through adbd, ``su -M``, or standard ``su -c``."""
+        probes = (
+            ("adb", "id -u"),
+            ("su-m", f"su -M -c {shlex.quote('id -u')}"),
+            ("su", f"su -c {shlex.quote('id -u')}"),
+        )
+        for mode, command in probes:
+            result = self.run("shell", command, check=False)
+            if result.returncode == 0 and self._decode(result.stdout).strip() == "0":
+                self._root_shell_mode = mode
+                return True
+        return False
 
     def root_command_available(self, *args: str) -> bool:
         result = self.root_shell(*args, check=False)

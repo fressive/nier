@@ -5,6 +5,7 @@ from base64 import b64decode
 
 import pytest
 
+from nier.adb import AdbClient
 from nier.backends.adb import AdbBackend
 from nier.config import DeviceConfig, HookConfig, HookMode
 from nier.errors import BackendError, BackendUnavailable
@@ -23,6 +24,71 @@ from nier.protocol import (
 PNG_1X1 = b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+def test_adb_root_probe_accepts_root_adbd_and_uses_it_for_commands(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs):
+        calls.append(command)
+        return subprocess.CompletedProcess(command, 0, b"0\n", b"")
+
+    monkeypatch.setattr("nier.adb.subprocess.run", run)
+    adb = AdbClient(DeviceConfig(serial="device"))
+
+    assert adb.is_root() is True
+    result = adb.root_shell("id", "-u")
+
+    assert result.returncode == 0
+    assert calls == [
+        ["adb", "-s", "device", "shell", "id -u"],
+        ["adb", "-s", "device", "shell", "id -u"],
+    ]
+
+
+def test_adb_root_probe_falls_back_to_standard_su(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs):
+        calls.append(command)
+        if command[-2:] == ["shell", "id -u"]:
+            return subprocess.CompletedProcess(command, 0, b"2000\n", b"")
+        if command[-2:] == ["shell", "su -M -c 'id -u'"]:
+            return subprocess.CompletedProcess(command, 1, b"", b"invalid option")
+        return subprocess.CompletedProcess(command, 0, b"0\n", b"")
+
+    monkeypatch.setattr("nier.adb.subprocess.run", run)
+    adb = AdbClient(DeviceConfig(serial="device"))
+
+    assert adb.is_root() is True
+    result = adb.root_shell("id", "-u")
+
+    assert result.returncode == 0
+    assert calls[-2:] == [
+        ["adb", "-s", "device", "shell", "su -c 'id -u'"],
+        ["adb", "-s", "device", "shell", "su -c 'id -u'"],
+    ]
+
+
+def test_adb_root_probe_preserves_mount_master_when_supported(monkeypatch) -> None:
+    calls: list[list[str]] = []
+
+    def run(command: list[str], **_kwargs):
+        calls.append(command)
+        if command[-2:] == ["shell", "id -u"]:
+            return subprocess.CompletedProcess(command, 0, b"2000\n", b"")
+        return subprocess.CompletedProcess(command, 0, b"0\n", b"")
+
+    monkeypatch.setattr("nier.adb.subprocess.run", run)
+    adb = AdbClient(DeviceConfig(serial="device"))
+
+    assert adb.is_root() is True
+    adb.root_shell("id", "-u")
+
+    assert calls[-2:] == [
+        ["adb", "-s", "device", "shell", "su -M -c 'id -u'"],
+        ["adb", "-s", "device", "shell", "su -M -c 'id -u'"],
+    ]
 
 
 def fake_adb(monkeypatch):

@@ -290,6 +290,10 @@ package is configured and `false` otherwise. The optional hook controller in
 - `auto` mode selects root mode only after an ADB root check and otherwise
   selects the cooperative non-root mode.
 
+The ADB root check MUST accept a root `adbd` shell, `su -M -c`, or standard
+`su -c` when `id -u` returns `0`. Subsequent root shell commands MUST use the
+successful access path.
+
 When `hook.force_system_back=true`, root Frida mode additionally installs the
 Back policy hook before the first configured Back action. This option MUST be
 disabled by default, MUST require `hook.target_package`, and MUST reject
