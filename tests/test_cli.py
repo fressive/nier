@@ -241,6 +241,7 @@ def test_adb_cli_returns_adb_exit_status(monkeypatch, tmp_path) -> None:
 class FakeCliDevice:
     screenshot_options: dict[str, object] = field(default_factory=dict)
     dump_options: dict[str, object] = field(default_factory=dict)
+    formatted_documents: list[object] = field(default_factory=list)
     locate_calls: list[tuple[object, ...]] = field(default_factory=list)
     taps: list[int] = field(default_factory=list)
     match: object | None = None
@@ -268,6 +269,10 @@ class FakeCliDevice:
 
     def parse_uidump(self, dump):
         return parse_uidump(dump)
+
+    def format_tree(self, document):
+        self.formatted_documents.append(document)
+        return "<hierarchy>\n└── node [text='hello']"
 
     def locate_text(self, query, *, min_score):
         self.locate_calls.append(("text", query, min_score))
@@ -327,7 +332,9 @@ def test_screenshot_command_passes_options_and_saves_to_requested_path(
     assert device.closed and device.run_saved
 
 
-def test_uidump_json_command_writes_parsed_tree(monkeypatch, tmp_path) -> None:
+def test_uidump_json_command_writes_parsed_tree_and_prints_formatted_tree(
+    monkeypatch, tmp_path, capsys
+) -> None:
     device = FakeCliDevice()
     _patch_cli_device(monkeypatch, tmp_path, device)
     output = tmp_path / "ui.json"
@@ -338,6 +345,24 @@ def test_uidump_json_command_writes_parsed_tree(monkeypatch, tmp_path) -> None:
     assert document["source"] == "UIAUTOMATOR"
     assert document["root"]["children"][0]["text"] == "hello"
     assert device.dump_options == {"prefer_webview": True, "include_invisible": False}
+    assert len(device.formatted_documents) == 1
+    stdout = capsys.readouterr().out
+    assert "UI dump saved to:" in stdout
+    assert "UI hierarchy:\n<hierarchy>\n└── node [text='hello']" in stdout
+
+
+def test_uidump_xml_command_prints_formatted_tree(monkeypatch, tmp_path, capsys) -> None:
+    device = FakeCliDevice()
+    _patch_cli_device(monkeypatch, tmp_path, device)
+    output = tmp_path / "ui.xml"
+
+    assert cli.main(["uidump", "--output", str(output)]) == 0
+
+    assert output.read_text(encoding="utf-8") == (
+        '<hierarchy><node text="hello" /></hierarchy>'
+    )
+    stdout = capsys.readouterr().out
+    assert "UI hierarchy:\n<hierarchy>\n└── node [text='hello']" in stdout
 
 
 @dataclass(frozen=True)

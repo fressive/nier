@@ -370,11 +370,11 @@ def main(argv: list[str] | None = None) -> int:
                 prefer_webview=not args.no_webview,
                 include_invisible=args.include_invisible,
             )
+            document = device.parse_uidump(dump)
             extension = args.format
             target = args.output or config.runtime.output_dir / f"ui.{extension}"
             target.parent.mkdir(parents=True, exist_ok=True)
             if args.format == "json":
-                document = device.parse_uidump(dump)
                 contents = json.dumps(
                     document.to_dict(
                         include_raw=args.include_raw,
@@ -391,6 +391,8 @@ def main(argv: list[str] | None = None) -> int:
             print(f"Source: {dump.source.value}")
             if dump.warning:
                 print(f"Note: {dump.warning}")
+            print("UI hierarchy:")
+            print(device.format_tree(document))
         elif args.command == "locate":
             result = _run_locate(device, args)
             device.save_run()

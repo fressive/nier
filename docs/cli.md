@@ -22,6 +22,8 @@ limit.
 ## UI dump
 
 `uidump` saves XML by default. `dump-ui` remains an alias for compatibility.
+The command also prints the parsed hierarchy to stdout using the built-in
+readable tree formatter, regardless of whether the saved file is XML or JSON.
 
 ```bash
 nier --config config/nier.yaml uidump --output artifacts/ui.xml
