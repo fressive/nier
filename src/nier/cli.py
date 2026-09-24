@@ -344,6 +344,7 @@ def main(argv: list[str] | None = None) -> int:
         try:
             serve_web(
                 args.scripts,
+                config_path=args.config,
                 host=args.host,
                 port=args.port,
                 open_browser=not args.no_browser,

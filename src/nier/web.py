@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import base64
 import json
 import os
 import queue
@@ -25,6 +26,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .api import connect
+from .errors import NierError
 from .web_preview import PreviewRequestError, PreviewUnavailable, ScrcpyPreview
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
@@ -45,6 +48,12 @@ class PreviewStartRequest(BaseModel):
     serial: str = Field(min_length=1, max_length=512)
 
 
+class UiDumpRequest(BaseModel):
+    serial: str = Field(min_length=1, max_length=512)
+    prefer_webview: bool = True
+    include_invisible: bool = False
+
+
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -52,9 +61,20 @@ def _timestamp() -> str:
 class _DashboardState:
     """Own one selected scripts directory, one child process, and live events."""
 
-    def __init__(self, scripts: Path, cwd: Path) -> None:
+    def __init__(
+        self,
+        scripts: Path,
+        cwd: Path,
+        config_path: Path | None = None,
+    ) -> None:
         self.scripts = scripts.resolve()
         self.cwd = cwd.resolve()
+        selected_config = config_path or Path("config/nier.yaml")
+        self.config_path = (
+            selected_config
+            if selected_config.is_absolute()
+            else self.cwd / selected_config
+        ).resolve()
         self.lock = threading.RLock()
         self.history: deque[dict[str, Any]] = deque(maxlen=2500)
         self.subscribers: set[queue.Queue[dict[str, Any]]] = set()
@@ -74,6 +94,46 @@ class _DashboardState:
             "debug_location": None,
             "execution_location": None,
         }
+
+    def capture_uidump(
+        self,
+        serial: str,
+        *,
+        prefer_webview: bool = True,
+        include_invisible: bool = False,
+    ) -> dict[str, Any]:
+        """Run the read-only CLI-equivalent dump and capture its screenshot."""
+        if not isinstance(serial, str) or not serial or len(serial) > 512:
+            raise ValueError("请选择有效的 ADB 设备")
+        devices = self.preview.status().get("devices", [])
+        if not any(
+            item.get("serial") == serial and item.get("state") == "device"
+            for item in devices
+        ):
+            raise ValueError("ADB 设备不可用或尚未授权")
+
+        device = connect(self.config_path, serial=serial)
+        try:
+            screenshot = device.screenshot()
+            dump = device.dump_ui(
+                prefer_webview=prefer_webview,
+                include_invisible=include_invisible,
+            )
+            document = device.parse_uidump(dump)
+            return {
+                "serial": serial,
+                "image_base64": base64.b64encode(screenshot.data).decode("ascii"),
+                "image_mime": f"image/{screenshot.format.value.lower()}",
+                "screen_width": screenshot.width,
+                "screen_height": screenshot.height,
+                "xml": dump.xml,
+                "source": dump.source.value,
+                "complete": dump.complete,
+                "warning": dump.warning,
+                "tree_text": device.format_tree(document, color=False),
+            }
+        finally:
+            device.close()
 
     def list_scripts(self) -> list[dict[str, str]]:
         scripts: list[dict[str, str]] = []
@@ -426,7 +486,12 @@ def _asset_root() -> Path:
     return Path(__file__).resolve().parent / "web_static"
 
 
-def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
+def create_app(
+    scripts: Path,
+    *,
+    cwd: Path | None = None,
+    config_path: Path | None = None,
+) -> FastAPI:
     """Create a FastAPI dashboard app for scripts inside ``scripts``."""
     scripts = scripts.resolve()
     if not scripts.is_dir():
@@ -437,7 +502,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
             "Nier web assets are missing; run `npm install && npm run build` in the web directory"
         )
 
-    state = _DashboardState(scripts, cwd or Path.cwd())
+    state = _DashboardState(scripts, cwd or Path.cwd(), config_path)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -502,6 +567,28 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
     def stop_preview(request: Request) -> dict[str, Any]:
         check_origin(request)
         return state.preview.stop()
+
+    @app.post("/api/uidump")
+    def capture_uidump(
+        payload: UiDumpRequest,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        check_origin(request)
+        try:
+            result = state.capture_uidump(
+                payload.serial,
+                prefer_webview=payload.prefer_webview,
+                include_invisible=payload.include_invisible,
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NierError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except (OSError, TimeoutError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
 
     @app.get("/api/preview/stream")
     def stream_preview(request: Request):
@@ -581,6 +668,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
 def serve_web(
     scripts: Path,
     *,
+    config_path: Path | None = None,
     host: str = "127.0.0.1",
     port: int = 8765,
     open_browser: bool = True,
@@ -592,7 +680,7 @@ def serve_web(
         raise RuntimeError("Uvicorn is required for `nier web`; reinstall Nier with its web dependencies") from exc
     if not 1 <= port <= 65535:
         raise ValueError("dashboard port must be between 1 and 65535")
-    app = create_app(scripts)
+    app = create_app(scripts, config_path=config_path)
     url = f"http://{host}:{port}"
     print(f"Nier web dashboard: {url}")
     print(f"Scripts: {scripts.resolve()}")
