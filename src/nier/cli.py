@@ -119,7 +119,10 @@ def _print_capabilities(capabilities: Capabilities) -> None:
 def _run_intent_hook(args: argparse.Namespace) -> int:
     if args.verbose > 3:
         raise SystemExit("nier: at most -vvv is supported")
-    config = load_config(args.config)
+    try:
+        config = load_config(args.config)
+    except (NierError, OSError, ValueError) as exc:
+        raise SystemExit(f"nier intent-hook: {exc}") from exc
     configure_logging(max(config.logging.verbosity, args.verbose))
     if config.hook.mode is HookMode.NON_ROOT:
         raise SystemExit(

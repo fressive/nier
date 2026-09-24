@@ -127,6 +127,9 @@ is configured, `dump-ui` uses the WebView DevTools DOM through a temporary
 host-local ADB forward and falls back to UIAutomator if the target is not
 available. Root mode also supports the opt-in `hook.force_system_back` policy
 for bypassing common application-owned Back callbacks on authorized targets.
+The root-only `nier intent-hook` subcommand captures app-originated Activity
+Intents and prints reusable Kotlin or Java `startActivity` code; see the
+[Intent hook guide](docs/intent-hook.md).
 
 Remote ADB over TCP is supported through `device.remote_host` and
 `device.remote_port`; see the [remote ADB guide](docs/remote-adb.md).

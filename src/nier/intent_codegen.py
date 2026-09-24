@@ -30,7 +30,7 @@ def _number(value: object, *, integer: bool = False) -> str:
     return rendered
 
 
-def _char(value: object, language: str) -> str:
+def _char(value: object) -> str:
     text = str(value)
     if len(text) != 1:
         raise ValueError(f"invalid char Intent extra: {value!r}")
@@ -52,6 +52,8 @@ def _extra_expression(extra: object, language: str) -> str | None:
     if kind in {"byte", "short", "int", "long"}:
         literal = _number(value, integer=True)
         if kind == "long":
+            if literal == "-9223372036854775808":
+                return "Long.MIN_VALUE"
             return f"{literal}L"
         if language == "kotlin" and kind in {"byte", "short"}:
             cast = "Byte" if kind == "byte" else "Short"
@@ -66,7 +68,7 @@ def _extra_expression(extra: object, language: str) -> str | None:
             return f"{literal}f"
         return literal if any(char in literal for char in ".eE") else f"{literal}.0"
     if kind == "char":
-        return _char(value, language)
+        return _char(value)
     if kind == "uri":
         return f"Uri.parse({_string(value)})"
     if kind == "component" and isinstance(value, Mapping):
@@ -127,20 +129,22 @@ def _render_fields(intent: Mapping[str, object], language: str) -> list[str]:
             )
 
     action = intent.get("action")
-    if action:
+    action_truncated = bool(intent.get("action_truncated"))
+    if action is not None and not action_truncated:
         lines.append(f"intent.setAction({_string(action)})")
 
     package_name = intent.get("package")
-    if package_name:
+    if package_name is not None:
         lines.append(f"intent.setPackage({_string(package_name)})")
 
     data = intent.get("data")
     mime_type = intent.get("type")
-    if data and mime_type:
+    data_truncated = bool(intent.get("data_truncated"))
+    if data is not None and not data_truncated and mime_type is not None:
         lines.append(f"intent.setDataAndType(Uri.parse({_string(data)}), {_string(mime_type)})")
-    elif data:
+    elif data is not None and not data_truncated:
         lines.append(f"intent.setData(Uri.parse({_string(data)}))")
-    elif mime_type:
+    elif mime_type is not None:
         lines.append(f"intent.setType({_string(mime_type)})")
 
     categories = intent.get("categories")
@@ -150,12 +154,23 @@ def _render_fields(intent: Mapping[str, object], language: str) -> list[str]:
 
     flags = intent.get("flags")
     if isinstance(flags, int):
-        lines.append(f"intent.setFlags({flags})")
+        if flags == -(2**31):
+            literal = "Int.MIN_VALUE" if language == "kotlin" else "Integer.MIN_VALUE"
+        else:
+            literal = str(flags)
+        lines.append(f"intent.setFlags({literal})")
+    if action_truncated:
+        lines.append("// TODO: the captured action was truncated to the text limit.")
+    if data_truncated:
+        lines.append("// TODO: the captured data URI was truncated to the text limit.")
 
     extras = intent.get("extras")
     unsupported: list[tuple[str, object]] = []
     if isinstance(extras, Mapping):
         for key, extra in extras.items():
+            if isinstance(extra, Mapping) and extra.get("truncated"):
+                lines.append(f"// TODO: extra {_string(key)} was truncated; it was omitted.")
+                continue
             expression = _extra_expression(extra, language)
             if expression is None:
                 extra_type = extra.get("value", "unknown") if isinstance(extra, Mapping) else "unknown"
@@ -167,6 +182,8 @@ def _render_fields(intent: Mapping[str, object], language: str) -> list[str]:
         lines.append(f"// TODO: extra {_string(key)} ({extra_type}) was not reconstructed.")
     if intent.get("extras_truncated"):
         lines.append("// TODO: some extras were omitted because the capture limit was reached.")
+    if intent.get("extras_unavailable"):
+        lines.append("// TODO: extras were left unread because the Bundle was still parcelled.")
     return lines
 
 
@@ -185,33 +202,32 @@ def generate_intent_code(intent: Mapping[str, object], language: str = "kotlin")
 
     lines = _render_fields(intent, selected)
     if selected == "kotlin":
-        body = "\n".join(f"        {line}" for line in lines)
-        if body:
-            body = "\n" + body + "\n    "
-        return (
-            "import android.app.Activity\n"
-            "import android.content.ComponentName\n"
-            "import android.content.Intent\n"
-            "import android.net.Uri\n\n"
-            "fun launchCapturedIntent(activity: Activity) {\n"
-            f"    val intent = Intent(){body}\n"
-            "    activity.startActivity(intent)\n"
-            "}\n"
-        )
+        output = [
+            "import android.app.Activity",
+            "import android.content.ComponentName",
+            "import android.content.Intent",
+            "import android.net.Uri",
+            "",
+            "fun launchCapturedIntent(activity: Activity) {",
+            "    val intent = Intent()",
+        ]
+        output.extend(f"    {line}" for line in lines)
+        output.extend(("    activity.startActivity(intent)", "}"))
+        return "\n".join(output) + "\n"
 
-    body = "\n".join(f"        {line};" if not line.startswith("//") else f"        {line}" for line in lines)
-    if body:
-        body = "\n" + body + "\n"
-    return (
-        "import android.app.Activity;\n"
-        "import android.content.ComponentName;\n"
-        "import android.content.Intent;\n"
-        "import android.net.Uri;\n\n"
-        "public final class CapturedIntentLauncher {\n"
-        "    private CapturedIntentLauncher() {}\n\n"
-        "    public static void launch(Activity activity) {\n"
-        f"        Intent intent = new Intent();{body}"
-        "        activity.startActivity(intent);\n"
-        "    }\n"
-        "}\n"
-    )
+    output = [
+        "import android.app.Activity;",
+        "import android.content.ComponentName;",
+        "import android.content.Intent;",
+        "import android.net.Uri;",
+        "",
+        "public final class CapturedIntentLauncher {",
+        "    private CapturedIntentLauncher() {}",
+        "",
+        "    public static void launch(Activity activity) {",
+        "        Intent intent = new Intent();",
+    ]
+    for line in lines:
+        output.append(f"        {line}" if line.startswith("//") else f"        {line};")
+    output.extend(("        activity.startActivity(intent);", "    }", "}"))
+    return "\n".join(output) + "\n"
