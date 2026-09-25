@@ -463,7 +463,7 @@ class Device:
         min_score: float = 0.85,
         region: tuple[int, int, int, int] | None = None,
         scale_range: ImageScaleRange = (0.5, 2.0),
-        scale_steps: int = 21,
+        scale_steps: int = 41,
     ) -> ImageMatch | None:
         """Locate an icon template at multiple sizes in a fresh screenshot.
 
@@ -472,13 +472,16 @@ class Device:
         ``(x, y, width, height)`` screen-pixel rectangle. ``scale_range`` sets
         the minimum and maximum template size relative to the supplied image;
         ``scale_steps`` controls the number of logarithmically spaced sizes
-        tested (2–41). ``min_score`` is the normalized OpenCV matching
-        threshold, not a probability. Returns ``None`` when no match meets the
-        threshold. Install ``nier[vision]`` to enable matching.
+        tested (2–41); promising scales receive a small local refinement
+        search. ``min_score`` is the normalized OpenCV matching threshold, not
+        a probability. Returns ``None`` when no match meets the threshold.
+        Install ``nier[vision]`` to enable matching.
 
         The screenshot read follows the session's read retry policy. Locating
-        an icon is read-only and never performs a device action. Matching more
-        than one scale takes longer than an exact-size comparison.
+        an icon is read-only and never performs a device action. The default
+        search checks up to 41 coarse scales plus promising nearby sizes, so it
+        takes longer than an exact-size comparison. Limit ``region`` or
+        ``scale_range`` when you know where and at what size to look.
         """
         screenshot = self.screenshot()
         match = locate_template(

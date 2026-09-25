@@ -18,7 +18,7 @@ ImageScaleRange: TypeAlias = tuple[float, float]
 SwipeDirection: TypeAlias = Literal["up", "down", "left", "right"]
 
 _DEFAULT_SCALE_RANGE: ImageScaleRange = (0.5, 2.0)
-_DEFAULT_SCALE_STEPS = 21
+_DEFAULT_SCALE_STEPS = 41
 
 
 def _validate_jitter(jitter: float) -> float:
@@ -184,8 +184,10 @@ def locate_template(
     pixels. ``scale_range`` gives the smallest and largest template scale to
     search relative to the supplied image; ``scale_steps`` controls the number
     of logarithmically spaced sizes tested. The original size is tested when it
-    falls inside the range. Returned bounds are relative to the full screenshot.
-    OpenCV and NumPy are imported only when this function is called.
+    falls inside the range. Promising sampled scales receive a small local
+    refinement search to cover sizes between grid points. Returned bounds are
+    relative to the full screenshot. OpenCV and NumPy are imported only when
+    this function is called.
     """
     if (
         isinstance(min_score, bool)
@@ -249,15 +251,17 @@ def locate_template(
 
     best: ImageMatch | None = None
     tested_sizes: set[tuple[int, int]] = set()
-    for scale in scales:
+
+    def consider_scale(scale: float) -> float | None:
+        nonlocal best
         scaled_width = max(1, round(template_width * scale))
         scaled_height = max(1, round(template_height * scale))
         size = (scaled_width, scaled_height)
         if size in tested_sizes:
-            continue
+            return None
         tested_sizes.add(size)
         if scaled_width > search_width or scaled_height > search_height:
-            continue
+            return None
 
         if size == (template_width, template_height):
             scaled_template = template_image
@@ -281,7 +285,7 @@ def locate_template(
         _, max_score, _, max_location = cv2.minMaxLoc(result)
         score = float(max_score)
         if not isfinite(score):
-            continue
+            return None
         if best is None or score > best.score:
             best = ImageMatch(
                 x=offset_x + int(max_location[0]),
@@ -290,10 +294,45 @@ def locate_template(
                 height=scaled_height,
                 score=score,
             )
+        return score
 
-        # Preserve the fast path for an exact-size, effectively exact match.
-        if size == (template_width, template_height) and score >= 0.9999:
-            return best
+    coarse_results: list[tuple[float, float, tuple[int, int]]] = []
+    for scale in scales:
+        scaled_size = (
+            max(1, round(template_width * scale)),
+            max(1, round(template_height * scale)),
+        )
+        score = consider_scale(scale)
+        if score is not None:
+            coarse_results.append((score, scale, scaled_size))
+
+    # Refine around the strongest coarse matches. Sampling two intermediate
+    # scales on either side usually closes pixel-size gaps without requiring a
+    # dense search across the entire scale range.
+    ordered_scales = sorted(set(scales))
+    seed_indices: list[int] = []
+    seen_sizes: set[tuple[int, int]] = set()
+    for _score, scale, size in sorted(coarse_results, reverse=True):
+        if size in seen_sizes:
+            continue
+        seen_sizes.add(size)
+        index = min(
+            range(len(ordered_scales)),
+            key=lambda candidate: abs(ordered_scales[candidate] - scale),
+        )
+        if any(abs(index - selected) < 2 for selected in seed_indices):
+            continue
+        seed_indices.append(index)
+        if len(seed_indices) == 3:
+            break
+
+    for index in seed_indices:
+        for neighbor in (index - 1, index + 1):
+            if not 0 <= neighbor < len(ordered_scales):
+                continue
+            lower, upper = sorted((ordered_scales[index], ordered_scales[neighbor]))
+            for fraction in (1 / 3, 2 / 3):
+                consider_scale(lower + (upper - lower) * fraction)
 
     if best is None or best.score < min_score:
         return None
