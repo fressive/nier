@@ -111,6 +111,22 @@ def fake_adb(monkeypatch):
             )
         if "get-state" in command:
             return subprocess.CompletedProcess(command, 0, b"device\n", b"")
+        if "resolve-activity" in command:
+            package = command[command.index("-p") + 1]
+            component = f"{package}/com.example.launcher.LaunchActivity"
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                f"priority=0 preferredOrder=0 match=0x108000\n{component}\n".encode(),
+                b"",
+            )
+        if "am" in command and "start" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                b"Status: ok\nLaunchState: COLD\nActivity: com.example.app/com.example.launcher.LaunchActivity\n",
+                b"",
+            )
         if "wm size" in joined:
             return subprocess.CompletedProcess(command, 0, b"Physical size: 1080x1920\n", b"")
         if "getprop ro.product.model" in joined:
@@ -458,21 +474,15 @@ def test_adb_backend_can_open_apps_and_start_activities(monkeypatch) -> None:
     assert backend.open_app("com.example.app").success is True
     assert backend.start_activity("com.example.app", ".MainActivity").success is True
 
-    assert any(
-        call[-9:]
-        == [
-            "shell",
-            "am",
-            "start",
-            "-a",
-            "android.intent.action.MAIN",
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "-p",
-            "com.example.app",
-        ]
-        for call in calls
-    )
+    assert [
+        "adb", "-s", "device", "shell", "cmd", "package", "resolve-activity",
+        "--brief", "-a", "android.intent.action.MAIN", "-c",
+        "android.intent.category.LAUNCHER", "-p", "com.example.app",
+    ] in calls
+    assert [
+        "adb", "-s", "device", "shell", "am", "start", "-W", "-n",
+        "com.example.app/com.example.launcher.LaunchActivity",
+    ] in calls
     assert any(
         call[-5:]
         == [
@@ -497,23 +507,40 @@ def test_adb_backend_force_stops_app_before_restart(monkeypatch) -> None:
         "adb", "-s", "device", "shell", "am", "force-stop", "com.example.app"
     ]
     launch_call = [
-        "adb", "-s", "device", "shell", "am", "start", "--activity-clear-task",
-        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
-        "-p", "com.example.app",
+        "adb", "-s", "device", "shell", "am", "start", "-W",
+        "--activity-clear-task", "-n", "com.example.app/com.example.launcher.LaunchActivity",
     ]
-    assert calls.index(force_stop_call) < calls.index(launch_call)
+    resolver_index = calls.index(
+        [
+            "adb", "-s", "device", "shell", "cmd", "package", "resolve-activity",
+            "--brief", "-a", "android.intent.action.MAIN", "-c",
+            "android.intent.category.LAUNCHER", "-p", "com.example.app",
+        ]
+    )
+    assert resolver_index < calls.index(force_stop_call) < calls.index(launch_call)
 
 
 def test_adb_backend_reports_launch_errors(monkeypatch) -> None:
     fake_adb(monkeypatch)
     backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
-    monkeypatch.setattr(
-        backend.adb,
-        "shell",
-        lambda *args, **kwargs: "Error type 3\nError: Activity class does not exist\n",
-    )
+
+    def shell(*args, **kwargs):
+        if "resolve-activity" in args:
+            return "com.example.app/com.example.app.MainActivity"
+        return "Status: timeout\n"
+
+    monkeypatch.setattr(backend.adb, "shell", shell)
 
     with pytest.raises(BackendError, match="open app"):
+        backend.open_app("com.example.app")
+
+
+def test_adb_backend_rejects_packages_without_a_launcher(monkeypatch) -> None:
+    fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+    monkeypatch.setattr(backend.adb, "shell", lambda *args, **kwargs: "No activity found")
+
+    with pytest.raises(BackendError, match="could not resolve launcher Activity"):
         backend.open_app("com.example.app")
 
 

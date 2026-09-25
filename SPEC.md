@@ -160,9 +160,10 @@ or device-specific representation.
 9. list installed packages with `pm list packages`;
 10. list declared Activities with `dumpsys package <package>` without
     confusing receivers or services for Activities;
-11. launch a package with `am start -a android.intent.action.MAIN -c
-    android.intent.category.LAUNCHER -p <package>` and launch an explicit
-    Activity with `am start -n <package>/<full.class>`;
+11. resolve a package's `MAIN`/`LAUNCHER` component with the package manager,
+    then launch that explicit component with `am start -W -n
+    <package>/<full.class>`; launch an explicitly requested Activity with
+    `am start -n <package>/<full.class>`;
 12. release the persistent uinput session from `close()` and after a failed
     persistent command.
 

@@ -316,11 +316,11 @@ class Device:
         return self.list_app_activities(package)
 
     def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
-        """Open an app through its launcher Activity.
+        """Open an app through its resolved MAIN/LAUNCHER Activity.
 
         Set ``restart=True`` to force-stop the app and clear its task stack
-        before launching. This does not clear the app's stored data, and the
-        action is never retried.
+        before launching. This does not clear the app's stored data. Android's
+        launch result is awaited, and the action is never retried.
         """
         return self.session.open_app(package, restart=restart)
 
