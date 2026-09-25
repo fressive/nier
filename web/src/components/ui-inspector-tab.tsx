@@ -292,7 +292,7 @@ export function UiInspectorTab() {
                   aria-label="截图中的 UI 节点边界"
                   className="absolute inset-0 h-full w-full overflow-visible"
                   viewBox={`0 0 ${capture.screen_width} ${capture.screen_height}`}
-                  preserveAspectRatio="none"
+                  preserveAspectRatio="xMidYMid meet"
                 >
                   {boxes.map((entry) => {
                     const bounds = entry.bounds;
