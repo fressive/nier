@@ -30,6 +30,15 @@ tree and raw XML/HTML. **WebView** prefers DevTools DOM extraction; uncheck it t
 request UIAutomator directly when you need Android view bounds. WebView DOM
 nodes often have no screen-space `bounds`, so they cannot be overlaid.
 
+Click a bounds rectangle or a tree row to select a component. The inspector then
+generates a copyable Nier snippet that re-finds the selected node by its visible
+text and available IDs/attributes. It includes `component.click()` only when the
+dump marks the selected node clickable and provides usable screen bounds;
+otherwise the generated snippet locates and prints the node without sending an
+action. The snippet checks that the selector matches exactly one node before
+using it, so ambiguous matches fail visibly instead of tapping an arbitrary
+component.
+
 The CLI config can be selected when starting the dashboard:
 
 ```bash

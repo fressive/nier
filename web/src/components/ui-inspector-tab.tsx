@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { AlertCircle, Braces, ChevronDown, ChevronRight, Code2, Layers3, LoaderCircle, MonitorPlay, RefreshCw, ScanSearch } from "lucide-react";
+import { AlertCircle, Braces, Check, ChevronDown, ChevronRight, Code2, Copy, Layers3, LoaderCircle, MonitorPlay, RefreshCw, ScanSearch } from "lucide-react";
 import { Badge } from "./ui/badge";
 import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { fetchJson, postJson } from "../lib/api";
 import { parseUiDumpXml, type UiTreeNode } from "../lib/ui-dump";
 import { parseUiBounds, type UiBounds } from "../lib/ui-bounds.mjs";
+import { generateNierCode } from "../lib/nier-codegen.mjs";
 import { cn } from "../lib/utils";
 
 type InspectorDevice = {
@@ -64,6 +65,8 @@ function flattenTree(
 function nodeLabel(node: UiTreeNode) {
   return node.attributes.text
     || node.attributes["content-desc"]
+    || node.attributes["aria-label"]
+    || node.attributes.title
     || node.text
     || node.attributes["resource-id"]
     || node.attributes.class
@@ -87,6 +90,7 @@ export function UiInspectorTab() {
   const [hoveredPath, setHoveredPath] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(() => new Set(["0"]));
+  const [copyStatus, setCopyStatus] = useState("");
 
   const refreshDevices = useCallback(async () => {
     setLoadingDevices(true);
@@ -127,6 +131,21 @@ export function UiInspectorTab() {
   );
   const activePath = hoveredPath ?? selectedPath;
   const activeEntry = entries.find((entry) => entry.path === activePath);
+  const selectedEntry = entries.find((entry) => entry.path === selectedPath);
+  const generatedCode = useMemo(
+    () => selectedEntry && capture
+      ? generateNierCode(selectedEntry.node, {
+        source: capture.source,
+        screenWidth: capture.screen_width,
+        screenHeight: capture.screen_height,
+      })
+      : null,
+    [selectedEntry, capture],
+  );
+
+  useEffect(() => {
+    setCopyStatus("");
+  }, [generatedCode?.code]);
   const boxes = useMemo(
     () => entries
       .filter((entry): entry is TreeEntry & { bounds: UiBounds } => entry.bounds !== null)
@@ -178,6 +197,16 @@ export function UiInspectorTab() {
       else next.add(path);
       return next;
     });
+  };
+
+  const copyGeneratedCode = async () => {
+    if (!generatedCode) return;
+    try {
+      await navigator.clipboard.writeText(generatedCode.code);
+      setCopyStatus("代码已复制");
+    } catch {
+      setCopyStatus("复制失败，请手动选择代码");
+    }
   };
 
   const connectedDevices = devices.filter((device) => device.state === "device");
@@ -334,6 +363,36 @@ export function UiInspectorTab() {
                 {activeEntry.bounds && <p className="mt-1 font-mono text-[9px] text-emerald-200">bounds [{activeEntry.bounds.left},{activeEntry.bounds.top}][{activeEntry.bounds.right},{activeEntry.bounds.bottom}]</p>}
               </div>
             )}
+            <div className="shrink-0 border-t border-border/60">
+              <div className="flex items-center gap-2 px-3 py-2">
+                <Code2 className="h-3 w-3 text-emerald-300" />
+                <span className="text-[10px] font-medium text-slate-300">生成 Nier 代码</span>
+                {selectedEntry && (
+                  <span className="min-w-0 flex-1 truncate text-[9px] text-slate-500" title={nodeLabel(selectedEntry.node)}>
+                    {nodeLabel(selectedEntry.node)}
+                  </span>
+                )}
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  title="复制生成的 Nier 代码"
+                  onClick={() => void copyGeneratedCode()}
+                  disabled={!generatedCode}
+                  className="h-7 shrink-0 gap-1 px-2 text-[9px] text-slate-300"
+                >
+                  {copyStatus === "代码已复制" ? <Check className="h-3 w-3" /> : <Copy className="h-3 w-3" />}
+                  {copyStatus || "复制"}
+                </Button>
+              </div>
+              {generatedCode ? (
+                <>
+                  <pre className="code-scroll max-h-40 overflow-auto border-t border-border/40 bg-[#0b0f14] p-3 font-mono text-[9px] leading-relaxed text-slate-300">{generatedCode.code}</pre>
+                  {generatedCode.warning && <p className="border-t border-border/40 px-3 py-2 text-[9px] text-amber-200/80">{generatedCode.warning}</p>}
+                </>
+              ) : (
+                <p className="border-t border-border/40 px-3 py-2 text-[9px] text-slate-500">点击截图 bounds 或节点树中的组件以生成代码</p>
+              )}
+            </div>
             <details className="shrink-0 border-t border-border/60">
               <summary className="flex cursor-pointer items-center gap-1.5 px-3 py-2 text-[10px] text-slate-400"><Code2 className="h-3 w-3" />CLI uidump 输出</summary>
               <pre className="code-scroll max-h-40 overflow-auto border-t border-border/40 bg-[#0b0f14] p-3 font-mono text-[9px] leading-relaxed text-slate-400">{capture.tree_text}</pre>
