@@ -196,7 +196,41 @@ def _launch_result(output: str, operation: str) -> ActionResult:
     if any(marker in normalized for marker in failure_markers):
         detail = message[:512] or "Android reported a launch failure"
         raise BackendError(f"{operation} failed: {detail}")
+    status = re.search(r"(?im)^\s*Status:\s*(\S+)", output)
+    if status is not None and status.group(1).lower() != "ok":
+        raise BackendError(f"{operation} failed: {message[:512]}")
     return ActionResult(success=True, message=message[:512] or "ok")
+
+
+def _parse_launcher_component(output: str, package: str) -> str:
+    """Parse the package manager's resolved MAIN/LAUNCHER component."""
+    for line in output.splitlines():
+        value = line.strip()
+        if value.startswith("ComponentInfo{") and value.endswith("}"):
+            value = value[len("ComponentInfo{") : -1]
+        match = _ACTIVITY_COMPONENT.fullmatch(value)
+        if match is None or match.group("package") != package:
+            continue
+        activity = match.group("activity")
+        try:
+            if activity.startswith(".") or "." not in activity:
+                full_activity = normalize_activity_component(package, activity).split(
+                    "/", 1
+                )[1]
+            else:
+                class_package, class_name = activity.rsplit(".", 1)
+                full_activity = normalize_activity_component(
+                    class_package,
+                    class_name,
+                ).split("/", 1)[1]
+            return f"{package}/{full_activity}"
+        except ValueError as exc:
+            raise ProtocolError(
+                f"Android returned an invalid launcher Activity for {package!r}: {value!r}"
+            ) from exc
+    detail = " ".join(output.split())[:512]
+    reason = f": {detail}" if detail else ""
+    raise BackendError(f"could not resolve launcher Activity for {package!r}{reason}")
 
 
 def _parse_ui_automator_xml(value: bytes | str) -> str:
@@ -509,28 +543,32 @@ class AdbBackend:
         return self.list_app_activities(package)
 
     def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
-        """Open the package's launcher Activity, optionally restarting it.
+        """Resolve and open the package's launcher Activity.
 
         Restarting force-stops the app process and clears its Activity task
-        before launch, but does not clear its stored data. The operation is
-        sent once and is never automatically retried.
+        before launch, but does not clear its stored data. Android's launch
+        result is awaited, and the operation is never automatically retried.
         """
         package = validate_package_name(package)
+        resolved = self.adb.shell(
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "-p",
+            package,
+        )
+        component = _parse_launcher_component(resolved, package)
         if restart:
             self.adb.shell("am", "force-stop", package)
-        start_arguments = ["am", "start"]
+        start_arguments = ["am", "start", "-W"]
         if restart:
             start_arguments.append("--activity-clear-task")
-        start_arguments.extend(
-            [
-                "-a",
-                "android.intent.action.MAIN",
-                "-c",
-                "android.intent.category.LAUNCHER",
-                "-p",
-                package,
-            ]
-        )
+        start_arguments.extend(["-n", component])
         output = self.adb.shell(*start_arguments)
         operation = "restart" if restart else "open"
         return _launch_result(output, f"{operation} app {package!r}")
