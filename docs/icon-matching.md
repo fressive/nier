@@ -37,10 +37,12 @@ with connect("config/nier.yaml") as phone:
 
 The template can also be passed as encoded image bytes. `region=(x, y, width,
 height)` optionally limits the search to a rectangle in the full screenshot;
-returned coordinates remain screen-relative. By default, matching samples 21
+returned coordinates remain screen-relative. By default, matching samples 41
 logarithmically spaced scale values between 0.5× and 2× the supplied template
-size, which helps when screenshot density or UI scaling differs. Narrow the
-range and step count for faster matching when you know the target scale:
+size, then refines the strongest candidates between nearby sizes. This helps
+when screenshot density or UI scaling differs. The wider search takes longer;
+narrow the range and step count for faster matching when you know the target
+scale:
 
 ```python
 with connect("config/nier.yaml") as phone:
