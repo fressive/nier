@@ -289,6 +289,9 @@ completeness, warning, a hierarchical `root`, normalized element fields, and
 source attributes. It MUST be bounded by node and text limits by default;
 `max_nodes=None` and `max_text_length=None` MAY request the complete parsed
 tree. Raw XML/HTML MUST be opt-in through `include_raw=True`.
+`UiDocument.match(**filters)` MUST use the same filters as `find_all()` and
+return `True` only when exactly one node matches; zero or multiple matches
+MUST return `False`.
 
 `AdbBackend.capabilities().supports_webview_debugging` is `true` when a target
 package is configured and `false` otherwise. The optional hook controller in

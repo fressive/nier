@@ -69,6 +69,21 @@ buttons = ui.find_all(
 )
 ```
 
+`ui.match(**filters)` returns `True` only when exactly one node matches the
+same filters accepted by `find_all()`; it returns `False` for no matches or
+multiple matches. Use `ui.find()` afterward when you also need the matched
+node:
+
+```python
+filters = {
+    "text": "登录",
+    "resource_id": "com.example:id/login",
+}
+if ui.match(**filters):
+    login = ui.find(**filters)
+    print(login.center if login is not None else None)
+```
+
 Each `UiNode` exposes `tag`, `attributes`, `text`, `text_content`,
 `resource_id`, `class_name`, `content_desc`, `bounds`, `center`, and
 `children`. `walk()` returns the node and all descendants in document order.

@@ -254,6 +254,10 @@ class UiDocument:
     def find_all(self, **filters: TextMatcher | bool | None) -> tuple[UiNode, ...]:
         return self.root.find_all(**filters)
 
+    def match(self, **filters: TextMatcher | bool | None) -> bool:
+        """Return whether exactly one node matches the supplied filters."""
+        return len(self.find_all(**filters)) == 1
+
     def find(self, **filters: TextMatcher | bool | None) -> UiNode | None:
         return self.root.find(**filters)
 

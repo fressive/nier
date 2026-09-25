@@ -40,6 +40,20 @@ def test_parse_android_ui_xml_and_find_nodes() -> None:
     assert len(document.find_all(class_name="android.widget.Button")) == 1
 
 
+def test_ui_document_match_requires_exactly_one_result() -> None:
+    document = parse_uidump(UI_XML)
+    duplicate_nodes = parse_uidump(
+        "<hierarchy><node class='android.widget.Button' />"
+        "<node class='android.widget.Button' /></hierarchy>"
+    )
+
+    assert document.match(resource_id="com.example:id/login") is True
+    assert document.match(text="不存在") is False
+    assert duplicate_nodes.match(class_name="android.widget.Button") is False
+    assert document.match() is False
+    assert parse_uidump("<hierarchy />").match() is True
+
+
 def test_parse_webview_html_and_read_file(tmp_path) -> None:
     html = '<html><body><button id="login" aria-label="Login">Log in</button></body></html>'
     path = tmp_path / "ui.html"

@@ -19,7 +19,7 @@ once and are never automatically retried.
 | Apps and Activities | `list_apps` (`list_app`), `list_app_activities` (`list_app_activity`), `open_app` (`launch_app`), `start_activity` (`open_activity`), `start_intent` | [Apps](apps.md), [Intent hook](intent-hook.md) |
 | Input | `click` (`tap`), `tap_label`, `swipe`, `text`, `key`, `back`, `home`, `enter` | [Control](control.md) |
 | Screenshots and locating | `screenshot`, `Screenshot.ocr`, `locate_text`, `locate_icon`, `ImageMatch.click`, `long_press`, `swipe` | [Screenshots](screenshot.md), [Text matching](text-matching.md), [Icon matching](icon-matching.md) |
-| UI trees and widgets | `dump_ui`, `uidump`, `parse_uidump`, `widgets`, `widget`, `format_tree`, `find`, `find_all`, `walk`, `to_dict`, `Widget.click`, `WidgetList.clickable`, `WidgetList.choice` | [UI dump](uidump.md), [WebView DevTools](webview-devtools.md) |
+| UI trees and widgets | `dump_ui`, `uidump`, `parse_uidump`, `widgets`, `widget`, `format_tree`, `find`, `find_all`, `match`, `walk`, `to_dict`, `Widget.click`, `WidgetList.clickable`, `WidgetList.choice` | [UI dump](uidump.md), [WebView DevTools](webview-devtools.md) |
 | Typed decisions | `choice`, `noul`, `score` | [Models](models.md) |
 | Goal APIs | `agent`, `Agent.ask_sysone`, `Agent.run`, `Agent.debug`, `llm`, `sysone_goal`, `sysone`, `SysOneGoal.run` | [Models](models.md) |
 
