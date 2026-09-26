@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections import deque
+from collections.abc import AsyncIterator, Awaitable, Callable
 import os
 from pathlib import Path
 import queue
@@ -48,6 +50,7 @@ class ScrcpyPreview:
         self._forward_port: int | None = None
         self._latest_frame: bytes | None = None
         self._subscribers: set[queue.Queue[bytes | None]] = set()
+        self._streams_stopping = False
         self._stderr: dict[str, deque[str]] = {
             "scrcpy": deque(maxlen=12),
             "ffmpeg": deque(maxlen=12),
@@ -169,9 +172,26 @@ class ScrcpyPreview:
         with self._lock:
             self._shutdown_locked(status="idle", error=None, bump_generation=True)
 
+    def stop_streams(self) -> None:
+        """Wake active MJPEG responses without stopping preview processes."""
+        with self._lock:
+            self._streams_stopping = True
+            subscribers = tuple(self._subscribers)
+            self._subscribers.clear()
+            for subscriber in subscribers:
+                while True:
+                    try:
+                        subscriber.get_nowait()
+                    except queue.Empty:
+                        break
+                subscriber.put_nowait(None)
+
     def subscribe(self) -> queue.Queue[bytes | None]:
         subscriber: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
         with self._lock:
+            if self._streams_stopping:
+                subscriber.put_nowait(None)
+                return subscriber
             if not self._active:
                 raise PreviewRequestError("scrcpy 预览尚未启动")
             self._subscribers.add(subscriber)
@@ -179,15 +199,24 @@ class ScrcpyPreview:
                 subscriber.put_nowait(self._latest_frame)
         return subscriber
 
-    def stream(self, subscriber: queue.Queue[bytes | None]):
+    async def stream(
+        self,
+        subscriber: queue.Queue[bytes | None],
+        *,
+        is_disconnected: Callable[[], Awaitable[bool]] | None = None,
+    ) -> AsyncIterator[bytes]:
         try:
             while True:
+                if is_disconnected is not None and await is_disconnected():
+                    return
                 try:
-                    frame = subscriber.get(timeout=10)
+                    frame = await asyncio.to_thread(subscriber.get, True, 0.5)
                 except queue.Empty:
                     with self._lock:
                         if not self._active:
                             return
+                    if is_disconnected is not None and await is_disconnected():
+                        return
                     continue
                 if frame is None:
                     return

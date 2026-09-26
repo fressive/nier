@@ -47,6 +47,16 @@ def test_dashboard_filters_stdout_log_lines_but_keeps_script_output(tmp_path) ->
     }
 
 
+def test_dashboard_shutdown_wakes_active_event_streams(tmp_path) -> None:
+    dashboard = _DashboardState(tmp_path, tmp_path)
+    subscriber, _ = dashboard.subscribe()
+
+    dashboard.stop_streams()
+
+    assert subscriber.get_nowait() is None
+    assert not dashboard.subscribers
+
+
 def test_source_endpoint_reads_only_available_scripts_and_disables_caching(tmp_path) -> None:
     scripts = tmp_path / "scripts"
     scripts.mkdir()
