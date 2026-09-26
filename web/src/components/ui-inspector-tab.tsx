@@ -5,7 +5,7 @@ import { Button } from "./ui/button";
 import { Card } from "./ui/card";
 import { fetchJson, postJson } from "../lib/api";
 import { parseUiDumpXml, type UiTreeNode } from "../lib/ui-dump";
-import { parseUiBounds, type UiBounds } from "../lib/ui-bounds.mjs";
+import { parseUiNodeBounds, type UiBounds } from "../lib/ui-bounds.mjs";
 import { generateNierCode } from "../lib/nier-codegen.mjs";
 import { cn } from "../lib/utils";
 
@@ -54,7 +54,7 @@ function flattenTree(
       node,
       path,
       depth,
-      bounds: parseUiBounds(node.attributes.bounds, width, height),
+      bounds: parseUiNodeBounds(node.attributes, width, height),
     },
     ...node.children.flatMap((child, index) =>
       flattenTree(child, `${path}/${index}`, depth + 1, width, height),
@@ -441,7 +441,7 @@ function InspectorTreeNode({
   const isOpen = expandedPaths.has(path) || pathIsAncestor;
   const active = activePath === path;
   const text = node.attributes.text || node.attributes["content-desc"] || node.text;
-  const bounds = node.attributes.bounds;
+  const bounds = node.attributes["data-nier-screen-bounds"] || node.attributes.bounds;
 
   return (
     <div className="min-w-0">
