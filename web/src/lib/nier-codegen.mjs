@@ -68,17 +68,21 @@ export function generateNierCode(node, { source, screenWidth, screenHeight }) {
     "",
     'with connect("config/nier.yaml") as phone:',
     `    ui = phone.parse_uidump(prefer_webview=${preferWebView})`,
-    "    matches = ui.find_all(",
+    "    query = dict(",
     ...selectors.map(([key, value]) => `        ${key}=${pythonString(value)},`),
     "    )",
+    "    if not ui.match(**query):",
+    '        raise LookupError("Expected exactly one matching UI node")',
+    "    node = ui.find(**query)",
+    "    if node is None:",
+    '        raise LookupError("Matching UI node disappeared after the uniqueness check")',
     ...(rawBounds
       ? [
-        `    matches = [node for node in matches if node.bounds == (${rawBounds.join(", ")})]`,
+        `    if node.bounds != (${rawBounds.join(", ")}):`,
+        '        raise LookupError("Matching UI node bounds changed; capture a fresh UI dump")',
       ]
       : []),
-    "    if len(matches) != 1:",
-    '        raise LookupError(f"Expected one matching UI node, found {len(matches)}")',
-    "    component = phone.widget(matches[0])",
+    "    component = phone.widget(node)",
   ];
 
   if (canClick) {
