@@ -73,6 +73,24 @@ startup and overrides later calls that attempt to disable it. The host checks
 the module's readiness record for the running process before requesting the
 DOM through CDP. This mode does not use Frida or root shell access.
 
+When the host can also read an unambiguous native WebView viewport from
+UIAutomator, Nier maps each DOM element's visible rectangle into that WebView's
+Android screen rectangle. Overlapping native reports are merged only when all
+edges differ by at most one pixel. HTML, viewport dimensions, and element
+rectangles are read in one CDP evaluation so they describe the same DOM
+snapshot. The returned HTML copy receives `data-nier-screen-bounds`,
+`data-nier-clickable`, and
+`data-nier-visible` attributes; the live page is not changed. Callers can then
+use the same `UiNode` / `Widget` queries and `Widget.click()` tap path as for
+Android views. Clickability is heuristic (semantic controls, ARIA roles,
+focusability, event attributes, directly attached event listeners when
+available, and pointer cursor), not complete JavaScript listener
+introspection. Missing or ambiguous native WebView geometry, hidden
+or out-of-viewport elements, and an HTML-to-DOM ordering mismatch fail closed:
+the DOM remains readable, but affected elements are not tappable. Each mapped
+coordinate belongs to that dump snapshot and is not revalidated before the
+single ADB tap.
+
 LSPosed applies hooks when an application process starts. After enabling the
 module, changing its scope, or installing an updated APK, force-stop and reopen
 the target app before running `uidump`. Nier does not restart the app

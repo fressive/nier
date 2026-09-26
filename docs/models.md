@@ -474,10 +474,12 @@ For a UI task, `phone.widgets()` parses the current UI dump into device-bound
 widgets. `clickable()` is optional: it can narrow the list explicitly, while
 `choice()` always considers clickable widgets not marked hidden and with usable
 screen bounds. The model receives labels and semantic attributes, not coordinates.
-WebView DOM nodes without screen bounds are therefore not eligible for a tap.
-See [the UI dump guide](uidump.md#choose-and-click-a-ui-widget) for the fluent
-selection-and-click example. `DeviceSession` retries reads according to its
-configured policy, but never automatically retries the eventual tap.
+WebView DOM nodes are eligible only when Nier safely maps them from one native
+WebView's screen bounds and CDP viewport geometry; otherwise they remain
+searchable but are excluded from taps. See [the UI dump guide](uidump.md#choose-and-click-a-ui-widget)
+for mapping details and the fluent selection-and-click example. `DeviceSession`
+retries reads according to its configured policy, but never automatically
+retries the eventual tap.
 
 Scripts that need a single request with several questions can use the lower-
 level `SysOneProvider.ask()` extension API via a configured router. This

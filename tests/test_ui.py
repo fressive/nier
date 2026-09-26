@@ -68,6 +68,24 @@ def test_parse_webview_html_and_read_file(tmp_path) -> None:
     assert button.text_content == "Log in"
 
 
+def test_parse_webview_mapping_metadata_as_widget_properties() -> None:
+    html = (
+        '<html data-nier-screen-bounds="[0,0][400,800]" '
+        'data-nier-clickable="false" data-nier-visible="true">'
+        '<body><button data-nier-screen-bounds="[40,80][160,120]" '
+        'data-nier-clickable="true" data-nier-visible="true">Continue</button>'
+        "</body></html>"
+    )
+
+    button = parse_uidump(html, source=UiSource.WEBVIEW_DEVTOOLS).find(tag="button")
+
+    assert button is not None
+    assert button.bounds == (40, 80, 160, 120)
+    assert button.center == (100.0, 100.0)
+    assert button.clickable is True
+    assert button.visible is True
+
+
 def test_parse_uidump_preserves_dump_metadata() -> None:
     dump = UiDump(
         "<hierarchy />",

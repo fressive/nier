@@ -10,16 +10,19 @@ socket on the device.
 from __future__ import annotations
 
 import base64
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
 import hashlib
 import http.client
 import json
+import math
 import re
 import secrets
 import socket
 import struct
 import time
+from collections.abc import Mapping, Sequence
+from dataclasses import dataclass
+from html import escape as _escape_html
+from html.parser import HTMLParser
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -28,10 +31,10 @@ from .errors import BackendError, BackendUnavailable, ProtocolError
 from .logging_utils import request as log_request
 from .logging_utils import response as log_response
 
-
 _CDP_SOCKET_PREFIX = "webview_devtools_remote"
 _MAX_HTTP_BYTES = 4 * 1024 * 1024
 _MAX_FRAME_BYTES = 32 * 1024 * 1024
+_MAX_MAPPED_ELEMENTS = 20_000
 _WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
 
@@ -51,7 +54,8 @@ class WebViewDevTools:
     ``package`` is used to find the application process.  Callers that have
     already attached a root Frida session may pass ``pid`` instead.  A
     concrete ``socket_name`` is also accepted for applications that expose a
-    custom WebView DevTools socket.
+    custom WebView DevTools socket. ``tcp_port`` selects a custom endpoint that
+    the caller has verified is bound to device loopback.
     """
 
     def __init__(
@@ -61,24 +65,46 @@ class WebViewDevTools:
         package: str | None = None,
         pid: int | None = None,
         socket_name: str | None = None,
+        tcp_port: int | None = None,
         timeout: float = 10.0,
     ) -> None:
-        if not package and pid is None and not socket_name:
-            raise ValueError("package, pid, or socket_name is required")
+        if not package and pid is None and not socket_name and tcp_port is None:
+            raise ValueError("package, pid, socket_name, or tcp_port is required")
         if pid is not None and pid <= 0:
             raise ValueError("pid must be positive")
+        if tcp_port is not None and not 1 <= tcp_port <= 65535:
+            raise ValueError("tcp_port must be between 1 and 65535")
+        if socket_name is not None and tcp_port is not None:
+            raise ValueError("socket_name and tcp_port cannot be combined")
         if timeout <= 0:
             raise ValueError("timeout must be positive")
         self._adb = adb
         self._package = package.strip() if package else None
         self._pid = pid
         self._socket_name = _clean_socket_name(socket_name) if socket_name else None
+        self._tcp_port = tcp_port
         self._timeout = timeout
 
-    def dump_dom(self) -> str:
-        """Return the current WebView document as HTML/XML text."""
-        socket_name = self._resolve_socket()
-        forward = _AdbForward(self._adb, socket_name, timeout=self._timeout)
+    def dump_dom(
+        self,
+        *,
+        viewport_bounds: tuple[int, int, int, int] | None = None,
+    ) -> str:
+        """Return WebView HTML, optionally annotated with screen-space metadata.
+
+        ``viewport_bounds`` is the unambiguous native WebView rectangle in
+        Android screen coordinates. When supplied, the host requests the HTML
+        and its element geometry together and adds Nier mapping attributes to a
+        copy of the returned markup. If geometry cannot be mapped safely, the
+        ordinary DOM is returned unchanged.
+        """
+        if viewport_bounds is not None and not _valid_screen_bounds(viewport_bounds):
+            viewport_bounds = None
+        if self._tcp_port is None:
+            remote_endpoint = f"localabstract:{self._resolve_socket()}"
+        else:
+            remote_endpoint = f"tcp:{self._tcp_port}"
+        forward = _AdbForward(self._adb, remote_endpoint, timeout=self._timeout)
         with forward:
             port = forward.local_port
             if port is None:  # pragma: no cover - guarded by _AdbForward.__enter__
@@ -93,6 +119,13 @@ class WebViewDevTools:
             )
             try:
                 cdp = _CdpClient(websocket, timeout=self._timeout)
+                if viewport_bounds is not None:
+                    try:
+                        return cdp.dump_document_with_geometry(viewport_bounds)
+                    except BackendError:
+                        # Geometry is an enhancement, not a prerequisite for a
+                        # searchable DOM. Preserve the existing extraction path.
+                        pass
                 return cdp.dump_document()
             finally:
                 websocket.close()
@@ -244,9 +277,9 @@ def _get_json(host: str, port: int, path: str, *, timeout: float) -> Any:
 
 
 class _AdbForward:
-    def __init__(self, adb: AdbClient, socket_name: str, *, timeout: float) -> None:
+    def __init__(self, adb: AdbClient, remote_endpoint: str, *, timeout: float) -> None:
         self._adb = adb
-        self._socket_name = socket_name
+        self._remote_endpoint = remote_endpoint
         self._timeout = timeout
         self.local_port: int | None = None
 
@@ -256,7 +289,7 @@ class _AdbForward:
             self._adb.run(
                 "forward",
                 f"tcp:{self.local_port}",
-                f"localabstract:{self._socket_name}",
+                self._remote_endpoint,
                 timeout=self._timeout,
             )
         except Exception:
@@ -529,3 +562,296 @@ class _CdpClient:
         if not html:
             raise ProtocolError("WebView DevTools returned an empty DOM")
         return html
+
+    def dump_document_with_geometry(
+        self, viewport_bounds: tuple[int, int, int, int]
+    ) -> str:
+        """Read HTML and element geometry in one page evaluation."""
+        response = self.call(
+            "Runtime.evaluate",
+            {
+                "expression": _DOM_GEOMETRY_EXPRESSION,
+                "includeCommandLineAPI": True,
+                "returnByValue": True,
+                "awaitPromise": False,
+            },
+        )
+        remote = response.get("result")
+        value = remote.get("value") if isinstance(remote, Mapping) else None
+        if not isinstance(value, Mapping):
+            raise ProtocolError("WebView DevTools returned invalid DOM geometry")
+        html = value.get("html")
+        if not isinstance(html, str) or not html.strip():
+            raise ProtocolError("WebView DevTools returned an empty DOM")
+        elements = value.get("elements")
+        viewport = value.get("viewport")
+        if not isinstance(elements, Sequence) or isinstance(
+            elements, (str, bytes, bytearray)
+        ):
+            return html.strip()
+        if not isinstance(viewport, Mapping):
+            return html.strip()
+        return _annotate_mapped_html(
+            html.strip(), elements, viewport, viewport_bounds
+        )
+
+
+_DOM_GEOMETRY_EXPRESSION = r"""(() => {
+  const root = document.documentElement;
+  if (!root) return null;
+  const vv = window.visualViewport;
+  const viewport = {
+    width: vv ? vv.width : window.innerWidth,
+    height: vv ? vv.height : window.innerHeight,
+    offsetLeft: vv ? vv.offsetLeft : 0,
+    offsetTop: vv ? vv.offsetTop : 0
+  };
+  const nodes = [];
+  const pending = [root];
+  while (pending.length) {
+    const element = pending.pop();
+    nodes.push(element);
+    const children = element.localName === 'template' && element.content
+      ? element.content.children : element.children;
+    for (let index = children.length - 1; index >= 0; index -= 1) {
+      pending.push(children[index]);
+    }
+  }
+  if (nodes.length > 20000) {
+    return {html: root.outerHTML, viewport, elements: null};
+  }
+  const roleSet = new Set([
+    'button', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+    'tab', 'checkbox', 'radio', 'switch', 'option', 'treeitem'
+  ]);
+  const elements = nodes.map(element => {
+    const rect = element.getBoundingClientRect();
+    const style = window.getComputedStyle(element);
+    const tag = element.localName.toLowerCase();
+    const role = (element.getAttribute('role') || '').toLowerCase();
+    const type = (element.getAttribute('type') || '').toLowerCase();
+    const nativeControl = (
+      tag === 'button' || tag === 'select' || tag === 'textarea' ||
+      tag === 'summary' || tag === 'label' ||
+      (tag === 'a' && element.hasAttribute('href')) ||
+      (tag === 'area' && element.hasAttribute('href')) ||
+      (tag === 'input' && type !== 'hidden')
+    );
+    const hasHandler = Array.from(element.attributes).some(attribute =>
+      /^on(click|pointerup|pointerdown|touchend|mouseup)$/i.test(attribute.name)
+    );
+    const tabIndex = element.hasAttribute('tabindex')
+      ? Number(element.getAttribute('tabindex')) : -1;
+    const disabled = element.matches(':disabled') ||
+      element.getAttribute('aria-disabled') === 'true' ||
+      element.closest('[inert]') !== null;
+    let hasDirectHandler = false;
+    if (typeof getEventListeners === 'function') {
+      try {
+        const listeners = getEventListeners(element);
+        hasDirectHandler = [
+          'click', 'pointerup', 'pointerdown', 'touchstart', 'touchend',
+          'mousedown', 'mouseup'
+        ].some(type => Array.isArray(listeners[type]) && listeners[type].length > 0);
+      } catch (_) {
+        // Older WebViews may not expose the DevTools command-line helper.
+      }
+    }
+    const clickable = !disabled && style.pointerEvents !== 'none' && (
+      nativeControl || roleSet.has(role) || hasHandler || hasDirectHandler ||
+      (Number.isFinite(tabIndex) && tabIndex >= 0) ||
+      element.isContentEditable || style.cursor === 'pointer'
+    );
+    let checkVisible = true;
+    if (typeof element.checkVisibility === 'function') {
+      try {
+        checkVisible = element.checkVisibility({
+          checkOpacity: true,
+          checkVisibilityCSS: true
+        });
+      } catch (_) {
+        checkVisible = element.checkVisibility();
+      }
+    }
+    const visible = checkVisible && element.getClientRects().length > 0 &&
+      style.visibility !== 'hidden' && style.visibility !== 'collapse' &&
+      Number(style.opacity) > 0 && style.display !== 'none';
+    return {
+      tag,
+      left: rect.left,
+      top: rect.top,
+      right: rect.right,
+      bottom: rect.bottom,
+      clickable,
+      visible
+    };
+  });
+  return {html: root.outerHTML, viewport, elements};
+})()"""
+
+
+def _valid_screen_bounds(bounds: tuple[int, int, int, int]) -> bool:
+    if len(bounds) != 4 or any(isinstance(value, bool) for value in bounds):
+        return False
+    left, top, right, bottom = bounds
+    return (
+        all(isinstance(value, int) for value in bounds)
+        and left >= 0
+        and top >= 0
+        and right > left
+        and bottom > top
+    )
+
+
+def _finite_number(value: Any) -> float | None:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    number = float(value)
+    return number if math.isfinite(number) else None
+
+
+def _mapped_bounds(
+    element: Mapping[str, Any],
+    viewport: Mapping[str, Any],
+    viewport_bounds: tuple[int, int, int, int],
+) -> tuple[int, int, int, int] | None:
+    width = _finite_number(viewport.get("width"))
+    height = _finite_number(viewport.get("height"))
+    offset_left = _finite_number(viewport.get("offsetLeft"))
+    offset_top = _finite_number(viewport.get("offsetTop"))
+    left = _finite_number(element.get("left"))
+    top = _finite_number(element.get("top"))
+    right = _finite_number(element.get("right"))
+    bottom = _finite_number(element.get("bottom"))
+    if (
+        width is None
+        or height is None
+        or offset_left is None
+        or offset_top is None
+        or left is None
+        or top is None
+        or right is None
+        or bottom is None
+        or width <= 0
+        or height <= 0
+        or right <= left
+        or bottom <= top
+    ):
+        return None
+
+    screen_left, screen_top, screen_right, screen_bottom = viewport_bounds
+    screen_width = screen_right - screen_left
+    screen_height = screen_bottom - screen_top
+    css_left = max(0.0, left - offset_left)
+    css_top = max(0.0, top - offset_top)
+    css_right = min(width, right - offset_left)
+    css_bottom = min(height, bottom - offset_top)
+    if css_right <= css_left or css_bottom <= css_top:
+        return None
+
+    scale_x = screen_width / width
+    scale_y = screen_height / height
+    bounds = (
+        max(screen_left, screen_left + math.floor(css_left * scale_x)),
+        max(screen_top, screen_top + math.floor(css_top * scale_y)),
+        min(screen_right, screen_left + math.ceil(css_right * scale_x)),
+        min(screen_bottom, screen_top + math.ceil(css_bottom * scale_y)),
+    )
+    if bounds[2] <= bounds[0] or bounds[3] <= bounds[1]:
+        return None
+    return bounds
+
+
+class _MappedHtmlParser(HTMLParser):
+    """Collect element-token offsets so metadata can be added to a copy."""
+
+    def __init__(
+        self,
+        html: str,
+        elements: Sequence[Any],
+        viewport: Mapping[str, Any],
+        viewport_bounds: tuple[int, int, int, int],
+    ) -> None:
+        super().__init__(convert_charrefs=False)
+        self.html = html
+        self.elements = elements
+        self.viewport = viewport
+        self.viewport_bounds = viewport_bounds
+        self.offsets = [0]
+        self.tags: list[str] = []
+        self.edits: list[tuple[int, str]] = []
+        for index, character in enumerate(html):
+            if character == "\n":
+                self.offsets.append(index + 1)
+
+    def handle_starttag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        self._record_tag(tag)
+
+    def handle_startendtag(self, tag: str, _attrs: list[tuple[str, str | None]]) -> None:
+        self._record_tag(tag)
+
+    def _record_tag(self, tag: str) -> None:
+        index = len(self.tags)
+        self.tags.append(tag.lower())
+        if index >= len(self.elements):
+            return
+        element = self.elements[index]
+        if (
+            not isinstance(element, Mapping)
+            or str(element.get("tag", "")).lower() != tag.lower()
+        ):
+            return
+        start_tag = self.get_starttag_text()
+        if not start_tag:
+            return
+        line, column = self.getpos()
+        start = self.offsets[line - 1] + column
+        stripped = start_tag.rstrip()
+        insertion_in_tag = len(stripped) - 1
+        if stripped.endswith("/>"):
+            insertion_in_tag -= 1
+
+        is_visible = element.get("visible") is True
+        bounds = (
+            _mapped_bounds(element, self.viewport, self.viewport_bounds)
+            if is_visible
+            else None
+        )
+        bounds_value = "" if bounds is None else _format_screen_bounds(bounds)
+        clickable = element.get("clickable") is True
+        visible = is_visible and bounds is not None
+        attributes = (
+            f' data-nier-screen-bounds="{_escape_html(bounds_value, quote=True)}"'
+            f' data-nier-clickable="{str(clickable).lower()}"'
+            f' data-nier-visible="{str(visible).lower()}"'
+        )
+        self.edits.append((start + insertion_in_tag, attributes))
+
+
+def _format_screen_bounds(bounds: tuple[int, int, int, int]) -> str:
+    return f"[{bounds[0]},{bounds[1]}][{bounds[2]},{bounds[3]}]"
+
+
+def _annotate_mapped_html(
+    html: str,
+    elements: Sequence[Any],
+    viewport: Mapping[str, Any],
+    viewport_bounds: tuple[int, int, int, int],
+) -> str:
+    if not _valid_screen_bounds(viewport_bounds) or len(elements) > _MAX_MAPPED_ELEMENTS:
+        return html
+    parser = _MappedHtmlParser(html, elements, viewport, viewport_bounds)
+    try:
+        parser.feed(html)
+        parser.close()
+    except (TypeError, ValueError):
+        return html
+    if parser.tags != [
+        str(element.get("tag", "")).lower() if isinstance(element, Mapping) else ""
+        for element in elements
+    ]:
+        return html
+    mapped = html
+    for offset, attributes in reversed(parser.edits):
+        mapped = mapped[:offset] + attributes + mapped[offset:]
+    return mapped

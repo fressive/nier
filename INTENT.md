@@ -78,11 +78,13 @@ The following are intentionally outside the completed foundation:
 - automatic retries of failed device actions; failed controls are excluded from
   subsequent recovery candidates;
 - continuous post-action verification;
-- autonomous WebView interaction beyond DOM extraction; the optional root
-  Frida hook, LSPosed module, and cooperative non-root integration enable
-  WebView DevTools DOM dumps. Root mode also has an explicit, best-effort
-  configuration for bypassing common application-owned Back callbacks, while
-  richer CDP actions remain a future extension.
+- autonomous WebView exploration beyond the shared UI query/touch path. When
+  native WebView bounds are unambiguous, mapped DOM nodes can use the same
+  host-side touch actions as Android views; direct CDP actions and broader
+  browser automation remain future extensions. The optional root Frida hook,
+  LSPosed module, and cooperative non-root integration enable WebView DevTools
+  DOM dumps. Root mode also has an explicit, best-effort configuration for
+  bypassing common application-owned Back callbacks.
 
 These are future extensions, not reasons to change the default ADB topology.
 
