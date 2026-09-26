@@ -24,7 +24,11 @@ Python host -> ADB -> Android device
 
 The default path MUST NOT require a phone-side network server or listening
 socket. A WebView DevTools UI request MAY create a temporary host-local ADB
-forward to the target application's abstract DevTools socket; this optional
+forward to the target application's abstract DevTools socket. An optional
+WebView adapter MAY report a TCP endpoint only when it is bound to device
+loopback; the host MUST verify that binding before forwarding the TCP port. If
+that listener is unavailable but the same process owns the standard Android
+WebView DevTools socket, the host MAY use that socket instead. This optional
 forward MUST be removed when the request completes.
 
 Remote ADB over TCP is an explicit optional mode and is specified in section
@@ -272,16 +276,49 @@ first attempts a WebView DevTools DOM dump. On success:
 - `complete` is `true` when non-empty DOM HTML is returned;
 - `warning` is empty.
 
-The host resolves the target process, forwards
-`localabstract:webview_devtools_remote_<pid>` to a temporary loopback port,
-queries `/json/list`, and uses CDP `DOM.getDocument` plus
-`DOM.getOuterHTML`. The forward MUST be removed after the dump. A failed
-connection, missing target, or malformed CDP response MUST fall back to
+For a standard Android WebView, the host resolves the target process and
+forwards `localabstract:webview_devtools_remote_<pid>` to a temporary host
+loopback port. An optional WebView adapter may report a custom endpoint through
+the generic adapter protocol. The host MUST verify that the reported port is
+listening on IPv4 loopback (`0100007F`) before forwarding `tcp:<port>` to a
+temporary host loopback port. If the custom listener is unavailable, the host
+MAY instead use the standard abstract socket only when its name matches the
+same app process PID. An exact process-owned socket also MAY be used as
+readiness evidence if the bounded logcat buffer no longer contains the module's
+startup record. The host then queries `/json/list` and uses CDP
+`DOM.getDocument` plus `DOM.getOuterHTML` for ordinary extraction. A device-side
+TCP forward MUST NOT target a non-loopback address. Every temporary forward
+MUST be removed after the dump. A failed connection, missing target, or
+malformed CDP response MUST fall back to
 UIAutomator with a warning:
 
 - `source` is `UIAUTOMATOR_FALLBACK`;
 - `complete` reflects whether XML was obtained;
 - `warning` explains why WebView DevTools was unavailable.
+
+When UIAutomator also reports one unambiguous native WebView viewport with
+positive screen-space bounds, the host SHOULD map WebView DOM elements to
+device coordinates. Multiple overlapping native WebView bounds MAY be treated
+as one viewport only when every edge differs by at most one pixel; in that case
+the host MUST use their intersection. It MUST read the document HTML, viewport
+dimensions, and element rectangles in the same CDP evaluation. The mapping MUST
+account for the visual viewport offset, scale CSS pixels into the native
+WebView bounds, and clip each rectangle to both view and viewport bounds. The
+host MUST apply mapping only
+when the returned DOM element order matches the serialized HTML element order;
+otherwise it MUST leave the HTML unmapped without failing the DOM dump. It MUST
+not modify the live page to collect metadata. Returned mapped nodes MUST expose
+normalized bounds, clickability, and visibility to the regular `UiNode` and
+`Widget` APIs. Clickability MAY be inferred from semantic HTML, ARIA roles,
+focusability, event attributes, and computed pointer style; it is explicitly a
+heuristic and MUST exclude disabled or inert controls. Direct event listeners
+MAY contribute to this heuristic when DevTools exposes them; delegated
+listeners MUST NOT cause all descendants to be treated as clickable. Invisible
+and out-of-viewport elements MUST NOT receive actionable bounds. If native
+bounds, viewport dimensions, or a safe element-order match is unavailable,
+WebView nodes MUST remain searchable but MUST NOT become tap candidates. A
+mapped tap uses the existing host-side device action, not a CDP action; its
+coordinates are a snapshot and the tap MUST NOT be automatically retried.
 
 `parse_uidump` MUST return a `UiDocument` whose `to_dict()` method produces
 JSON-ready structured data. The default representation MUST include source,
@@ -310,8 +347,11 @@ package is configured and `false` otherwise. The optional hook controller in
 - `lsposed` mode MUST require the Nier Android module to be installed, enabled,
   and scoped to the target package. The module MUST enable WebView debugging
   during application startup and keep later calls from disabling it. The host
-  MUST verify the module's readiness record for the current process before
-  querying CDP. This mode MUST NOT use Frida, `su`, or restart the application;
+  MUST verify the module's readiness record or an exact process-owned standard
+  WebView DevTools socket before querying CDP. A configured adapter MUST report
+  only endpoints bound to device loopback, and the host MUST verify a reported
+  TCP listener before forwarding it. This mode MUST NOT use Frida, `su`, or
+  restart the application;
 - `auto` mode selects root mode only after an ADB root check and otherwise
   selects the cooperative non-root mode.
 
@@ -496,7 +536,8 @@ hidden and with usable screen bounds, and MUST send semantic labels/attributes
 without screen coordinates. An unknown or missing selection MUST fail without
 dispatching an action. `Widget.click()` MUST validate the selected node again,
 tap its bounds center exactly once, and MUST NOT retry that device action. DOM
-nodes without screen-space bounds are not clickable candidates.
+nodes without screen-space bounds are not clickable candidates; mapped WebView
+nodes with validated screen-space bounds use the same Widget and tap contract.
 
 OCR providers MUST preserve each recognized text span's screen bounding box.
 Decision providers SHOULD consume those coordinates instead of asking an LLM to

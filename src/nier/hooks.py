@@ -457,8 +457,9 @@ class _FridaHookSession:
 class _LsposedWebViewSession:
     """A handle for a target process managed by the LSPosed module."""
 
-    def __init__(self, pid: int) -> None:
+    def __init__(self, pid: int, *, tcp_port: int | None = None) -> None:
         self.pid = pid
+        self.tcp_port = tcp_port
 
     def next_event(self, timeout: float | None = None) -> HookEvent | None:
         del timeout
@@ -513,6 +514,42 @@ class LsposedWebViewHook:
             check=False,
         )
         log_lines = log_output.splitlines()
+
+        adapter_ports: dict[int, int] = {}
+        for pid in pids:
+            prefix = f"NIER_WEBVIEW_ADAPTER_V1|READY|{target}|{pid}|"
+            for line in log_lines:
+                if prefix not in line:
+                    continue
+                fields = line.split(prefix, 1)[1].split("|")
+                if len(fields) < 2 or fields[0].strip().lower() != "tcp":
+                    continue
+                try:
+                    port = int(fields[1].strip())
+                except ValueError:
+                    continue
+                if 1 <= port <= 65535:
+                    adapter_ports[pid] = port
+
+        if adapter_ports:
+            deadline = time.monotonic() + self._config.timeout_seconds
+            while True:
+                listening_ports = _loopback_webview_devtools_ports(self._adb)
+                for pid, port in adapter_ports.items():
+                    if port in listening_ports:
+                        return _LsposedWebViewSession(pid, tcp_port=port)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    for pid in pids:
+                        if _has_webview_devtools_socket(self._adb, pid):
+                            return _LsposedWebViewSession(pid)
+                    ports = ", ".join(str(port) for port in adapter_ports.values())
+                    raise HookUnavailable(
+                        f"LSPosed WebView adapter reported port(s) {ports} for {target}, "
+                        "but found neither a loopback listener nor a standard WebView DevTools socket"
+                    )
+                time.sleep(min(0.1, remaining))
+
         for pid in pids:
             ready_record = f"NIER_WEBVIEW_V1|READY|{target}|{pid}|"
             if any(ready_record in line for line in log_lines):
@@ -530,10 +567,61 @@ class LsposedWebViewHook:
                         "check the Nier module status in LSPosed"
                     )
 
+        # Logcat is a bounded ring buffer, so a long-lived process can outlive
+        # its startup readiness record. A process-owned DevTools socket is
+        # sufficient evidence to try CDP; target discovery will still reject
+        # sockets that do not currently expose a page.
+        for pid in pids:
+            if _has_webview_devtools_socket(self._adb, pid):
+                return _LsposedWebViewSession(pid)
+
+        for pid in pids:
+            error_record = f"NIER_WEBVIEW_ADAPTER_V1|ERROR|{target}|{pid}|"
+            for line in log_lines:
+                if error_record in line:
+                    error_kind = line.split(error_record, 1)[1].split("|", 1)[-1].strip()
+                    raise HookUnavailable(
+                        f"LSPosed WebView adapter failed for {target} ({error_kind})"
+                    )
+
         raise HookUnavailable(
             f"LSPosed did not report WebView debugging for {target}; enable Nier in LSPosed, "
             "add the package to its scope, then force-stop and reopen the app"
         )
+
+
+def _loopback_webview_devtools_ports(adb: AdbClient) -> set[int]:
+    """Return WebView adapter ports bound to IPv4 loopback only."""
+    output = adb.shell("cat", "/proc/net/tcp", check=False)
+    ports: set[int] = set()
+    for line in output.splitlines():
+        fields = line.split()
+        if len(fields) < 4 or fields[3] != "0A":  # TCP_LISTEN
+            continue
+        address, separator, raw_port = fields[1].partition(":")
+        if not separator or address.upper() != "0100007F":
+            continue
+        try:
+            port = int(raw_port, 16)
+        except ValueError:
+            continue
+        if 1 <= port <= 65535:
+            ports.add(port)
+    return ports
+
+
+def _has_webview_devtools_socket(adb: AdbClient, pid: int) -> bool:
+    """Return whether *pid* owns a standard Android WebView DevTools socket."""
+    output = adb.shell("cat", "/proc/net/unix", check=False)
+    expected = f"webview_devtools_remote_{pid}"
+    for line in output.splitlines():
+        fields = line.split()
+        if not fields:
+            continue
+        name = fields[-1].lstrip("@\x00")
+        if name == expected or name.startswith(expected + "_"):
+            return True
+    return False
 
 
 def _attach_root_frida_agent(

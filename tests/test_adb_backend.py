@@ -359,6 +359,7 @@ def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) ->
 
     class FakeSession:
         pid = 321
+        tcp_port = 9223
 
         def close(self) -> None:
             calls.append(["lsposed-session-close"])
@@ -381,9 +382,10 @@ def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) ->
             return FakeSession()
 
     class FakeDevTools:
-        def __init__(self, _adb, *, package, pid, timeout) -> None:
+        def __init__(self, _adb, *, package, pid, tcp_port, timeout) -> None:
             assert package == "com.example.app"
             assert pid == 321
+            assert tcp_port == 9223
             assert timeout == 10.0
 
         def dump_dom(self, **_kwargs) -> str:

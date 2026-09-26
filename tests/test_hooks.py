@@ -89,11 +89,118 @@ def test_lsposed_mode_checks_module_readiness_without_root_or_frida() -> None:
     ]
 
 
+def test_lsposed_mode_uses_reported_loopback_adapter_port() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def is_root(self) -> bool:
+            raise AssertionError("LSPosed mode must not check root access")
+
+        def shell(self, *args: str, **_kwargs) -> str:
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            if args[:2] == ("logcat", "-d"):
+                return (
+                    "I/NierWebViewHook( 123): "
+                    "NIER_WEBVIEW_ADAPTER_V1|READY|com.example.app|123|tcp|9222\n"
+                )
+            if args[:2] == ("cat", "/proc/net/tcp"):
+                return (
+                    "  sl  local_address rem_address   st\n"
+                    "   0: 0100007F:2406 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 12345\n"
+                    "   1: 00000000:2407 00000000:0000 0A 00000000:00000000 00:00000000 00000000 1000 0 12346\n"
+                    "   2: 0100007F:2408 00000000:0000 01 00000000:00000000 00:00000000 00000000 1000 0 12347\n"
+                )
+            raise AssertionError(f"unexpected command: {args}")
+
+    hook = LsposedWebViewHook(
+        FakeLsposedAdb(rooted=False),
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+    )
+
+    session = hook.attach()
+
+    assert session.pid == 123  # type: ignore[attr-defined]
+    assert session.tcp_port == 9222  # type: ignore[attr-defined]
+
+
+def test_lsposed_adapter_falls_back_to_process_scoped_webview_socket() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def __init__(self) -> None:
+            super().__init__(rooted=False)
+            self.commands: list[tuple[str, ...]] = []
+
+        def shell(self, *args: str, **_kwargs) -> str:
+            self.commands.append(args)
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            if args[:2] == ("logcat", "-d"):
+                return (
+                    "I/NierWebViewHook( 123): "
+                    "NIER_WEBVIEW_ADAPTER_V1|READY|com.example.app|123|tcp|9222\n"
+                )
+            if args[:2] == ("cat", "/proc/net/tcp"):
+                return " sl local_address rem_address st\n"
+            if args[:2] == ("cat", "/proc/net/unix"):
+                return (
+                    "Num RefCount Protocol Flags Type St Inode Path\n"
+                    "0000000000000000: 00000002 00000000 00010000 0001 01 12345 "
+                    "@webview_devtools_remote_123\n"
+                )
+            raise AssertionError(f"unexpected command: {args}")
+
+    adb = FakeLsposedAdb()
+    hook = LsposedWebViewHook(
+        adb,  # type: ignore[arg-type]
+        HookConfig(
+            mode=HookMode.LSPOSED,
+            target_package="com.example.app",
+            timeout_seconds=0.001,
+        ),
+    )
+
+    session = hook.attach()
+
+    assert session.pid == 123  # type: ignore[attr-defined]
+    assert session.tcp_port is None  # type: ignore[attr-defined]
+    assert ("cat", "/proc/net/unix") in adb.commands
+
+
+def test_lsposed_mode_uses_socket_when_bounded_logcat_lost_ready_record() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def shell(self, *args: str, **_kwargs) -> str:
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            if args[:2] == ("logcat", "-d"):
+                return ""
+            if args[:2] == ("cat", "/proc/net/unix"):
+                return (
+                    "Num RefCount Protocol Flags Type St Inode Path\n"
+                    "0000000000000000: 00000002 00000000 00010000 0001 01 12345 "
+                    "@webview_devtools_remote_123\n"
+                )
+            raise AssertionError(f"unexpected command: {args}")
+
+    hook = LsposedWebViewHook(
+        FakeLsposedAdb(rooted=False),  # type: ignore[arg-type]
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+    )
+
+    session = hook.attach()
+
+    assert session.pid == 123  # type: ignore[attr-defined]
+    assert session.tcp_port is None  # type: ignore[attr-defined]
+
+
 def test_lsposed_mode_explains_missing_module_scope() -> None:
     class FakeLsposedAdb(FakeAdb):
         def shell(self, *args: str, **_kwargs) -> str:
             if args[:2] == ("pidof", "com.example.app"):
                 return "123\n"
+            if args[:2] == ("cat", "/proc/net/unix"):
+                return (
+                    "Num RefCount Protocol Flags Type St Inode Path\n"
+                    "0000000000000000: 00000002 00000000 00010000 0001 01 12345 "
+                    "@webview_devtools_remote_999\n"
+                )
             return ""
 
     hook = LsposedWebViewHook(
@@ -122,6 +229,35 @@ def test_lsposed_mode_reports_module_hook_errors() -> None:
 
     with pytest.raises(HookUnavailable, match="NoSuchMethodException"):
         hook.attach()
+
+
+def test_lsposed_adapter_error_does_not_mask_standard_socket() -> None:
+    class FakeLsposedAdb(FakeAdb):
+        def shell(self, *args: str, **_kwargs) -> str:
+            if args[:2] == ("pidof", "com.example.app"):
+                return "123\n"
+            if args[:2] == ("logcat", "-d"):
+                return (
+                    "E/NierWebViewHook( 123): "
+                    "NIER_WEBVIEW_ADAPTER_V1|ERROR|com.example.app|123|adapter unavailable\n"
+                )
+            if args[:2] == ("cat", "/proc/net/unix"):
+                return (
+                    "Num RefCount Protocol Flags Type St Inode Path\n"
+                    "0000000000000000: 00000002 00000000 00010000 0001 01 12345 "
+                    "@webview_devtools_remote_123\n"
+                )
+            return ""
+
+    hook = LsposedWebViewHook(
+        FakeLsposedAdb(rooted=False),  # type: ignore[arg-type]
+        HookConfig(mode=HookMode.LSPOSED, target_package="com.example.app"),
+    )
+
+    session = hook.attach()
+
+    assert session.pid == 123  # type: ignore[attr-defined]
+    assert session.tcp_port is None  # type: ignore[attr-defined]
 
 
 def test_root_mode_rejects_unrooted_device_before_loading_frida() -> None:

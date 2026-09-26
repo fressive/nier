@@ -223,8 +223,12 @@ implementation cannot stream the dump, Nier falls back to a temporary
 read fails. When
 `hook.target_package` is configured, `prefer_webview=True` first uses the
 WebView DevTools Protocol and returns `WEBVIEW_DEVTOOLS` with the current DOM.
-The host temporarily forwards the app's abstract DevTools socket through ADB
-and removes that forward after the request. If the target is not debug-enabled,
+The host temporarily forwards the app's abstract DevTools socket through ADB.
+An optional WebView adapter can report a TCP port; Nier verifies that the
+listener is bound to device loopback before forwarding it. If that listener is
+unavailable but the same process exposes the standard Android WebView DevTools
+socket, Nier tries that socket instead. Nier removes either forward after the
+request. If the target is not debug-enabled,
 not running, or CDP fails, the backend returns `UIAUTOMATOR_FALLBACK` with a
 warning. Use `prefer_webview=False` to request UIAutomator directly.
 

@@ -357,6 +357,42 @@ def test_webview_dump_forwards_socket_and_removes_forward(monkeypatch) -> None:
     assert ("forward", "--remove", "tcp:45678") in adb.calls
 
 
+def test_webview_dump_forwards_loopback_tcp_endpoint_and_removes_forward(monkeypatch) -> None:
+    class FakeAdb:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(self, *args: str, **_kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            self.calls.append(args)
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    class FakeWebSocket:
+        def close(self) -> None:
+            pass
+
+    class FakeCdp:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def dump_document(self) -> str:
+            return "<html><body>sample</body></html>"
+
+    monkeypatch.setattr("nier.webview._free_local_port", lambda: 45678)
+    monkeypatch.setattr(
+        "nier.webview._get_json",
+        lambda *_args, **_kwargs: [{"type": "page", "webSocketDebuggerUrl": "ws://localhost/page"}],
+    )
+    monkeypatch.setattr("nier.webview._WebSocketClient.connect", lambda *_args, **_kwargs: FakeWebSocket())
+    monkeypatch.setattr("nier.webview._CdpClient", FakeCdp)
+    adb = FakeAdb()
+
+    html = WebViewDevTools(adb, tcp_port=9222, timeout=1.0).dump_dom()  # type: ignore[arg-type]
+
+    assert html == "<html><body>sample</body></html>"
+    assert ("forward", "tcp:45678", "tcp:9222") in adb.calls
+    assert ("forward", "--remove", "tcp:45678") in adb.calls
+
+
 def test_websocket_client_handshakes_masks_commands_and_reads_cdp() -> None:
     class InMemoryWebSocket:
         def __init__(self) -> None:

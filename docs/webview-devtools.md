@@ -71,7 +71,58 @@ Manager, and add only authorized target packages to its scope. Set
 `hook.mode: lsposed`. The module enables WebView debugging during application
 startup and overrides later calls that attempt to disable it. The host checks
 the module's readiness record for the running process before requesting the
-DOM through CDP. This mode does not use Frida or root shell access.
+DOM through CDP. If bounded logcat has rotated that record, an exact
+process-owned DevTools socket is also accepted as evidence. This mode does not
+use Frida or root shell access.
+
+### Optional local adapter plugin
+
+The Android module has a vendor-neutral `WebViewDebugAdapter` extension point.
+Adapters are intentionally not bundled with the repository: provide a local
+Kotlin source directory and implementation class only when building a private
+integration. Use this only with apps and devices you own or are authorized to
+inspect: the module runs the plugin inside the scoped app process. The adapter
+receives the target package, process, and application class loader. An
+implementation has a no-argument constructor and can report a DevTools
+listener with `context.reporter.reportLoopbackTcpPort(port)`:
+
+```kotlin
+package icu.rina.nier.backend
+
+class LocalAdapter : WebViewDebugAdapter {
+    override fun install(context: WebViewDebugAdapterContext) {
+        // Install provider-specific hooks here.
+        // Report only after the provider is constrained to loopback.
+        context.reporter.reportLoopbackTcpPort(9222)
+    }
+}
+```
+
+The host accepts that endpoint only after confirming the port is listening on
+device loopback. Adapter errors use the same versioned, vendor-neutral log
+protocol. If a custom endpoint is not available, the host can still use a
+process-owned standard WebView DevTools socket; otherwise `uidump` returns the
+normal UIAutomator fallback and warning.
+
+For example, from `backend/nier-android`, a private plugin kept under the
+repository's ignored `local_plugins/` directory can be compiled with:
+
+```bash
+gradle \
+  -PnierWebViewAdapterSourceDir="$PWD/../../local_plugins/webview_adapter/src/main/java" \
+  -PnierWebViewAdapterClass=icu.rina.nier.backend.LocalWebViewAdapter \
+  :app:assembleDebug
+```
+
+Both settings are optional, but must be supplied together. They can also be
+provided as `NIER_WEBVIEW_ADAPTER_SOURCE_DIR` and
+`NIER_WEBVIEW_ADAPTER_CLASS` environment variables. The default build includes
+no adapter. Keep private or third-party-specific adapter sources in the local
+plugin directory; it is excluded from repository changes.
+
+WebView inspection is a read operation: `DeviceSession` may retry it under the
+configured read retry policy, but it never automatically retries taps, text
+input, or other device actions.
 
 When the host can also read an unambiguous native WebView viewport from
 UIAutomator, Nier maps each DOM element's visible rectangle into that WebView's
@@ -127,6 +178,6 @@ finally:
 ```
 
 If the target is not running, debugging is not enabled, the WebView has not
-created its DevTools socket yet, or CDP fails, Nier returns UIAutomator XML
-with source `UIAUTOMATOR_FALLBACK` and a warning. The temporary ADB forward is
-removed on both success and failure.
+created its DevTools socket or adapter listener yet, or CDP fails, Nier
+returns UIAutomator XML with source `UIAUTOMATOR_FALLBACK` and a warning. The
+temporary ADB forward is removed on both success and failure.

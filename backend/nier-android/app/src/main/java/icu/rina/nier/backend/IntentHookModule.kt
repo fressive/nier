@@ -7,6 +7,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
 import android.util.Base64
 import android.util.Log
 import de.robv.android.xposed.IXposedHookLoadPackage
@@ -33,9 +35,18 @@ class IntentHookModule : IXposedHookLoadPackage {
         } else {
             loadedPackageName
         }
+        if (loadedPackageName == "android" || packageName == "android" ||
+            processName == "system_server"
+        ) {
+            return
+        }
         if (loadedPackageName == MODULE_PACKAGE || packageName == MODULE_PACKAGE) return
 
-        WebViewDebuggingHook.install(loadedPackageName, processName)
+        WebViewDebuggingHook.install(
+            packageName,
+            processName,
+            loadPackageParam.classLoader,
+        )
 
         val captureHook = object : XC_MethodHook() {
             override fun beforeHookedMethod(param: MethodHookParam) {
@@ -202,9 +213,13 @@ class IntentHookModule : IXposedHookLoadPackage {
 
 private object WebViewDebuggingHook {
     private const val TAG = "NierWebViewHook"
+    private val installStarted = AtomicBoolean(false)
     private val readyReported = AtomicBoolean(false)
+    private val webViewConstructorReinforced = AtomicBoolean(false)
 
-    fun install(packageName: String, processName: String) {
+    fun install(packageName: String, processName: String, appClassLoader: ClassLoader) {
+        if (!installStarted.compareAndSet(false, true)) return
+        installConfiguredAdapter(packageName, processName, appClassLoader)
         try {
             val webViewClass = XposedHelpers.findClass("android.webkit.WebView", null)
             val forceDebugging = object : XC_MethodHook() {
@@ -221,25 +236,43 @@ private object WebViewDebuggingHook {
                 throw NoSuchMethodException("WebView.setWebContentsDebuggingEnabled(boolean)")
             }
 
+            val constructorHooks = XposedBridge.hookAllConstructors(
+                webViewClass,
+                object : XC_MethodHook() {
+                    override fun afterHookedMethod(param: MethodHookParam) {
+                        if (!webViewConstructorReinforced.compareAndSet(false, true)) return
+                        try {
+                            // Some providers initialize the WebView implementation after the
+                            // Application callback. Reapply the process-wide flag once a real
+                            // WebView exists so its DevTools endpoint is created with debugging on.
+                            XposedHelpers.callStaticMethod(
+                                webViewClass,
+                                "setWebContentsDebuggingEnabled",
+                                true,
+                            )
+                            Log.i(
+                                TAG,
+                                "NIER_WEBVIEW_V1|INSTANCE|$packageName|" +
+                                    "${android.os.Process.myPid()}|" +
+                                    "${param.thisObject.javaClass.name}",
+                            )
+                        } catch (error: Throwable) {
+                            webViewConstructorReinforced.set(false)
+                            reportError(packageName, processName, error)
+                        }
+                    }
+                },
+            ).size
+            if (constructorHooks == 0) {
+                throw NoSuchMethodException("WebView constructors were unavailable")
+            }
+
             val applicationAttach = object : XC_MethodHook() {
                 override fun afterHookedMethod(param: MethodHookParam) {
                     val context = param.args.firstOrNull() as? Context ?: return
                     if (context.packageName != packageName) return
-                    try {
-                        XposedHelpers.callStaticMethod(
-                            webViewClass,
-                            "setWebContentsDebuggingEnabled",
-                            true,
-                        )
-                        if (readyReported.compareAndSet(false, true)) {
-                            Log.i(
-                                TAG,
-                                "NIER_WEBVIEW_V1|READY|$packageName|" +
-                                    "${android.os.Process.myPid()}|$processName",
-                            )
-                        }
-                    } catch (error: Throwable) {
-                        reportError(packageName, processName, error)
+                    Handler(Looper.getMainLooper()).post {
+                        enableDebugging(packageName, processName, webViewClass)
                     }
                 }
             }
@@ -251,10 +284,91 @@ private object WebViewDebuggingHook {
             if (attachHooks == 0) {
                 throw NoSuchMethodException("Application.attach(Context)")
             }
+
+            val activityThread = XposedHelpers.findClass("android.app.ActivityThread", null)
+            val applicationBound = object : XC_MethodHook() {
+                override fun afterHookedMethod(param: MethodHookParam) {
+                    try {
+                        val application = XposedHelpers.callStaticMethod(
+                            activityThread,
+                            "currentApplication",
+                        ) as? Application ?: return
+                        if (application.packageName != packageName) return
+                        enableDebugging(packageName, processName, webViewClass)
+                    } catch (error: Throwable) {
+                        reportError(packageName, processName, error)
+                    }
+                }
+            }
+            val applicationBoundHooks = XposedBridge.hookAllMethods(
+                activityThread,
+                "handleBindApplication",
+                applicationBound,
+            ).size
+            if (applicationBoundHooks == 0) {
+                throw NoSuchMethodException("ActivityThread.handleBindApplication(AppBindData)")
+            }
+        } catch (error: Throwable) {
+            installStarted.set(false)
+            reportError(packageName, processName, error)
+        }
+    }
+
+    private fun installConfiguredAdapter(
+        packageName: String,
+        processName: String,
+        appClassLoader: ClassLoader,
+    ) {
+        val adapterClassName = BuildConfig.NIER_WEBVIEW_ADAPTER_CLASS
+        if (adapterClassName.isBlank()) return
+        val reporter = WebViewDebugAdapterReporter(packageName)
+        try {
+            val adapterClass = Class.forName(
+                adapterClassName,
+                true,
+                WebViewDebuggingHook::class.java.classLoader,
+            )
+            val adapter = adapterClass.getDeclaredConstructor().newInstance() as WebViewDebugAdapter
+            adapter.install(
+                WebViewDebugAdapterContext(
+                    packageName = packageName,
+                    processName = processName,
+                    appClassLoader = appClassLoader,
+                    reporter = reporter,
+                ),
+            )
+        } catch (error: Throwable) {
+            XposedBridge.log(
+                "Nier WebView adapter: could not install $adapterClassName for " +
+                    "$packageName ($processName): $error",
+            )
+            reporter.reportError("adapter installation failed (${error.javaClass.simpleName})")
+        }
+    }
+
+    private fun enableDebugging(
+        packageName: String,
+        processName: String,
+        webViewClass: Class<*>,
+    ) {
+        try {
+            XposedHelpers.callStaticMethod(
+                webViewClass,
+                "setWebContentsDebuggingEnabled",
+                true,
+            )
+            if (readyReported.compareAndSet(false, true)) {
+                Log.i(
+                    TAG,
+                    "NIER_WEBVIEW_V1|READY|$packageName|" +
+                        "${android.os.Process.myPid()}|$processName",
+                )
+            }
         } catch (error: Throwable) {
             reportError(packageName, processName, error)
         }
     }
+
 
     private fun reportError(packageName: String, processName: String, error: Throwable) {
         XposedBridge.log("Nier WebView hook: setup failed for $packageName ($processName): $error")
