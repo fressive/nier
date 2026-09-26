@@ -17,7 +17,44 @@ nier web --scripts=./examples
 The command serves the bundled React and shadcn/ui interface through FastAPI
 and Uvicorn at `http://127.0.0.1:8765`, then opens the browser. Use
 `--no-browser` to print the address without opening it. The script directory is
-scanned recursively for `.py` files.
+scanned recursively for `.py` files. Press Ctrl+C in the serving terminal to
+stop the dashboard; active live-log and screen-preview streams are closed as
+part of shutdown.
+
+The dashboard has a separate **UI Inspector** tab. Select an authorized ADB
+device and choose **执行 uidump** to capture a screenshot and UI hierarchy using
+the same device configuration as the CLI (`--config`, defaulting to
+`config/nier.yaml`). The capture is read-only and held in memory; it does not
+write screenshot or dump files. UIAutomator bounds are drawn over the screenshot:
+hovering a box scrolls to and highlights its tree node, and hovering a tree node
+highlights its screenshot bounds. The panel also exposes the human-readable CLI
+tree and raw XML/HTML. **WebView** prefers DevTools DOM extraction; uncheck it to
+request UIAutomator directly when you need Android view bounds. When the host
+can map WebView DOM geometry to the native WebView viewport, the Inspector
+draws the mapped `data-nier-screen-bounds` over the device screenshot and uses
+the mapped clickability/visibility metadata when generating code. Unmapped DOM
+nodes remain searchable in the tree but have no screenshot overlay or click.
+
+Click a bounds rectangle or a tree row to select a component. The inspector then
+generates a copyable Nier snippet that re-finds the selected node by its visible
+text and available IDs/attributes. It includes `component.click()` only when the
+dump marks the selected node clickable and provides usable screen bounds;
+otherwise the generated snippet locates and prints the node without sending an
+action. The snippet checks that the selector matches exactly one node before
+using it, so ambiguous matches fail visibly instead of tapping an arbitrary
+component.
+
+The CLI config can be selected when starting the dashboard:
+
+```bash
+nier --config config/nier.yaml web --scripts=./examples
+```
+
+Screenshot and UI-dump reads use `DeviceSession`'s read retry policy. They are
+separate sequential reads, so an app that changes itself during capture may
+produce a slightly mismatched screenshot and hierarchy. The inspector does not
+send clicks or other device actions; only inspect devices and apps you are
+authorized to test.
 
 The standalone **屏幕预览** panel can mirror an authorized ADB device through
 scrcpy. On wide screens it sits beside the execution graph and **执行日志**;

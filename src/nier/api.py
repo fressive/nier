@@ -38,7 +38,7 @@ from .results import RunRecorder
 from .session import DeviceSession
 from .ui import UiDocument, UiNode, _format_tree
 from .ui import parse_uidump as parse_ui_dump
-from .vision import ImageMatch, SwipeDirection, locate_template
+from .vision import ImageMatch, ImageScaleRange, SwipeDirection, locate_template
 from .widgets import Widget, WidgetList
 
 if TYPE_CHECKING:
@@ -316,11 +316,11 @@ class Device:
         return self.list_app_activities(package)
 
     def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
-        """Open an app through its launcher Activity.
+        """Open an app through its resolved MAIN/LAUNCHER Activity.
 
         Set ``restart=True`` to force-stop the app and clear its task stack
-        before launching. This does not clear the app's stored data, and the
-        action is never retried.
+        before launching. This does not clear the app's stored data. Android's
+        launch result is awaited, and the action is never retried.
         """
         return self.session.open_app(package, restart=restart)
 
@@ -462,18 +462,26 @@ class Device:
         *,
         min_score: float = 0.85,
         region: tuple[int, int, int, int] | None = None,
+        scale_range: ImageScaleRange = (0.5, 2.0),
+        scale_steps: int = 41,
     ) -> ImageMatch | None:
-        """Locate an icon template in a fresh screenshot without tapping it.
+        """Locate an icon template at multiple sizes in a fresh screenshot.
 
         ``template`` is a path or encoded image bytes, preferably cropped from
         this device's screenshot. ``region`` optionally limits matching to an
-        ``(x, y, width, height)`` screen-pixel rectangle. ``min_score`` is the
-        normalized OpenCV matching threshold, not a probability. Returns
-        ``None`` when the best match is below the threshold. Install
-        ``nier[vision]`` to enable matching.
+        ``(x, y, width, height)`` screen-pixel rectangle. ``scale_range`` sets
+        the minimum and maximum template size relative to the supplied image;
+        ``scale_steps`` controls the number of logarithmically spaced sizes
+        tested (2–41); promising scales receive a small local refinement
+        search. ``min_score`` is the normalized OpenCV matching threshold, not
+        a probability. Returns ``None`` when no match meets the threshold.
+        Install ``nier[vision]`` to enable matching.
 
         The screenshot read follows the session's read retry policy. Locating
-        an icon is read-only and never performs a device action.
+        an icon is read-only and never performs a device action. The default
+        search checks up to 41 coarse scales plus promising nearby sizes, so it
+        takes longer than an exact-size comparison. Limit ``region`` or
+        ``scale_range`` when you know where and at what size to look.
         """
         screenshot = self.screenshot()
         match = locate_template(
@@ -481,6 +489,8 @@ class Device:
             template,
             min_score=min_score,
             region=region,
+            scale_range=scale_range,
+            scale_steps=scale_steps,
         )
         return (
             None
@@ -671,8 +681,10 @@ class Device:
         configured TypeSafe Choice provider select a visible control. The
         ``clickable()`` filter is optional; ``choice()`` itself excludes
         candidates that cannot safely be clicked. UIAutomator is preferred by
-        default because it supplies clickable flags and screen-space bounds;
-        WebView DOM nodes without those bounds cannot be tapped by this chain.
+        default. When one unambiguous native WebView viewport is available,
+        WebView DOM nodes receive screen-space bounds and heuristic
+        clickability flags. If mapping is unavailable or ambiguous, those DOM
+        nodes remain searchable but cannot be tapped by this chain.
         """
         if isinstance(dump, UiDocument):
             document = dump

@@ -136,8 +136,18 @@ def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
     expected = ImageMatch(10, 20, 8, 12, 0.93)
     calls = []
 
-    def fake_locate(screenshot, template, *, min_score, region):
-        calls.append((screenshot, template, min_score, region))
+    def fake_locate(
+        screenshot,
+        template,
+        *,
+        min_score,
+        region,
+        scale_range,
+        scale_steps,
+    ):
+        calls.append(
+            (screenshot, template, min_score, region, scale_range, scale_steps)
+        )
         return expected
 
     monkeypatch.setattr("nier.api.locate_template", fake_locate)
@@ -146,10 +156,14 @@ def test_locate_icon_uses_screenshot_and_does_not_click(monkeypatch) -> None:
         b"template image",
         min_score=0.9,
         region=(5, 6, 30, 40),
+        scale_range=(0.8, 1.2),
+        scale_steps=9,
     )
 
     assert result == expected
-    assert calls == [(b"image", b"template image", 0.9, (5, 6, 30, 40))]
+    assert calls == [
+        (b"image", b"template image", 0.9, (5, 6, 30, 40), (0.8, 1.2), 9)
+    ]
     assert backend.screenshot_request == ScreenshotRequest()
     assert backend.actions == []
 
@@ -823,6 +837,20 @@ def test_device_can_bind_ui_node_as_widget_and_click_it() -> None:
     assert widget.device is phone
     widget.click()
     assert backend.actions == [Click(Point(20, 30), 80)]
+
+
+def test_mapped_webview_node_uses_the_regular_widget_tap_path() -> None:
+    backend = FakeBackend()
+    phone, _ = make_device(backend)
+    html = (
+        '<html><body><button data-nier-screen-bounds="[40,80][160,120]" '
+        'data-nier-clickable="true" data-nier-visible="true">Continue</button>'
+        "</body></html>"
+    )
+
+    phone.widgets(html).clickable()[0].click()
+
+    assert backend.actions == [Click(Point(100, 100), 80)]
 
 
 def test_device_widget_rejects_non_ui_node() -> None:

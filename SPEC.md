@@ -24,7 +24,11 @@ Python host -> ADB -> Android device
 
 The default path MUST NOT require a phone-side network server or listening
 socket. A WebView DevTools UI request MAY create a temporary host-local ADB
-forward to the target application's abstract DevTools socket; this optional
+forward to the target application's abstract DevTools socket. An optional
+WebView adapter MAY report a TCP endpoint only when it is bound to device
+loopback; the host MUST verify that binding before forwarding the TCP port. If
+that listener is unavailable but the same process owns the standard Android
+WebView DevTools socket, the host MAY use that socket instead. This optional
 forward MUST be removed when the request completes.
 
 Remote ADB over TCP is an explicit optional mode and is specified in section
@@ -160,9 +164,10 @@ or device-specific representation.
 9. list installed packages with `pm list packages`;
 10. list declared Activities with `dumpsys package <package>` without
     confusing receivers or services for Activities;
-11. launch a package with `am start -a android.intent.action.MAIN -c
-    android.intent.category.LAUNCHER -p <package>` and launch an explicit
-    Activity with `am start -n <package>/<full.class>`;
+11. resolve a package's `MAIN`/`LAUNCHER` component with the package manager,
+    then launch that explicit component with `am start -W -n
+    <package>/<full.class>`; launch an explicitly requested Activity with
+    `am start -n <package>/<full.class>`;
 12. release the persistent uinput session from `close()` and after a failed
     persistent command.
 
@@ -213,16 +218,23 @@ lowercase SHA-256 digest of the returned bytes.
   respected.
 - An empty or malformed image payload MUST raise a backend/protocol error.
 
-`Device.locate_icon(template, *, min_score=0.85, region=None)` MUST locate a
-known image template in one fresh screenshot without performing a device
-action. `template` is a local image path or encoded image bytes. The optional
-`region` is `(x, y, width, height)` in screenshot pixels; returned match
-coordinates remain relative to the full screenshot. `ImageMatch` MUST expose
+`Device.locate_icon(template, *, min_score=0.85, region=None,
+scale_range=(0.5, 2.0), scale_steps=41)` MUST locate a known image template in
+one fresh screenshot without performing a device action. `template` is a local
+image path or encoded image bytes. The optional `region` is
+`(x, y, width, height)` in screenshot pixels; returned match coordinates remain
+relative to the full screenshot. The implementation MUST test logarithmically
+spaced template scales across the inclusive `scale_range`, plus the original
+size when it falls inside that range, using `scale_steps` from 2 to 41. Scale
+range values MUST be finite and within `[0.1, 4.0]`, and the minimum MUST NOT
+exceed the maximum. The implementation SHOULD refine the strongest sampled
+scales locally to reduce misses between grid sizes. `ImageMatch` MUST expose
 the matched rectangle, center, and normalized-correlation score. The method
 returns `None` when no match meets `min_score`; scores are similarity values,
-not calibrated probabilities. Invalid thresholds, regions, or image data MUST
-raise `ValueError`. The implementation MUST use the optional `vision` extra,
-load OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
+not calibrated probabilities.
+Invalid thresholds, regions, scale options, or image data MUST raise
+`ValueError`. The implementation MUST use the optional `vision` extra, load
+OpenCV and NumPy lazily, and raise `VisionUnavailable` with installation
 guidance if either dependency is missing. Screenshot acquisition follows the
 read retry policy; matching MUST NOT tap or otherwise mutate the device.
 
@@ -264,16 +276,49 @@ first attempts a WebView DevTools DOM dump. On success:
 - `complete` is `true` when non-empty DOM HTML is returned;
 - `warning` is empty.
 
-The host resolves the target process, forwards
-`localabstract:webview_devtools_remote_<pid>` to a temporary loopback port,
-queries `/json/list`, and uses CDP `DOM.getDocument` plus
-`DOM.getOuterHTML`. The forward MUST be removed after the dump. A failed
-connection, missing target, or malformed CDP response MUST fall back to
+For a standard Android WebView, the host resolves the target process and
+forwards `localabstract:webview_devtools_remote_<pid>` to a temporary host
+loopback port. An optional WebView adapter may report a custom endpoint through
+the generic adapter protocol. The host MUST verify that the reported port is
+listening on IPv4 loopback (`0100007F`) before forwarding `tcp:<port>` to a
+temporary host loopback port. If the custom listener is unavailable, the host
+MAY instead use the standard abstract socket only when its name matches the
+same app process PID. An exact process-owned socket also MAY be used as
+readiness evidence if the bounded logcat buffer no longer contains the module's
+startup record. The host then queries `/json/list` and uses CDP
+`DOM.getDocument` plus `DOM.getOuterHTML` for ordinary extraction. A device-side
+TCP forward MUST NOT target a non-loopback address. Every temporary forward
+MUST be removed after the dump. A failed connection, missing target, or
+malformed CDP response MUST fall back to
 UIAutomator with a warning:
 
 - `source` is `UIAUTOMATOR_FALLBACK`;
 - `complete` reflects whether XML was obtained;
 - `warning` explains why WebView DevTools was unavailable.
+
+When UIAutomator also reports one unambiguous native WebView viewport with
+positive screen-space bounds, the host SHOULD map WebView DOM elements to
+device coordinates. Multiple overlapping native WebView bounds MAY be treated
+as one viewport only when every edge differs by at most one pixel; in that case
+the host MUST use their intersection. It MUST read the document HTML, viewport
+dimensions, and element rectangles in the same CDP evaluation. The mapping MUST
+account for the visual viewport offset, scale CSS pixels into the native
+WebView bounds, and clip each rectangle to both view and viewport bounds. The
+host MUST apply mapping only
+when the returned DOM element order matches the serialized HTML element order;
+otherwise it MUST leave the HTML unmapped without failing the DOM dump. It MUST
+not modify the live page to collect metadata. Returned mapped nodes MUST expose
+normalized bounds, clickability, and visibility to the regular `UiNode` and
+`Widget` APIs. Clickability MAY be inferred from semantic HTML, ARIA roles,
+focusability, event attributes, and computed pointer style; it is explicitly a
+heuristic and MUST exclude disabled or inert controls. Direct event listeners
+MAY contribute to this heuristic when DevTools exposes them; delegated
+listeners MUST NOT cause all descendants to be treated as clickable. Invisible
+and out-of-viewport elements MUST NOT receive actionable bounds. If native
+bounds, viewport dimensions, or a safe element-order match is unavailable,
+WebView nodes MUST remain searchable but MUST NOT become tap candidates. A
+mapped tap uses the existing host-side device action, not a CDP action; its
+coordinates are a snapshot and the tap MUST NOT be automatically retried.
 
 `parse_uidump` MUST return a `UiDocument` whose `to_dict()` method produces
 JSON-ready structured data. The default representation MUST include source,
@@ -281,22 +326,32 @@ completeness, warning, a hierarchical `root`, normalized element fields, and
 source attributes. It MUST be bounded by node and text limits by default;
 `max_nodes=None` and `max_text_length=None` MAY request the complete parsed
 tree. Raw XML/HTML MUST be opt-in through `include_raw=True`.
+`UiDocument.match(**filters)` MUST use the same filters as `find_all()` and
+return `True` only when exactly one node matches; zero or multiple matches
+MUST return `False`.
 
 `AdbBackend.capabilities().supports_webview_debugging` is `true` when a target
 package is configured and `false` otherwise. The optional hook controller in
 `src/nier/hooks.py` implements the instrumentation boundary:
 
 - `root` mode MUST require a rooted device, a root-capable `frida-server`, and
-  the optional `frida` host dependency; it may attach to an existing process
-  or spawn the target package before resuming it;
+  the optional `frida` host dependency; root-mode instrumentation MUST NOT
+  start `frida-server` unless `hook.auto_start_frida_server=true` is explicitly
+  configured. When enabled, it MUST wait for the configured server process to
+  appear and MUST NOT download, install, update, or stop it. The option defaults
+  to `false`. Root mode may attach to an existing process or spawn the target
+  package before resuming it;
 - `non-root` mode MUST NOT call `su`, ptrace, or Frida attach. It is cooperative
   only: the target application must call
   `WebViewDebugController.enable()` before creating its WebView;
 - `lsposed` mode MUST require the Nier Android module to be installed, enabled,
   and scoped to the target package. The module MUST enable WebView debugging
   during application startup and keep later calls from disabling it. The host
-  MUST verify the module's readiness record for the current process before
-  querying CDP. This mode MUST NOT use Frida, `su`, or restart the application;
+  MUST verify the module's readiness record or an exact process-owned standard
+  WebView DevTools socket before querying CDP. A configured adapter MUST report
+  only endpoints bound to device loopback, and the host MUST verify a reported
+  TCP listener before forwarding it. This mode MUST NOT use Frida, `su`, or
+  restart the application;
 - `auto` mode selects root mode only after an ADB root check and otherwise
   selects the cooperative non-root mode.
 
@@ -369,8 +424,9 @@ exits. It MUST NOT persist captured Intents or retry any device action.
 
 ### CLI device utility commands
 
-The `nier` CLI MUST provide `screenshot`, `uidump`, `locate text`, `locate
-icon`, and `adb` subcommands. `dump-ui` MUST remain an alias for `uidump`.
+The `nier` CLI MUST provide `screenshot`, `ocr`, `uidump`, `locate text`,
+`locate icon`, and `adb` subcommands. `dump-ui` MUST remain an alias for
+`uidump`.
 Device commands MUST use the selected Nier configuration and ADB target.
 
 `screenshot` MUST accept an optional output path, PNG/JPEG format, JPEG
@@ -382,6 +438,12 @@ quality, and maximum width and height. Without an output path it MUST save to
 parsed tree and dump metadata. JSON MAY include the original XML/HTML when
 `--include-raw` is selected. The command MUST support disabling the WebView
 path and requesting invisible nodes.
+
+`ocr` MUST recognize one fresh screenshot using the configured OCR provider
+and print every recognized span's text, confidence, and screen-pixel bounds.
+It MUST NOT issue device actions. An empty result MUST exit successfully and
+report that no text was recognized. Screenshot reads MAY follow the session's
+read retry policy; the OCR request MUST NOT be retried automatically.
 
 `locate text` MUST use the configured OCR provider. `locate icon` MUST use the
 optional `vision` dependencies and accept a local template image and optional
@@ -474,7 +536,8 @@ hidden and with usable screen bounds, and MUST send semantic labels/attributes
 without screen coordinates. An unknown or missing selection MUST fail without
 dispatching an action. `Widget.click()` MUST validate the selected node again,
 tap its bounds center exactly once, and MUST NOT retry that device action. DOM
-nodes without screen-space bounds are not clickable candidates.
+nodes without screen-space bounds are not clickable candidates; mapped WebView
+nodes with validated screen-space bounds use the same Widget and tap contract.
 
 OCR providers MUST preserve each recognized text span's screen bounding box.
 Decision providers SHOULD consume those coordinates instead of asking an LLM to

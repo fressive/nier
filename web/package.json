@@ -6,7 +6,9 @@
   "scripts": {
     "dev": "vite --host 127.0.0.1",
     "build": "tsc -b && vite build",
-    "test:coordinates": "node --test tests/screen-coordinates.test.mjs"
+    "test:coordinates": "node --test tests/screen-coordinates.test.mjs",
+    "test:ui-bounds": "node --test tests/ui-bounds.test.mjs",
+    "test:nier-codegen": "node --test tests/nier-codegen.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

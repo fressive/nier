@@ -69,6 +69,21 @@ buttons = ui.find_all(
 )
 ```
 
+`ui.match(**filters)` returns `True` only when exactly one node matches the
+same filters accepted by `find_all()`; it returns `False` for no matches or
+multiple matches. Use `ui.find()` afterward when you also need the matched
+node:
+
+```python
+filters = {
+    "text": "登录",
+    "resource_id": "com.example:id/login",
+}
+if ui.match(**filters):
+    login = ui.find(**filters)
+    print(login.center if login is not None else None)
+```
+
 Each `UiNode` exposes `tag`, `attributes`, `text`, `text_content`,
 `resource_id`, `class_name`, `content_desc`, `bounds`, `center`, and
 `children`. `walk()` returns the node and all descendants in document order.
@@ -114,12 +129,35 @@ device action is never retried automatically.
 The configured TypeSafe provider sees bounded candidate IDs and labels, not
 coordinates. Selection failures raise `ModelError`; if there are no safely
 clickable candidates, `UiElementNotFound` is raised without tapping. A WebView
-DOM dump can still be searched, but DOM elements without screen-space `bounds`
-are not eligible for this click chain; use UIAutomator when screen bounds are
-needed. `Device.widgets()` prefers UIAutomator by default for this reason. Run
-this only against an authorized device. `DeviceSession` can retry
-read-style UI dumps, but the final tap is a device action and is never retried
-automatically.
+DOM dump can also participate when UIAutomator reports an unambiguous native
+WebView viewport with usable screen bounds. Nearly identical overlapping
+WebView reports are treated as one viewport only when every edge differs by at
+most one pixel. Nier reads the WebView viewport and element
+rectangles in one CDP evaluation, clips them to the visible viewport, and adds
+`data-nier-screen-bounds`, `data-nier-clickable`, and `data-nier-visible`
+attributes to the returned HTML copy. The live page is not modified. CSS
+rectangles are mapped proportionally into the native WebView's Android screen
+rectangle; semantic HTML controls, ARIA roles, focusability, event attributes,
+direct event listeners (when DevTools exposes them), and pointer styling are
+used as a clickability heuristic. Delegated JavaScript handlers may not
+identify which descendant is actionable. If the native WebView is
+missing/ambiguous, geometry is invalid, or DOM order cannot be matched safely,
+the DOM remains searchable but has no mapped click targets. `Device.widgets()`
+still prefers UIAutomator by default; pass `prefer_webview=True` to select from
+the mapped DOM instead:
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    phone.widgets(prefer_webview=True).choice("关闭弹窗").click()
+```
+
+Mapped coordinates are a snapshot: the screen can change before a tap, and
+taps are never retried automatically. Run this only against an authorized
+device. `DeviceSession` can retry read-style UI dumps, but the final tap is a
+device action and is never retried automatically.
 
 Use `to_dict()` when a UI tree must be passed to a model or serialized as
 JSON. `UiDocument.to_dict()` returns source/completeness metadata and a
@@ -150,7 +188,8 @@ from an empty subtree.
 
 `UiDump` has these fields:
 
-- `xml`: raw UIAutomator XML or WebView DOM HTML;
+- `xml`: UIAutomator XML or WebView DOM HTML, optionally with host-generated
+  Nier mapping attributes;
 - `source`: `UIAUTOMATOR`, `WEBVIEW_DEVTOOLS`, or
   `UIAUTOMATOR_FALLBACK`;
 - `complete`: whether a usable dump was obtained;
@@ -184,8 +223,12 @@ implementation cannot stream the dump, Nier falls back to a temporary
 read fails. When
 `hook.target_package` is configured, `prefer_webview=True` first uses the
 WebView DevTools Protocol and returns `WEBVIEW_DEVTOOLS` with the current DOM.
-The host temporarily forwards the app's abstract DevTools socket through ADB
-and removes that forward after the request. If the target is not debug-enabled,
+The host temporarily forwards the app's abstract DevTools socket through ADB.
+An optional WebView adapter can report a TCP port; Nier verifies that the
+listener is bound to device loopback before forwarding it. If that listener is
+unavailable but the same process exposes the standard Android WebView DevTools
+socket, Nier tries that socket instead. Nier removes either forward after the
+request. If the target is not debug-enabled,
 not running, or CDP fails, the backend returns `UIAUTOMATOR_FALLBACK` with a
 warning. Use `prefer_webview=False` to request UIAutomator directly.
 

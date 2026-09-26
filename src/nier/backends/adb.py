@@ -196,7 +196,41 @@ def _launch_result(output: str, operation: str) -> ActionResult:
     if any(marker in normalized for marker in failure_markers):
         detail = message[:512] or "Android reported a launch failure"
         raise BackendError(f"{operation} failed: {detail}")
+    status = re.search(r"(?im)^\s*Status:\s*(\S+)", output)
+    if status is not None and status.group(1).lower() != "ok":
+        raise BackendError(f"{operation} failed: {message[:512]}")
     return ActionResult(success=True, message=message[:512] or "ok")
+
+
+def _parse_launcher_component(output: str, package: str) -> str:
+    """Parse the package manager's resolved MAIN/LAUNCHER component."""
+    for line in output.splitlines():
+        value = line.strip()
+        if value.startswith("ComponentInfo{") and value.endswith("}"):
+            value = value[len("ComponentInfo{") : -1]
+        match = _ACTIVITY_COMPONENT.fullmatch(value)
+        if match is None or match.group("package") != package:
+            continue
+        activity = match.group("activity")
+        try:
+            if activity.startswith(".") or "." not in activity:
+                full_activity = normalize_activity_component(package, activity).split(
+                    "/", 1
+                )[1]
+            else:
+                class_package, class_name = activity.rsplit(".", 1)
+                full_activity = normalize_activity_component(
+                    class_package,
+                    class_name,
+                ).split("/", 1)[1]
+            return f"{package}/{full_activity}"
+        except ValueError as exc:
+            raise ProtocolError(
+                f"Android returned an invalid launcher Activity for {package!r}: {value!r}"
+            ) from exc
+    detail = " ".join(output.split())[:512]
+    reason = f": {detail}" if detail else ""
+    raise BackendError(f"could not resolve launcher Activity for {package!r}{reason}")
 
 
 def _parse_ui_automator_xml(value: bytes | str) -> str:
@@ -216,6 +250,49 @@ def _parse_ui_automator_xml(value: bytes | str) -> str:
     except ET.ParseError as exc:
         raise ProtocolError(f"ADB UIAutomator dump returned malformed XML: {exc}") from exc
     return xml
+
+
+def _unique_webview_bounds(xml: str) -> tuple[int, int, int, int] | None:
+    """Return one unambiguous viewport rectangle from native WebView views.
+
+    Some Android hierarchies report overlapping WebView wrappers whose edges
+    differ by one pixel. Those are safe to treat as one viewport by taking
+    their intersection; materially different or invalid rectangles are
+    ambiguous and disable DOM coordinate mapping.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+
+    webviews = [
+        node
+        for node in root.iter()
+        if node.attrib.get("class", "").rsplit(".", 1)[-1] == "WebView"
+    ]
+    if not webviews:
+        return None
+    rectangles: list[tuple[int, int, int, int]] = []
+    for node in webviews:
+        match = re.fullmatch(
+            r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]",
+            node.attrib.get("bounds", "").strip(),
+        )
+        if match is None:
+            return None
+        left, top, right, bottom = (int(value) for value in match.groups())
+        if left < 0 or top < 0 or right <= left or bottom <= top:
+            return None
+        rectangles.append((left, top, right, bottom))
+
+    coordinates = tuple(zip(*rectangles, strict=True))
+    if any(max(axis) - min(axis) > 1 for axis in coordinates):
+        return None
+    left = max(rectangle[0] for rectangle in rectangles)
+    top = max(rectangle[1] for rectangle in rectangles)
+    right = min(rectangle[2] for rectangle in rectangles)
+    bottom = min(rectangle[3] for rectangle in rectangles)
+    return (left, top, right, bottom) if right > left and bottom > top else None
 
 
 class _PersistentUinputSession:
@@ -509,28 +586,32 @@ class AdbBackend:
         return self.list_app_activities(package)
 
     def open_app(self, package: str, *, restart: bool = False) -> ActionResult:
-        """Open the package's launcher Activity, optionally restarting it.
+        """Resolve and open the package's launcher Activity.
 
         Restarting force-stops the app process and clears its Activity task
-        before launch, but does not clear its stored data. The operation is
-        sent once and is never automatically retried.
+        before launch, but does not clear its stored data. Android's launch
+        result is awaited, and the operation is never automatically retried.
         """
         package = validate_package_name(package)
+        resolved = self.adb.shell(
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "-p",
+            package,
+        )
+        component = _parse_launcher_component(resolved, package)
         if restart:
             self.adb.shell("am", "force-stop", package)
-        start_arguments = ["am", "start"]
+        start_arguments = ["am", "start", "-W"]
         if restart:
             start_arguments.append("--activity-clear-task")
-        start_arguments.extend(
-            [
-                "-a",
-                "android.intent.action.MAIN",
-                "-c",
-                "android.intent.category.LAUNCHER",
-                "-p",
-                package,
-            ]
-        )
+        start_arguments.extend(["-n", component])
         output = self.adb.shell(*start_arguments)
         operation = "restart" if restart else "open"
         return _launch_result(output, f"{operation} app {package!r}")
@@ -664,14 +745,28 @@ class AdbBackend:
 
         hook = self._get_webview_hook()
         try:
+            hook_session: HookSession | None = None
             if hook.capabilities.mode in {HookMode.ROOT, HookMode.LSPOSED}:
-                self._ensure_webview_hook_session(target_package)
+                hook_session = self._ensure_webview_hook_session(target_package)
+
+            # UIAutomator sees the native WebView as one Android view. Its
+            # bounds provide the origin and size needed to map CSS pixels onto
+            # the device screen. Read them after hook setup in case spawn mode
+            # changed the foreground content. Geometry is optional: a failed or
+            # ambiguous native dump must not prevent the normal CDP DOM dump.
+            try:
+                viewport_bounds = _unique_webview_bounds(self._dump_ui_automator())
+            except (NierError, OSError, TimeoutError):
+                viewport_bounds = None
+
+            tcp_port = getattr(hook_session, "tcp_port", None)
             return WebViewDevTools(
                 self.adb,
                 package=target_package,
                 pid=self._webview_pid,
+                tcp_port=tcp_port,
                 timeout=self.hook_config.timeout_seconds,
-            ).dump_dom()
+            ).dump_dom(viewport_bounds=viewport_bounds)
         except Exception:
             # A dead target must not leave a stale instrumentation session
             # attached for the next read attempt. dump_ui still provides the

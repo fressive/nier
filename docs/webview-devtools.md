@@ -28,11 +28,27 @@ ADB shell.
 
 ## Root mode
 
-Install the optional host dependency and run a matching root-capable
-`frida-server` on the authorized device:
+Root mode injects Frida into the target process and may crash apps or behave
+poorly on incompatible devices. Prefer LSPosed when its scoped Nier module is
+available. Otherwise, use root mode only on a device and app where this risk is
+acceptable. Install the optional host dependency and provide a matching,
+root-capable `frida-server` binary on the authorized device.
+
+Automatic startup is opt-in: `auto_start_frida_server` defaults to `false`.
+Set it to `true` to have a root-mode dump start the configured executable when
+it is not already running. Nier does not download, install, update, or stop the
+device binary.
 
 ```bash
 python -m pip install -e '.[hook]'
+```
+
+```yaml
+hook:
+  mode: root
+  target_package: com.example.authorized.app
+  frida_server_path: /data/local/tmp/frida-server
+  auto_start_frida_server: true
 ```
 
 Nier can attach to an existing process or spawn the package before resume. The
@@ -55,7 +71,76 @@ Manager, and add only authorized target packages to its scope. Set
 `hook.mode: lsposed`. The module enables WebView debugging during application
 startup and overrides later calls that attempt to disable it. The host checks
 the module's readiness record for the running process before requesting the
-DOM through CDP. This mode does not use Frida or root shell access.
+DOM through CDP. If bounded logcat has rotated that record, an exact
+process-owned DevTools socket is also accepted as evidence. This mode does not
+use Frida or root shell access.
+
+### Optional local adapter plugin
+
+The Android module has a vendor-neutral `WebViewDebugAdapter` extension point.
+Adapters are intentionally not bundled with the repository: provide a local
+Kotlin source directory and implementation class only when building a private
+integration. Use this only with apps and devices you own or are authorized to
+inspect: the module runs the plugin inside the scoped app process. The adapter
+receives the target package, process, and application class loader. An
+implementation has a no-argument constructor and can report a DevTools
+listener with `context.reporter.reportLoopbackTcpPort(port)`:
+
+```kotlin
+package icu.rina.nier.backend
+
+class LocalAdapter : WebViewDebugAdapter {
+    override fun install(context: WebViewDebugAdapterContext) {
+        // Install provider-specific hooks here.
+        // Report only after the provider is constrained to loopback.
+        context.reporter.reportLoopbackTcpPort(9222)
+    }
+}
+```
+
+The host accepts that endpoint only after confirming the port is listening on
+device loopback. Adapter errors use the same versioned, vendor-neutral log
+protocol. If a custom endpoint is not available, the host can still use a
+process-owned standard WebView DevTools socket; otherwise `uidump` returns the
+normal UIAutomator fallback and warning.
+
+For example, from `backend/nier-android`, a private plugin kept under the
+repository's ignored `local_plugins/` directory can be compiled with:
+
+```bash
+gradle \
+  -PnierWebViewAdapterSourceDir="$PWD/../../local_plugins/webview_adapter/src/main/java" \
+  -PnierWebViewAdapterClass=icu.rina.nier.backend.LocalWebViewAdapter \
+  :app:assembleDebug
+```
+
+Both settings are optional, but must be supplied together. They can also be
+provided as `NIER_WEBVIEW_ADAPTER_SOURCE_DIR` and
+`NIER_WEBVIEW_ADAPTER_CLASS` environment variables. The default build includes
+no adapter. Keep private or third-party-specific adapter sources in the local
+plugin directory; it is excluded from repository changes.
+
+WebView inspection is a read operation: `DeviceSession` may retry it under the
+configured read retry policy, but it never automatically retries taps, text
+input, or other device actions.
+
+When the host can also read an unambiguous native WebView viewport from
+UIAutomator, Nier maps each DOM element's visible rectangle into that WebView's
+Android screen rectangle. Overlapping native reports are merged only when all
+edges differ by at most one pixel. HTML, viewport dimensions, and element
+rectangles are read in one CDP evaluation so they describe the same DOM
+snapshot. The returned HTML copy receives `data-nier-screen-bounds`,
+`data-nier-clickable`, and
+`data-nier-visible` attributes; the live page is not changed. Callers can then
+use the same `UiNode` / `Widget` queries and `Widget.click()` tap path as for
+Android views. Clickability is heuristic (semantic controls, ARIA roles,
+focusability, event attributes, directly attached event listeners when
+available, and pointer cursor), not complete JavaScript listener
+introspection. Missing or ambiguous native WebView geometry, hidden
+or out-of-viewport elements, and an HTML-to-DOM ordering mismatch fail closed:
+the DOM remains readable, but affected elements are not tappable. Each mapped
+coordinate belongs to that dump snapshot and is not revalidated before the
+single ADB tap.
 
 LSPosed applies hooks when an application process starts. After enabling the
 module, changing its scope, or installing an updated APK, force-stop and reopen
@@ -93,6 +178,6 @@ finally:
 ```
 
 If the target is not running, debugging is not enabled, the WebView has not
-created its DevTools socket yet, or CDP fails, Nier returns UIAutomator XML
-with source `UIAUTOMATOR_FALLBACK` and a warning. The temporary ADB forward is
-removed on both success and failure.
+created its DevTools socket or adapter listener yet, or CDP fails, Nier
+returns UIAutomator XML with source `UIAUTOMATOR_FALLBACK` and a warning. The
+temporary ADB forward is removed on both success and failure.

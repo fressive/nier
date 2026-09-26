@@ -21,6 +21,16 @@ configured ADB logcat stream. For WebView DevTools, the module enables
 `WebView.setWebContentsDebuggingEnabled(true)` at app startup and reports
 readiness using the `NierWebViewHook` logcat tag; host configuration uses
 `hook.mode: lsposed` to verify that report without using Frida.
+Optional provider-specific WebView support is supplied through the
+vendor-neutral `WebViewDebugAdapter` SPI. The default build contains no custom
+adapter. For local integrations, pass both
+`-PnierWebViewAdapterSourceDir=<source-directory>` and
+`-PnierWebViewAdapterClass=<fully-qualified-class>` to Gradle. An adapter can
+report its loopback TCP endpoint through `reportLoopbackTcpPort`; the host
+verifies the listener before forwarding it and otherwise falls back to the
+standard process-owned WebView DevTools socket. Keep private adapter source
+under the ignored `local_plugins/` directory; do not add it to repository
+changes.
 
 The Intent module hooks `Instrumentation`, `ContextImpl`, and the framework
 ActivityTaskManager binder proxy. The binder hook also covers app code that

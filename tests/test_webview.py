@@ -9,14 +9,15 @@ from typing import Any
 from nier.backends.adb import AdbBackend
 from nier.config import DeviceConfig, HookConfig, HookMode
 from nier.protocol import UiSource
+from nier.ui import parse_uidump
 from nier.webview import (
+    _WS_GUID,
     DevToolsTarget,
     WebViewDevTools,
     _CdpClient,
-    _WebSocketClient,
-    _WS_GUID,
     _select_target,
     _websocket_path,
+    _WebSocketClient,
 )
 
 
@@ -68,6 +69,169 @@ def test_cdp_client_falls_back_to_runtime_evaluate() -> None:
     assert websocket.commands[-1]["method"] == "Runtime.evaluate"
 
 
+def test_cdp_client_maps_html_elements_to_screen_space() -> None:
+    websocket = FakeWebSocket(
+        [
+            {
+                "id": 1,
+                "result": {
+                    "result": {
+                        "value": {
+                            "html": "<html><body><button>Open</button></body></html>",
+                            "viewport": {
+                                "width": 100,
+                                "height": 200,
+                                "offsetLeft": 0,
+                                "offsetTop": 0,
+                            },
+                            "elements": [
+                                {
+                                    "tag": "html",
+                                    "left": 0,
+                                    "top": 0,
+                                    "right": 100,
+                                    "bottom": 200,
+                                    "clickable": False,
+                                    "visible": True,
+                                },
+                                {
+                                    "tag": "body",
+                                    "left": 0,
+                                    "top": 0,
+                                    "right": 100,
+                                    "bottom": 200,
+                                    "clickable": False,
+                                    "visible": True,
+                                },
+                                {
+                                    "tag": "button",
+                                    "left": 10,
+                                    "top": 20,
+                                    "right": 30,
+                                    "bottom": 40,
+                                    "clickable": True,
+                                    "visible": True,
+                                },
+                            ],
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    html = _CdpClient(websocket, timeout=1.0).dump_document_with_geometry(
+        (100, 200, 500, 1000)  # type: ignore[arg-type]
+    )
+    button = parse_uidump(html, source=UiSource.WEBVIEW_DEVTOOLS).find(tag="button")
+
+    assert button is not None
+    assert button.bounds == (140, 280, 220, 360)
+    assert button.center == (180.0, 320.0)
+    assert button.clickable is True
+    assert button.visible is True
+    assert [command["method"] for command in websocket.commands] == ["Runtime.evaluate"]
+    assert websocket.commands[0]["params"]["includeCommandLineAPI"] is True
+
+
+def test_cdp_geometry_mismatch_leaves_dom_unmapped() -> None:
+    websocket = FakeWebSocket(
+        [
+            {
+                "id": 1,
+                "result": {
+                    "result": {
+                        "value": {
+                            "html": "<html><body><button>Open</button></body></html>",
+                            "viewport": {
+                                "width": 100,
+                                "height": 200,
+                                "offsetLeft": 0,
+                                "offsetTop": 0,
+                            },
+                            "elements": [
+                                {
+                                    "tag": "html",
+                                    "left": 0,
+                                    "top": 0,
+                                    "right": 100,
+                                    "bottom": 200,
+                                    "clickable": False,
+                                    "visible": True,
+                                },
+                                {
+                                    "tag": "body",
+                                    "left": 0,
+                                    "top": 0,
+                                    "right": 100,
+                                    "bottom": 200,
+                                    "clickable": False,
+                                    "visible": True,
+                                },
+                                {
+                                    "tag": "div",
+                                    "left": 10,
+                                    "top": 20,
+                                    "right": 30,
+                                    "bottom": 40,
+                                    "clickable": True,
+                                    "visible": True,
+                                },
+                            ],
+                        }
+                    }
+                },
+            }
+        ]
+    )
+    html = "<html><body><button>Open</button></body></html>"
+
+    mapped = _CdpClient(websocket, timeout=1.0).dump_document_with_geometry(
+        (100, 200, 500, 1000)  # type: ignore[arg-type]
+    )
+
+    assert mapped == html
+
+
+def test_cdp_geometry_clips_offscreen_elements_and_marks_them_hidden() -> None:
+    html = "<html><body><button>Below</button></body></html>"
+    websocket = FakeWebSocket(
+        [
+            {
+                "id": 1,
+                "result": {
+                    "result": {
+                        "value": {
+                            "html": html,
+                            "viewport": {
+                                "width": 100,
+                                "height": 200,
+                                "offsetLeft": 0,
+                                "offsetTop": 0,
+                            },
+                            "elements": [
+                                {"tag": "html", "left": 0, "top": 0, "right": 100, "bottom": 200, "clickable": False, "visible": True},
+                                {"tag": "body", "left": 0, "top": 0, "right": 100, "bottom": 200, "clickable": False, "visible": True},
+                                {"tag": "button", "left": 10, "top": 220, "right": 30, "bottom": 240, "clickable": True, "visible": False},
+                            ],
+                        }
+                    }
+                },
+            }
+        ]
+    )
+
+    mapped = _CdpClient(websocket, timeout=1.0).dump_document_with_geometry(
+        (100, 200, 500, 1000)  # type: ignore[arg-type]
+    )
+    button = parse_uidump(mapped, source=UiSource.WEBVIEW_DEVTOOLS).find(tag="button")
+
+    assert button is not None
+    assert button.bounds is None
+    assert button.clickable is True
+    assert button.visible is False
+
+
 def test_target_discovery_helpers() -> None:
     target = _select_target(
         [
@@ -95,7 +259,7 @@ def test_adb_backend_returns_webview_dump_when_cdp_succeeds(monkeypatch) -> None
         def __init__(self, *_args: Any, **_kwargs: Any) -> None:
             pass
 
-        def dump_dom(self) -> str:
+        def dump_dom(self, **_kwargs: Any) -> str:
             return "<html><body>from-webview</body></html>"
 
     monkeypatch.setattr("nier.backends.adb.WebViewDevTools", FakeDevTools)
@@ -114,6 +278,40 @@ def test_adb_backend_returns_webview_dump_when_cdp_succeeds(monkeypatch) -> None
     monkeypatch.setattr(backend, "_read_setting", lambda *_args: "device")
     monkeypatch.setattr(backend, "_read_property", lambda *_args: "model")
     assert backend.capabilities().supports_webview_debugging is True
+
+
+def test_adb_backend_passes_unique_native_webview_bounds_to_cdp(monkeypatch) -> None:
+    received: list[tuple[int, int, int, int] | None] = []
+
+    class FakeDevTools:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def dump_dom(
+            self,
+            *,
+            viewport_bounds: tuple[int, int, int, int] | None = None,
+        ) -> str:
+            received.append(viewport_bounds)
+            return "<html />"
+
+    monkeypatch.setattr("nier.backends.adb.WebViewDevTools", FakeDevTools)
+    backend = AdbBackend(
+        DeviceConfig(serial="device"),
+        hook_config=HookConfig(mode=HookMode.NON_ROOT, target_package="com.example.app"),
+    )
+    monkeypatch.setattr(
+        backend,
+        "_dump_ui_automator",
+        lambda: (
+            '<hierarchy><node class="android.widget.FrameLayout" '
+            'bounds="[0,0][1080,1920]"><node class="android.webkit.WebView" '
+            'bounds="[20,80][1060,1800]" /></node></hierarchy>'
+        ),
+    )
+
+    assert backend._dump_webview() == "<html />"
+    assert received == [(20, 80, 1060, 1800)]
 
 
 def test_webview_dump_forwards_socket_and_removes_forward(monkeypatch) -> None:
@@ -156,6 +354,42 @@ def test_webview_dump_forwards_socket_and_removes_forward(monkeypatch) -> None:
 
     assert WebViewDevTools(adb, package="com.example.app", timeout=1.0).dump_dom() == "<html />"  # type: ignore[arg-type]
     assert ("forward", "tcp:45678", "localabstract:webview_devtools_remote_123") in adb.calls
+    assert ("forward", "--remove", "tcp:45678") in adb.calls
+
+
+def test_webview_dump_forwards_loopback_tcp_endpoint_and_removes_forward(monkeypatch) -> None:
+    class FakeAdb:
+        def __init__(self) -> None:
+            self.calls: list[tuple[str, ...]] = []
+
+        def run(self, *args: str, **_kwargs: Any) -> subprocess.CompletedProcess[bytes]:
+            self.calls.append(args)
+            return subprocess.CompletedProcess(args, 0, b"", b"")
+
+    class FakeWebSocket:
+        def close(self) -> None:
+            pass
+
+    class FakeCdp:
+        def __init__(self, *_args: Any, **_kwargs: Any) -> None:
+            pass
+
+        def dump_document(self) -> str:
+            return "<html><body>sample</body></html>"
+
+    monkeypatch.setattr("nier.webview._free_local_port", lambda: 45678)
+    monkeypatch.setattr(
+        "nier.webview._get_json",
+        lambda *_args, **_kwargs: [{"type": "page", "webSocketDebuggerUrl": "ws://localhost/page"}],
+    )
+    monkeypatch.setattr("nier.webview._WebSocketClient.connect", lambda *_args, **_kwargs: FakeWebSocket())
+    monkeypatch.setattr("nier.webview._CdpClient", FakeCdp)
+    adb = FakeAdb()
+
+    html = WebViewDevTools(adb, tcp_port=9222, timeout=1.0).dump_dom()  # type: ignore[arg-type]
+
+    assert html == "<html><body>sample</body></html>"
+    assert ("forward", "tcp:45678", "tcp:9222") in adb.calls
     assert ("forward", "--remove", "tcp:45678") in adb.calls
 
 

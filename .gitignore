@@ -28,4 +28,7 @@ backend/nier-android/local.properties
 backend/nier-android/.gradle/
 backend/nier-android/app/.cxx/
 
+# Private, machine-local integrations; never include them in repository changes.
+local_plugins/
+
 temp/

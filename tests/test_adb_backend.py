@@ -6,7 +6,7 @@ from base64 import b64decode
 import pytest
 
 from nier.adb import AdbClient
-from nier.backends.adb import AdbBackend
+from nier.backends.adb import AdbBackend, _unique_webview_bounds
 from nier.config import DeviceConfig, HookConfig, HookMode
 from nier.errors import BackendError, BackendUnavailable
 from nier.hooks import HookCapabilities
@@ -24,6 +24,25 @@ from nier.protocol import (
 PNG_1X1 = b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+def test_unique_webview_bounds_requires_one_native_webview() -> None:
+    single = (
+        '<hierarchy><node class="android.webkit.WebView" '
+        'bounds="[12,34][512,934]" /></hierarchy>'
+    )
+    multiple = (
+        '<hierarchy><node class="android.webkit.WebView" bounds="[0,0][10,10]" />'
+        '<node class="com.example.WebView" bounds="[10,10][20,20]" /></hierarchy>'
+    )
+    duplicate_wrappers = (
+        '<hierarchy><node class="android.webkit.WebView" bounds="[0,112][1239,2604]" />'
+        '<node class="android.webkit.WebView" bounds="[0,112][1240,2604]" /></hierarchy>'
+    )
+
+    assert _unique_webview_bounds(single) == (12, 34, 512, 934)
+    assert _unique_webview_bounds(multiple) is None
+    assert _unique_webview_bounds(duplicate_wrappers) == (0, 112, 1239, 2604)
 
 
 def test_adb_root_probe_accepts_root_adbd_and_uses_it_for_commands(monkeypatch) -> None:
@@ -111,6 +130,22 @@ def fake_adb(monkeypatch):
             )
         if "get-state" in command:
             return subprocess.CompletedProcess(command, 0, b"device\n", b"")
+        if "resolve-activity" in command:
+            package = command[command.index("-p") + 1]
+            component = f"{package}/com.example.launcher.LaunchActivity"
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                f"priority=0 preferredOrder=0 match=0x108000\n{component}\n".encode(),
+                b"",
+            )
+        if "am" in command and "start" in command:
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                b"Status: ok\nLaunchState: COLD\nActivity: com.example.app/com.example.launcher.LaunchActivity\n",
+                b"",
+            )
         if "wm size" in joined:
             return subprocess.CompletedProcess(command, 0, b"Physical size: 1080x1920\n", b"")
         if "getprop ro.product.model" in joined:
@@ -324,6 +359,7 @@ def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) ->
 
     class FakeSession:
         pid = 321
+        tcp_port = 9223
 
         def close(self) -> None:
             calls.append(["lsposed-session-close"])
@@ -346,12 +382,13 @@ def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) ->
             return FakeSession()
 
     class FakeDevTools:
-        def __init__(self, _adb, *, package, pid, timeout) -> None:
+        def __init__(self, _adb, *, package, pid, tcp_port, timeout) -> None:
             assert package == "com.example.app"
             assert pid == 321
+            assert tcp_port == 9223
             assert timeout == 10.0
 
-        def dump_dom(self) -> str:
+        def dump_dom(self, **_kwargs) -> str:
             return "<html><body>lsposed</body></html>"
 
     hook = FakeHook()
@@ -458,21 +495,33 @@ def test_adb_backend_can_open_apps_and_start_activities(monkeypatch) -> None:
     assert backend.open_app("com.example.app").success is True
     assert backend.start_activity("com.example.app", ".MainActivity").success is True
 
-    assert any(
-        call[-9:]
-        == [
-            "shell",
-            "am",
-            "start",
-            "-a",
-            "android.intent.action.MAIN",
-            "-c",
-            "android.intent.category.LAUNCHER",
-            "-p",
-            "com.example.app",
-        ]
-        for call in calls
-    )
+    assert [
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "cmd",
+        "package",
+        "resolve-activity",
+        "--brief",
+        "-a",
+        "android.intent.action.MAIN",
+        "-c",
+        "android.intent.category.LAUNCHER",
+        "-p",
+        "com.example.app",
+    ] in calls
+    assert [
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "-n",
+        "com.example.app/com.example.launcher.LaunchActivity",
+    ] in calls
     assert any(
         call[-5:]
         == [
@@ -494,26 +543,72 @@ def test_adb_backend_force_stops_app_before_restart(monkeypatch) -> None:
 
     assert result.success is True
     force_stop_call = [
-        "adb", "-s", "device", "shell", "am", "force-stop", "com.example.app"
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "am",
+        "force-stop",
+        "com.example.app",
     ]
     launch_call = [
-        "adb", "-s", "device", "shell", "am", "start", "--activity-clear-task",
-        "-a", "android.intent.action.MAIN", "-c", "android.intent.category.LAUNCHER",
-        "-p", "com.example.app",
+        "adb",
+        "-s",
+        "device",
+        "shell",
+        "am",
+        "start",
+        "-W",
+        "--activity-clear-task",
+        "-n",
+        "com.example.app/com.example.launcher.LaunchActivity",
     ]
-    assert calls.index(force_stop_call) < calls.index(launch_call)
+    resolver_index = calls.index(
+        [
+            "adb",
+            "-s",
+            "device",
+            "shell",
+            "cmd",
+            "package",
+            "resolve-activity",
+            "--brief",
+            "-a",
+            "android.intent.action.MAIN",
+            "-c",
+            "android.intent.category.LAUNCHER",
+            "-p",
+            "com.example.app",
+        ]
+    )
+    assert resolver_index < calls.index(force_stop_call) < calls.index(launch_call)
 
 
 def test_adb_backend_reports_launch_errors(monkeypatch) -> None:
     fake_adb(monkeypatch)
     backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
+
+    def shell(*args, **kwargs):
+        if "resolve-activity" in args:
+            return "com.example.app/com.example.app.MainActivity"
+        return "Status: timeout\n"
+
+    monkeypatch.setattr(backend.adb, "shell", shell)
+
+    with pytest.raises(BackendError, match="open app"):
+        backend.open_app("com.example.app")
+
+
+def test_adb_backend_rejects_packages_without_a_launcher(monkeypatch) -> None:
+    fake_adb(monkeypatch)
+    backend = AdbBackend(DeviceConfig(serial="device", use_uinput=False))
     monkeypatch.setattr(
         backend.adb,
         "shell",
-        lambda *args, **kwargs: "Error type 3\nError: Activity class does not exist\n",
+        lambda *args, **kwargs: "No activity found",
     )
 
-    with pytest.raises(BackendError, match="open app"):
+    with pytest.raises(BackendError, match="could not resolve launcher Activity"):
         backend.open_app("com.example.app")
 
 

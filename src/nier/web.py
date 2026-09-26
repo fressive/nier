@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import ast
 import asyncio
+import base64
 import json
 import os
 import queue
@@ -25,6 +26,8 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
 
+from .api import connect
+from .errors import NierError
 from .web_preview import PreviewRequestError, PreviewUnavailable, ScrcpyPreview
 
 _EVENT_PREFIX = "\x1eNIER_EVENT "
@@ -45,6 +48,12 @@ class PreviewStartRequest(BaseModel):
     serial: str = Field(min_length=1, max_length=512)
 
 
+class UiDumpRequest(BaseModel):
+    serial: str = Field(min_length=1, max_length=512)
+    prefer_webview: bool = True
+    include_invisible: bool = False
+
+
 def _timestamp() -> str:
     return datetime.now(timezone.utc).isoformat()
 
@@ -52,12 +61,24 @@ def _timestamp() -> str:
 class _DashboardState:
     """Own one selected scripts directory, one child process, and live events."""
 
-    def __init__(self, scripts: Path, cwd: Path) -> None:
+    def __init__(
+        self,
+        scripts: Path,
+        cwd: Path,
+        config_path: Path | None = None,
+    ) -> None:
         self.scripts = scripts.resolve()
         self.cwd = cwd.resolve()
+        selected_config = config_path or Path("config/nier.yaml")
+        self.config_path = (
+            selected_config
+            if selected_config.is_absolute()
+            else self.cwd / selected_config
+        ).resolve()
         self.lock = threading.RLock()
         self.history: deque[dict[str, Any]] = deque(maxlen=2500)
-        self.subscribers: set[queue.Queue[dict[str, Any]]] = set()
+        self.subscribers: set[queue.Queue[dict[str, Any] | None]] = set()
+        self._streams_stopping = False
         self.sequence = 0
         self.current_step_id: int | None = None
         self.process: subprocess.Popen[str] | None = None
@@ -74,6 +95,46 @@ class _DashboardState:
             "debug_location": None,
             "execution_location": None,
         }
+
+    def capture_uidump(
+        self,
+        serial: str,
+        *,
+        prefer_webview: bool = True,
+        include_invisible: bool = False,
+    ) -> dict[str, Any]:
+        """Run the read-only CLI-equivalent dump and capture its screenshot."""
+        if not isinstance(serial, str) or not serial or len(serial) > 512:
+            raise ValueError("请选择有效的 ADB 设备")
+        devices = self.preview.status().get("devices", [])
+        if not any(
+            item.get("serial") == serial and item.get("state") == "device"
+            for item in devices
+        ):
+            raise ValueError("ADB 设备不可用或尚未授权")
+
+        device = connect(self.config_path, serial=serial)
+        try:
+            screenshot = device.screenshot()
+            dump = device.dump_ui(
+                prefer_webview=prefer_webview,
+                include_invisible=include_invisible,
+            )
+            document = device.parse_uidump(dump)
+            return {
+                "serial": serial,
+                "image_base64": base64.b64encode(screenshot.data).decode("ascii"),
+                "image_mime": f"image/{screenshot.format.value.lower()}",
+                "screen_width": screenshot.width,
+                "screen_height": screenshot.height,
+                "xml": dump.xml,
+                "source": dump.source.value,
+                "complete": dump.complete,
+                "warning": dump.warning,
+                "tree_text": device.format_tree(document, color=False),
+            }
+        finally:
+            device.close()
 
     def list_scripts(self) -> list[dict[str, str]]:
         scripts: list[dict[str, str]] = []
@@ -291,6 +352,21 @@ class _DashboardState:
         self.stop()
         self.preview.close()
 
+    def stop_streams(self) -> None:
+        """Wake streaming responses so the server can finish graceful shutdown."""
+        with self.lock:
+            self._streams_stopping = True
+            subscribers = tuple(self.subscribers)
+            self.subscribers.clear()
+        for subscriber in subscribers:
+            while True:
+                try:
+                    subscriber.get_nowait()
+                except queue.Empty:
+                    break
+            subscriber.put_nowait(None)
+        self.preview.stop_streams()
+
     def debug(self, command: str) -> dict[str, Any]:
         """Send one execution control command to the paused debug runner."""
         with self.lock:
@@ -404,13 +480,16 @@ class _DashboardState:
                 except queue.Full:
                     pass
 
-    def subscribe(self) -> tuple[queue.Queue[dict[str, Any]], list[dict[str, Any]]]:
-        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=256)
+    def subscribe(self) -> tuple[queue.Queue[dict[str, Any] | None], list[dict[str, Any]]]:
+        subscriber: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=256)
         with self.lock:
-            self.subscribers.add(subscriber)
+            if self._streams_stopping:
+                subscriber.put_nowait(None)
+            else:
+                self.subscribers.add(subscriber)
             return subscriber, list(self.history)
 
-    def unsubscribe(self, subscriber: queue.Queue[dict[str, Any]]) -> None:
+    def unsubscribe(self, subscriber: queue.Queue[dict[str, Any] | None]) -> None:
         with self.lock:
             self.subscribers.discard(subscriber)
 
@@ -426,7 +505,12 @@ def _asset_root() -> Path:
     return Path(__file__).resolve().parent / "web_static"
 
 
-def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
+def create_app(
+    scripts: Path,
+    *,
+    cwd: Path | None = None,
+    config_path: Path | None = None,
+) -> FastAPI:
     """Create a FastAPI dashboard app for scripts inside ``scripts``."""
     scripts = scripts.resolve()
     if not scripts.is_dir():
@@ -437,7 +521,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
             "Nier web assets are missing; run `npm install && npm run build` in the web directory"
         )
 
-    state = _DashboardState(scripts, cwd or Path.cwd())
+    state = _DashboardState(scripts, cwd or Path.cwd(), config_path)
 
     @asynccontextmanager
     async def lifespan(_: FastAPI):
@@ -503,6 +587,28 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         check_origin(request)
         return state.preview.stop()
 
+    @app.post("/api/uidump")
+    def capture_uidump(
+        payload: UiDumpRequest,
+        request: Request,
+        response: Response,
+    ) -> dict[str, Any]:
+        check_origin(request)
+        try:
+            result = state.capture_uidump(
+                payload.serial,
+                prefer_webview=payload.prefer_webview,
+                include_invisible=payload.include_invisible,
+            )
+            response.headers["Cache-Control"] = "no-store"
+            return result
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        except NierError as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+        except (OSError, TimeoutError) as exc:
+            raise HTTPException(status_code=503, detail=str(exc)) from exc
+
     @app.get("/api/preview/stream")
     def stream_preview(request: Request):
         check_origin(request)
@@ -511,7 +617,10 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         except PreviewRequestError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return StreamingResponse(
-            state.preview.stream(subscriber),
+            state.preview.stream(
+                subscriber,
+                is_disconnected=request.is_disconnected,
+            ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -520,20 +629,29 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
         )
 
     @app.get("/api/events")
-    def stream_events():
+    async def stream_events(request: Request):
         subscriber, history = state.subscribe()
 
-        def events():
+        async def events():
             try:
                 for event in history:
                     payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                     yield f"id: {event['event_id']}\ndata: {payload}\n\n"
-                while True:
+                loop = asyncio.get_running_loop()
+                next_keep_alive = loop.time() + 15
+                while not await request.is_disconnected():
                     try:
-                        event = subscriber.get(timeout=15)
+                        event = await asyncio.to_thread(subscriber.get, True, 0.5)
                     except queue.Empty:
-                        yield ": keep-alive\n\n"
+                        if await request.is_disconnected():
+                            return
+                        now = loop.time()
+                        if now >= next_keep_alive:
+                            yield ": keep-alive\n\n"
+                            next_keep_alive = now + 15
                         continue
+                    if event is None:
+                        return
                     payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                     yield f"id: {event['event_id']}\ndata: {payload}\n\n"
             finally:
@@ -581,6 +699,7 @@ def create_app(scripts: Path, *, cwd: Path | None = None) -> FastAPI:
 def serve_web(
     scripts: Path,
     *,
+    config_path: Path | None = None,
     host: str = "127.0.0.1",
     port: int = 8765,
     open_browser: bool = True,
@@ -592,16 +711,32 @@ def serve_web(
         raise RuntimeError("Uvicorn is required for `nier web`; reinstall Nier with its web dependencies") from exc
     if not 1 <= port <= 65535:
         raise ValueError("dashboard port must be between 1 and 65535")
-    app = create_app(scripts)
+    app = create_app(scripts, config_path=config_path)
     url = f"http://{host}:{port}"
     print(f"Nier web dashboard: {url}")
     print(f"Scripts: {scripts.resolve()}")
     if open_browser:
         webbrowser.open(url)
+    dashboard = app.state.dashboard
+
+    class DashboardServer(uvicorn.Server):
+        def handle_exit(self, sig, frame) -> None:
+            dashboard.stop_streams()
+            super().handle_exit(sig, frame)
+
     try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        config = uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=5,
+        )
+        DashboardServer(config).run()
+    except KeyboardInterrupt:
+        pass
     finally:
-        app.state.dashboard.close()
+        dashboard.close()
 
 
 __all__ = ["create_app", "serve_web"]

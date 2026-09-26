@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import asyncio
+import queue
 import subprocess
 
 from nier import web_preview
@@ -49,3 +51,31 @@ def test_preview_state_exposes_screen_size_for_coordinate_mapping(monkeypatch) -
     assert state["screen_width"] == 1240
     assert state["screen_height"] == 2772
     preview.close()
+
+
+def test_preview_stream_ends_when_client_disconnects() -> None:
+    preview = ScrcpyPreview()
+    preview._active = True
+    subscriber: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
+    preview._subscribers.add(subscriber)
+
+    async def disconnected() -> bool:
+        return True
+
+    async def consume() -> None:
+        async for _ in preview.stream(subscriber, is_disconnected=disconnected):
+            pass
+
+    asyncio.run(consume())
+
+    assert subscriber not in preview._subscribers
+
+
+def test_preview_shutdown_wakes_active_streams() -> None:
+    preview = ScrcpyPreview()
+    subscriber: queue.Queue[bytes | None] = queue.Queue(maxsize=2)
+    preview._subscribers.add(subscriber)
+
+    preview.stop_streams()
+
+    assert subscriber.get_nowait() is None

@@ -59,7 +59,11 @@ once and are never automatically retried, because repeating a launch after a
 lost response could produce an unintended navigation. By default,
 `open_app(package)` launches the app without stopping it first. Set
 `restart=True` to run Android `am force-stop`, clear the app's Activity task,
-and start the launcher Activity fresh. It preserves the app's stored data.
+and start the launcher Activity fresh. The ADB backend resolves the package's
+`MAIN`/`LAUNCHER` Activity first, then starts its explicit component and waits
+for Android's launch result; this avoids treating a merely accepted implicit
+Intent as proof that the app reached its launcher. It preserves the app's
+stored data.
 `launch_app()` accepts the same option as an alias. The `phone.llm()` agent
 also exposes this option to its `open_app` tool and uses it only when the goal
 explicitly asks to restart the app.

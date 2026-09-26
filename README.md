@@ -70,7 +70,9 @@ Typed decisions from the TypeSafe SysOne provider are available through
 a UI control from a dump, use
 `phone.widgets().clickable().choice("进入设置").click()`; the `clickable()`
 filter is optional because `choice()` filters unsafe candidates itself.
-`widgets()` prefers UIAutomator to retain screen bounds. The
+`widgets()` prefers UIAutomator to retain screen bounds. WebView DOM nodes are
+also mapped to screen bounds when one native WebView can be identified safely,
+so the same widget queries and tap API work there. The
 provider is configured under `models.sysone` with `provider: typesafe`, created
 on first use, and reused for the connection. The default credential variable is
 `SYS_ONE_API_KEY`; `TYPESAFE_API_KEY` is also recognized. See the
@@ -109,10 +111,10 @@ for that command. `v` shows steps. `vv` adds OCR, UI dump, SysOne, and LLM resul
 SysOne answers are shown by question and type; `vvv` renders their UI summaries
 and OCR spans as readable lines.
 
-The CLI includes configurable `screenshot` and `uidump` commands, read-only
-`locate text` and `locate icon` commands (`--tap` explicitly requests a click),
-and `adb` for raw ADB passthrough. See the [CLI device tools guide](docs/cli.md)
-for options and optional OCR/OpenCV dependencies.
+The CLI includes configurable `screenshot`, `ocr`, and `uidump` commands,
+read-only `locate text` and `locate icon` commands (`--tap` explicitly requests
+a click), and `adb` for raw ADB passthrough. See the [CLI device tools
+guide](docs/cli.md) for options and optional OCR/OpenCV dependencies.
 Nier terminal logs are written to stdout, and logs and CLI summaries use labeled
 text rather than JSON output; machine-readable run records remain saved as JSON
 files.

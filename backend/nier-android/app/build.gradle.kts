@@ -3,6 +3,32 @@ plugins {
     kotlin("android")
 }
 
+val webViewAdapterSourceDir = providers.gradleProperty("nierWebViewAdapterSourceDir")
+    .orElse(providers.environmentVariable("NIER_WEBVIEW_ADAPTER_SOURCE_DIR"))
+    .orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+val webViewAdapterClass = providers.gradleProperty("nierWebViewAdapterClass")
+    .orElse(providers.environmentVariable("NIER_WEBVIEW_ADAPTER_CLASS"))
+    .orNull
+    ?.trim()
+    ?.takeIf(String::isNotEmpty)
+
+if ((webViewAdapterSourceDir == null) != (webViewAdapterClass == null)) {
+    throw GradleException(
+        "Set both nierWebViewAdapterSourceDir and nierWebViewAdapterClass " +
+            "(or both NIER_WEBVIEW_ADAPTER_* environment variables)"
+    )
+}
+
+if (webViewAdapterSourceDir != null && !file(webViewAdapterSourceDir).isDirectory) {
+    throw GradleException("WebView adapter source directory does not exist: $webViewAdapterSourceDir")
+}
+
+val escapedWebViewAdapterClass = (webViewAdapterClass ?: "")
+    .replace("\\", "\\\\")
+    .replace("\"", "\\\"")
+
 android {
     namespace = "icu.rina.nier.backend"
     compileSdk = 35
@@ -15,6 +41,11 @@ android {
         targetSdk = 35
         versionCode = 1
         versionName = "0.1.0"
+        buildConfigField("String", "NIER_WEBVIEW_ADAPTER_CLASS", "\"$escapedWebViewAdapterClass\"")
+    }
+
+    if (webViewAdapterSourceDir != null) {
+        sourceSets.getByName("main").java.srcDir(webViewAdapterSourceDir)
     }
 
     buildFeatures {

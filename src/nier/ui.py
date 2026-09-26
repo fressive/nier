@@ -34,6 +34,8 @@ _TREE_BOOLEAN_ATTRIBUTES = {
     "checked",
     "clickable",
     "context-clickable",
+    "data-nier-clickable",
+    "data-nier-visible",
     "dismissable",
     "editable",
     "enabled",
@@ -103,7 +105,9 @@ class UiNode:
 
     @property
     def bounds(self) -> tuple[int, int, int, int] | None:
-        value = self.attributes.get("bounds", "")
+        value = self.attributes.get(
+            "data-nier-screen-bounds", self.attributes.get("bounds", "")
+        )
         match = _BOUNDS_RE.fullmatch(value.strip())
         if match is None:
             return None
@@ -119,11 +123,16 @@ class UiNode:
 
     @property
     def clickable(self) -> bool | None:
-        return _boolean_attribute(self.attributes.get("clickable"))
+        return _boolean_attribute(
+            self.attributes.get("data-nier-clickable", self.attributes.get("clickable"))
+        )
 
     @property
     def visible(self) -> bool | None:
-        value = self.attributes.get("visible-to-user", self.attributes.get("visible"))
+        value = self.attributes.get(
+            "data-nier-visible",
+            self.attributes.get("visible-to-user", self.attributes.get("visible")),
+        )
         return _boolean_attribute(value)
 
     def attr(self, name: str, default: str | None = None) -> str | None:
@@ -253,6 +262,10 @@ class UiDocument:
 
     def find_all(self, **filters: TextMatcher | bool | None) -> tuple[UiNode, ...]:
         return self.root.find_all(**filters)
+
+    def match(self, **filters: TextMatcher | bool | None) -> bool:
+        """Return whether exactly one node matches the supplied filters."""
+        return len(self.find_all(**filters)) == 1
 
     def find(self, **filters: TextMatcher | bool | None) -> UiNode | None:
         return self.root.find(**filters)

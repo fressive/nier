@@ -40,6 +40,20 @@ def test_parse_android_ui_xml_and_find_nodes() -> None:
     assert len(document.find_all(class_name="android.widget.Button")) == 1
 
 
+def test_ui_document_match_requires_exactly_one_result() -> None:
+    document = parse_uidump(UI_XML)
+    duplicate_nodes = parse_uidump(
+        "<hierarchy><node class='android.widget.Button' />"
+        "<node class='android.widget.Button' /></hierarchy>"
+    )
+
+    assert document.match(resource_id="com.example:id/login") is True
+    assert document.match(text="不存在") is False
+    assert duplicate_nodes.match(class_name="android.widget.Button") is False
+    assert document.match() is False
+    assert parse_uidump("<hierarchy />").match() is True
+
+
 def test_parse_webview_html_and_read_file(tmp_path) -> None:
     html = '<html><body><button id="login" aria-label="Login">Log in</button></body></html>'
     path = tmp_path / "ui.html"
@@ -52,6 +66,24 @@ def test_parse_webview_html_and_read_file(tmp_path) -> None:
     assert button.resource_id == "login"
     assert button.content_desc == "Login"
     assert button.text_content == "Log in"
+
+
+def test_parse_webview_mapping_metadata_as_widget_properties() -> None:
+    html = (
+        '<html data-nier-screen-bounds="[0,0][400,800]" '
+        'data-nier-clickable="false" data-nier-visible="true">'
+        '<body><button data-nier-screen-bounds="[40,80][160,120]" '
+        'data-nier-clickable="true" data-nier-visible="true">Continue</button>'
+        "</body></html>"
+    )
+
+    button = parse_uidump(html, source=UiSource.WEBVIEW_DEVTOOLS).find(tag="button")
+
+    assert button is not None
+    assert button.bounds == (40, 80, 160, 120)
+    assert button.center == (100.0, 100.0)
+    assert button.clickable is True
+    assert button.visible is True
 
 
 def test_parse_uidump_preserves_dump_metadata() -> None:
