@@ -298,11 +298,12 @@ package is configured and `false` otherwise. The optional hook controller in
 `src/nier/hooks.py` implements the instrumentation boundary:
 
 - `root` mode MUST require a rooted device, a root-capable `frida-server`, and
-  the optional `frida` host dependency; root-mode instrumentation MUST start
-  the configured server on demand by default, wait for its process to appear,
-  and MUST NOT download or install it; `hook.auto_start_frida_server=false`
-  disables this behavior. Root mode may attach to an existing process or spawn
-  the target package before resuming it;
+  the optional `frida` host dependency; root-mode instrumentation MUST NOT
+  start `frida-server` unless `hook.auto_start_frida_server=true` is explicitly
+  configured. When enabled, it MUST wait for the configured server process to
+  appear and MUST NOT download, install, update, or stop it. The option defaults
+  to `false`. Root mode may attach to an existing process or spawn the target
+  package before resuming it;
 - `non-root` mode MUST NOT call `su`, ptrace, or Frida attach. It is cooperative
   only: the target application must call
   `WebViewDebugController.enable()` before creating its WebView;

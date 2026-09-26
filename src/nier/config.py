@@ -113,8 +113,8 @@ class HookConfig:
 
     force_system_back is a root-Frida opt-in. When enabled, the hook suppresses
     common application-owned Java back callbacks so a back action can reach
-    the platform default behavior. Root WebView instrumentation starts the
-    configured Frida server on demand unless explicitly disabled. LSPosed mode
+    the platform default behavior. Root WebView instrumentation can start the
+    configured Frida server on demand when explicitly enabled. LSPosed mode
     uses the installed Nier Android module to enable WebView debugging in its
     scoped app processes. The intent-hook CLI also uses the target package and
     timeout to listen for events from that module.
@@ -126,8 +126,8 @@ class HookConfig:
     target_package: str | None = None
     spawn: bool = False
     frida_server_path: str = "/data/local/tmp/frida-server"
-    # Root-mode instrumentation starts this binary on demand by default.
-    auto_start_frida_server: bool = True
+    # Root-mode instrumentation starts this binary only when explicitly enabled.
+    auto_start_frida_server: bool = False
     timeout_seconds: float = 10.0
     force_system_back: bool = False
 
@@ -474,7 +474,7 @@ def from_mapping(data: Mapping[str, Any]) -> AppConfig:
             spawn=_boolean(hook.get("spawn", False), "hook.spawn"),
             frida_server_path=frida_server_path,
             auto_start_frida_server=_boolean(
-                hook.get("auto_start_frida_server", True),
+                hook.get("auto_start_frida_server", False),
                 "hook.auto_start_frida_server",
             ),
             timeout_seconds=float(_positive(hook.get("timeout_seconds", 10.0), "hook.timeout_seconds")),
