@@ -17,7 +17,9 @@ nier web --scripts=./examples
 The command serves the bundled React and shadcn/ui interface through FastAPI
 and Uvicorn at `http://127.0.0.1:8765`, then opens the browser. Use
 `--no-browser` to print the address without opening it. The script directory is
-scanned recursively for `.py` files.
+scanned recursively for `.py` files. Press Ctrl+C in the serving terminal to
+stop the dashboard; active live-log and screen-preview streams are closed as
+part of shutdown.
 
 The dashboard has a separate **UI Inspector** tab. Select an authorized ADB
 device and choose **执行 uidump** to capture a screenshot and UI hierarchy using

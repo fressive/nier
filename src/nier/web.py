@@ -77,7 +77,8 @@ class _DashboardState:
         ).resolve()
         self.lock = threading.RLock()
         self.history: deque[dict[str, Any]] = deque(maxlen=2500)
-        self.subscribers: set[queue.Queue[dict[str, Any]]] = set()
+        self.subscribers: set[queue.Queue[dict[str, Any] | None]] = set()
+        self._streams_stopping = False
         self.sequence = 0
         self.current_step_id: int | None = None
         self.process: subprocess.Popen[str] | None = None
@@ -351,6 +352,21 @@ class _DashboardState:
         self.stop()
         self.preview.close()
 
+    def stop_streams(self) -> None:
+        """Wake streaming responses so the server can finish graceful shutdown."""
+        with self.lock:
+            self._streams_stopping = True
+            subscribers = tuple(self.subscribers)
+            self.subscribers.clear()
+        for subscriber in subscribers:
+            while True:
+                try:
+                    subscriber.get_nowait()
+                except queue.Empty:
+                    break
+            subscriber.put_nowait(None)
+        self.preview.stop_streams()
+
     def debug(self, command: str) -> dict[str, Any]:
         """Send one execution control command to the paused debug runner."""
         with self.lock:
@@ -464,13 +480,16 @@ class _DashboardState:
                 except queue.Full:
                     pass
 
-    def subscribe(self) -> tuple[queue.Queue[dict[str, Any]], list[dict[str, Any]]]:
-        subscriber: queue.Queue[dict[str, Any]] = queue.Queue(maxsize=256)
+    def subscribe(self) -> tuple[queue.Queue[dict[str, Any] | None], list[dict[str, Any]]]:
+        subscriber: queue.Queue[dict[str, Any] | None] = queue.Queue(maxsize=256)
         with self.lock:
-            self.subscribers.add(subscriber)
+            if self._streams_stopping:
+                subscriber.put_nowait(None)
+            else:
+                self.subscribers.add(subscriber)
             return subscriber, list(self.history)
 
-    def unsubscribe(self, subscriber: queue.Queue[dict[str, Any]]) -> None:
+    def unsubscribe(self, subscriber: queue.Queue[dict[str, Any] | None]) -> None:
         with self.lock:
             self.subscribers.discard(subscriber)
 
@@ -598,7 +617,10 @@ def create_app(
         except PreviewRequestError as exc:
             raise HTTPException(status_code=409, detail=str(exc)) from exc
         return StreamingResponse(
-            state.preview.stream(subscriber),
+            state.preview.stream(
+                subscriber,
+                is_disconnected=request.is_disconnected,
+            ),
             media_type="multipart/x-mixed-replace; boundary=frame",
             headers={
                 "Cache-Control": "no-store, no-cache, must-revalidate",
@@ -607,20 +629,29 @@ def create_app(
         )
 
     @app.get("/api/events")
-    def stream_events():
+    async def stream_events(request: Request):
         subscriber, history = state.subscribe()
 
-        def events():
+        async def events():
             try:
                 for event in history:
                     payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                     yield f"id: {event['event_id']}\ndata: {payload}\n\n"
-                while True:
+                loop = asyncio.get_running_loop()
+                next_keep_alive = loop.time() + 15
+                while not await request.is_disconnected():
                     try:
-                        event = subscriber.get(timeout=15)
+                        event = await asyncio.to_thread(subscriber.get, True, 0.5)
                     except queue.Empty:
-                        yield ": keep-alive\n\n"
+                        if await request.is_disconnected():
+                            return
+                        now = loop.time()
+                        if now >= next_keep_alive:
+                            yield ": keep-alive\n\n"
+                            next_keep_alive = now + 15
                         continue
+                    if event is None:
+                        return
                     payload = json.dumps(event, ensure_ascii=False, separators=(",", ":"))
                     yield f"id: {event['event_id']}\ndata: {payload}\n\n"
             finally:
@@ -686,10 +717,26 @@ def serve_web(
     print(f"Scripts: {scripts.resolve()}")
     if open_browser:
         webbrowser.open(url)
+    dashboard = app.state.dashboard
+
+    class DashboardServer(uvicorn.Server):
+        def handle_exit(self, sig, frame) -> None:
+            dashboard.stop_streams()
+            super().handle_exit(sig, frame)
+
     try:
-        uvicorn.run(app, host=host, port=port, log_level="warning")
+        config = uvicorn.Config(
+            app,
+            host=host,
+            port=port,
+            log_level="warning",
+            timeout_graceful_shutdown=5,
+        )
+        DashboardServer(config).run()
+    except KeyboardInterrupt:
+        pass
     finally:
-        app.state.dashboard.close()
+        dashboard.close()
 
 
 __all__ = ["create_app", "serve_web"]
