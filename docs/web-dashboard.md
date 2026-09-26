@@ -40,9 +40,10 @@ generates a copyable Nier snippet that re-finds the selected node by its visible
 text and available IDs/attributes. It includes `component.click()` only when the
 dump marks the selected node clickable and provides usable screen bounds;
 otherwise the generated snippet locates and prints the node without sending an
-action. The snippet checks that the selector matches exactly one node before
-using it, so ambiguous matches fail visibly instead of tapping an arbitrary
-component.
+action. The snippet uses `UiDocument.match()` to check that the selector matches
+exactly one node, then retrieves it with `find()` and verifies its captured
+bounds. Ambiguous or changed matches fail visibly instead of tapping an
+arbitrary component.
 
 The CLI config can be selected when starting the dashboard:
 

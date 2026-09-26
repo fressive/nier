@@ -24,7 +24,11 @@ test("generates a checked Nier widget click for a uniquely described clickable n
   assert.match(result.code, /phone\.parse_uidump\(prefer_webview=False\)/);
   assert.match(result.code, /text="进入设置"/);
   assert.match(result.code, /resource_id="app:id\/settings"/);
-  assert.match(result.code, /node\.bounds == \(10, 20, 110, 80\)/);
+  assert.match(result.code, /if not ui\.match\(\*\*query\):/);
+  assert.match(result.code, /node = ui\.find\(\*\*query\)/);
+  assert.match(result.code, /node\.bounds != \(10, 20, 110, 80\)/);
+  assert.match(result.code, /phone\.widget\(node\)/);
+  assert.doesNotMatch(result.code, /find_all/);
   assert.match(result.code, /component\.click\(\)/);
 });
 
@@ -60,7 +64,7 @@ test("generates a guarded click for a mapped clickable WebView node", () => {
   assert.equal(result.canClick, true);
   assert.equal(result.warning, "");
   assert.match(result.code, /prefer_webview=True/);
-  assert.match(result.code, /node\.bounds == \(10, 20, 110, 80\)/);
+  assert.match(result.code, /node\.bounds != \(10, 20, 110, 80\)/);
   assert.match(result.code, /component\.click\(\)/);
 });
 
