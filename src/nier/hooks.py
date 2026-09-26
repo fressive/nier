@@ -554,11 +554,7 @@ def _attach_root_frida_agent(
 
     frida = _load_frida()
     if config.auto_start_frida_server:
-        command = f"{shlex.quote(config.frida_server_path)} >/dev/null 2>&1 &"
-        try:
-            adb.root_shell("sh", "-c", command, timeout=min(config.timeout_seconds, 3.0))
-        except Exception as exc:
-            raise HookUnavailable(f"could not start frida-server: {exc}") from exc
+        _ensure_frida_server(adb, config)
 
     timeout_ms = int(config.timeout_seconds * 1000)
     try:
@@ -592,6 +588,30 @@ def _attach_root_frida_agent(
         raise
     except Exception as exc:
         raise HookUnavailable(f"root {agent_name} hook failed for {target}: {exc}") from exc
+
+
+def _ensure_frida_server(adb: AdbClient, config: HookConfig) -> None:
+    """Start the configured server if needed and wait for its process to appear."""
+    server_path = shlex.quote(config.frida_server_path)
+    missing_message = shlex.quote(
+        f"frida-server is missing or not executable: {config.frida_server_path}"
+    )
+    command = (
+        "if pidof frida-server >/dev/null 2>&1; then exit 0; fi; "
+        f"if [ ! -x {server_path} ]; then "
+        f"echo {missing_message} >&2; exit 1; fi; "
+        f"{server_path} >/dev/null 2>&1 & "
+        "attempt=0; "
+        "while [ \"$attempt\" -lt 40 ]; do "
+        "if pidof frida-server >/dev/null 2>&1; then sleep 0.2; exit 0; fi; "
+        "sleep 0.1; attempt=$((attempt + 1)); "
+        "done; "
+        "echo 'frida-server did not start within 4 seconds' >&2; exit 1"
+    )
+    try:
+        adb.root_shell("sh", "-c", command, timeout=6.0)
+    except Exception as exc:
+        raise HookUnavailable(f"could not start frida-server: {exc}") from exc
 
 
 class RootFridaWebViewHook:

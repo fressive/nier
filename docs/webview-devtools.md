@@ -29,10 +29,21 @@ ADB shell.
 ## Root mode
 
 Install the optional host dependency and run a matching root-capable
-`frida-server` on the authorized device:
+`frida-server` on the authorized device. By default, root-mode instrumentation
+starts the configured binary when it is not already running and waits briefly
+for the process to appear. Nier does not download, install, or update the
+device binary. Set `auto_start_frida_server: false` to require manual startup.
 
 ```bash
 python -m pip install -e '.[hook]'
+```
+
+```yaml
+hook:
+  mode: root
+  target_package: com.example.authorized.app
+  frida_server_path: /data/local/tmp/frida-server
+  auto_start_frida_server: true
 ```
 
 Nier can attach to an existing process or spawn the package before resume. The
