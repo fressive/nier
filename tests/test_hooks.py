@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import subprocess
+
 import pytest
 
 from nier.config import HookConfig, HookMode
@@ -18,10 +20,16 @@ class FakeAdb:
     def __init__(self, rooted: bool) -> None:
         self.rooted = rooted
         self.root_checks = 0
+        self.root_shell_calls: list[tuple[str, ...]] = []
 
     def is_root(self) -> bool:
         self.root_checks += 1
         return self.rooted
+
+    def root_shell(self, *args: str, timeout: float | None = None):
+        del timeout
+        self.root_shell_calls.append(args)
+        return subprocess.CompletedProcess(args, 0, b"", b"")
 
 
 def test_explicit_non_root_mode_never_checks_root_or_injects() -> None:
@@ -199,8 +207,9 @@ def test_root_hook_passes_back_policy_to_frida_script(monkeypatch) -> None:
 
     fake_frida = FakeFrida()
     monkeypatch.setattr("nier.hooks._load_frida", lambda: fake_frida)
+    adb = FakeAdb(rooted=True)
     hook = RootFridaWebViewHook(
-        FakeAdb(rooted=True),
+        adb,
         HookConfig(
             mode=HookMode.ROOT,
             target_package="com.example.authorized.app",
@@ -213,6 +222,10 @@ def test_root_hook_passes_back_policy_to_frida_script(monkeypatch) -> None:
     assert session.pid == 123  # type: ignore[attr-defined]
     assert fake_frida.device.session.script is not None
     assert "const NIER_FORCE_SYSTEM_BACK = true;" in fake_frida.device.session.script.source
+    assert len(adb.root_shell_calls) == 1
+    startup_command = adb.root_shell_calls[0][2]
+    assert "pidof frida-server" in startup_command
+    assert "/data/local/tmp/frida-server" in startup_command
 
 
 def test_root_hook_resolves_package_pid_through_adb(monkeypatch) -> None:
@@ -252,10 +265,16 @@ def test_root_hook_resolves_package_pid_through_adb(monkeypatch) -> None:
             return FakeDevice()
 
     monkeypatch.setattr("nier.hooks._load_frida", lambda: FakeFrida())
+    adb = FakeAdbWithPid(rooted=True)
     hook = RootFridaWebViewHook(
-        FakeAdbWithPid(rooted=True),
-        HookConfig(mode=HookMode.ROOT, target_package="com.example.authorized.app"),
+        adb,
+        HookConfig(
+            mode=HookMode.ROOT,
+            target_package="com.example.authorized.app",
+            auto_start_frida_server=False,
+        ),
     )
 
     session = hook.attach()
     session.close()
+    assert adb.root_shell_calls == []

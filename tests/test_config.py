@@ -146,6 +146,8 @@ def test_model_api_key_can_be_loaded_directly_or_from_environment(
 
 
 def test_hook_modes_are_parsed_and_validated() -> None:
+    assert from_mapping({}).hook.auto_start_frida_server is True
+
     config = from_mapping(
         {
             "hook": {
