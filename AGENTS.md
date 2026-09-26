@@ -52,11 +52,14 @@ the difference in prose.
 - Use `jj` for repository status, diffs, logs, and commits. Every completed
   task-sized logical change MUST be recorded in its own new commit before
   handoff; do not leave completed task changes only in the working copy.
-- Every feature MUST start in a dedicated change created with
-  `jj new <integration-target> -m "<type>(<scope>): <imperative summary>"`
-  before editing. Every `jj new` invocation MUST include `-m`/`--message`,
-  including integration and merge changes. Keep unrelated working-copy changes
-  out of the feature change.
+- Every new branch/change MUST be created with `jj new` and an explicit
+  `-m`/`--message` in that same invocation, for example:
+  `jj new <integration-target> -m "<type>(<scope>): <imperative summary>"`.
+  Running bare `jj new`, relying on a default description, or creating a change
+  and filling its description later is forbidden. This applies to feature,
+  temporary, integration, and merge changes. A feature MUST start in its own
+  dedicated change before editing; keep unrelated working-copy changes out of
+  it.
 - After implementation and review, commit the feature change, then create an
   explicit merge change with a message, for example:
 
