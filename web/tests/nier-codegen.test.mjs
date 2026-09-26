@@ -44,6 +44,43 @@ test("does not generate an action for WebView nodes without click metadata", () 
   assert.match(result.warning, /clickable/);
 });
 
+test("generates a guarded click for a mapped clickable WebView node", () => {
+  const result = generateNierCode({
+    tag: "button",
+    attributes: {
+      "aria-label": "进入设置",
+      "data-nier-screen-bounds": "[10,20][110,80]",
+      "data-nier-clickable": "true",
+      "data-nier-visible": "true",
+    },
+    text: "进入设置",
+    children: [],
+  }, { ...options, source: "WEBVIEW_DEVTOOLS" });
+
+  assert.equal(result.canClick, true);
+  assert.equal(result.warning, "");
+  assert.match(result.code, /prefer_webview=True/);
+  assert.match(result.code, /node\.bounds == \(10, 20, 110, 80\)/);
+  assert.match(result.code, /component\.click\(\)/);
+});
+
+test("does not generate a WebView click for mapped invisible nodes", () => {
+  const result = generateNierCode({
+    tag: "button",
+    attributes: {
+      "data-nier-screen-bounds": "[10,20][110,80]",
+      "data-nier-clickable": "true",
+      "data-nier-visible": "false",
+    },
+    text: "Continue",
+    children: [],
+  }, { ...options, source: "WEBVIEW_DEVTOOLS" });
+
+  assert.equal(result.canClick, false);
+  assert.match(result.warning, /不可见/);
+  assert.doesNotMatch(result.code, /component\.click\(\)/);
+});
+
 test("does not generate an action when a clickable node has no screen bounds", () => {
   const result = generateNierCode({
     tag: "node",

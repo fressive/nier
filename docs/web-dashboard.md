@@ -27,8 +27,11 @@ write screenshot or dump files. UIAutomator bounds are drawn over the screenshot
 hovering a box scrolls to and highlights its tree node, and hovering a tree node
 highlights its screenshot bounds. The panel also exposes the human-readable CLI
 tree and raw XML/HTML. **WebView** prefers DevTools DOM extraction; uncheck it to
-request UIAutomator directly when you need Android view bounds. WebView DOM
-nodes often have no screen-space `bounds`, so they cannot be overlaid.
+request UIAutomator directly when you need Android view bounds. When the host
+can map WebView DOM geometry to the native WebView viewport, the Inspector
+draws the mapped `data-nier-screen-bounds` over the device screenshot and uses
+the mapped clickability/visibility metadata when generating code. Unmapped DOM
+nodes remain searchable in the tree but have no screenshot overlay or click.
 
 Click a bounds rectangle or a tree row to select a component. The inspector then
 generates a copyable Nier snippet that re-finds the selected node by its visible

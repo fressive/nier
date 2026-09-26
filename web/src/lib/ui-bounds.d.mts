@@ -12,3 +12,13 @@ export function parseUiBounds(
   screenWidth: number,
   screenHeight: number,
 ): UiBounds | null;
+
+export function parseUiNodeBounds(
+  attributes: Record<string, string>,
+  screenWidth: number,
+  screenHeight: number,
+): UiBounds | null;
+
+export function uiNodeClickable(attributes: Record<string, string>): string | undefined;
+
+export function uiNodeVisible(attributes: Record<string, string>): string | undefined;

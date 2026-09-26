@@ -1,4 +1,4 @@
-import { parseUiBounds } from "./ui-bounds.mjs";
+import { parseUiBounds, uiNodeClickable, uiNodeVisible } from "./ui-bounds.mjs";
 
 function pythonString(value) {
   return JSON.stringify(value)
@@ -44,9 +44,11 @@ export function generateNierCode(node, { source, screenWidth, screenHeight }) {
     ["tag", node.tag],
   ].filter(([, value]) => value);
 
-  const visible = attributes["visible-to-user"] ?? attributes.visible;
-  const rawBounds = readBounds(attributes.bounds);
-  const clippedBounds = parseUiBounds(attributes.bounds, screenWidth, screenHeight);
+  const clickable = uiNodeClickable(attributes);
+  const visible = uiNodeVisible(attributes);
+  const boundsValue = attributes["data-nier-screen-bounds"] ?? attributes.bounds;
+  const rawBounds = readBounds(boundsValue);
+  const clippedBounds = parseUiBounds(boundsValue, screenWidth, screenHeight);
   const usableBounds = Boolean(
     rawBounds
       && clippedBounds
@@ -59,7 +61,7 @@ export function generateNierCode(node, { source, screenWidth, screenHeight }) {
       && rawBounds[2] - rawBounds[0] >= 12
       && rawBounds[3] - rawBounds[1] >= 12,
   );
-  const canClick = isTrue(attributes.clickable) && !isFalse(visible) && usableBounds;
+  const canClick = isTrue(clickable) && !isFalse(visible) && usableBounds;
   const preferWebView = source === "WEBVIEW_DEVTOOLS" ? "True" : "False";
   const lines = [
     "from nier import connect",
@@ -86,7 +88,7 @@ export function generateNierCode(node, { source, screenWidth, screenHeight }) {
   }
 
   let warning = "";
-  if (!isTrue(attributes.clickable)) {
+  if (!isTrue(clickable)) {
     warning = "节点没有 clickable=true 标记；生成代码只定位并打印节点，不会点击。";
   } else if (isFalse(visible)) {
     warning = "节点被标记为不可见；生成代码只定位并打印节点，不会点击。";

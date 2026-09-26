@@ -20,3 +20,21 @@ export function parseUiBounds(value, screenWidth, screenHeight) {
     height: clipped.bottom - clipped.top,
   };
 }
+
+export function parseUiNodeBounds(attributes, screenWidth, screenHeight) {
+  if (!attributes || typeof attributes !== "object") return null;
+  const value = attributes["data-nier-screen-bounds"] ?? attributes.bounds;
+  return parseUiBounds(value, screenWidth, screenHeight);
+}
+
+export function uiNodeClickable(attributes) {
+  if (!attributes || typeof attributes !== "object") return undefined;
+  return attributes["data-nier-clickable"] ?? attributes.clickable;
+}
+
+export function uiNodeVisible(attributes) {
+  if (!attributes || typeof attributes !== "object") return undefined;
+  return attributes["data-nier-visible"]
+    ?? attributes["visible-to-user"]
+    ?? attributes.visible;
+}
