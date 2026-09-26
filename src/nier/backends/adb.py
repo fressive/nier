@@ -252,6 +252,49 @@ def _parse_ui_automator_xml(value: bytes | str) -> str:
     return xml
 
 
+def _unique_webview_bounds(xml: str) -> tuple[int, int, int, int] | None:
+    """Return one unambiguous viewport rectangle from native WebView views.
+
+    Some Android hierarchies report overlapping WebView wrappers whose edges
+    differ by one pixel. Those are safe to treat as one viewport by taking
+    their intersection; materially different or invalid rectangles are
+    ambiguous and disable DOM coordinate mapping.
+    """
+    try:
+        root = ET.fromstring(xml)
+    except ET.ParseError:
+        return None
+
+    webviews = [
+        node
+        for node in root.iter()
+        if node.attrib.get("class", "").rsplit(".", 1)[-1] == "WebView"
+    ]
+    if not webviews:
+        return None
+    rectangles: list[tuple[int, int, int, int]] = []
+    for node in webviews:
+        match = re.fullmatch(
+            r"\[(-?\d+),(-?\d+)\]\[(-?\d+),(-?\d+)\]",
+            node.attrib.get("bounds", "").strip(),
+        )
+        if match is None:
+            return None
+        left, top, right, bottom = (int(value) for value in match.groups())
+        if left < 0 or top < 0 or right <= left or bottom <= top:
+            return None
+        rectangles.append((left, top, right, bottom))
+
+    coordinates = tuple(zip(*rectangles, strict=True))
+    if any(max(axis) - min(axis) > 1 for axis in coordinates):
+        return None
+    left = max(rectangle[0] for rectangle in rectangles)
+    top = max(rectangle[1] for rectangle in rectangles)
+    right = min(rectangle[2] for rectangle in rectangles)
+    bottom = min(rectangle[3] for rectangle in rectangles)
+    return (left, top, right, bottom) if right > left and bottom > top else None
+
+
 class _PersistentUinputSession:
     """Reuse one rooted virtual touch device for an ADB backend session."""
 
@@ -702,14 +745,28 @@ class AdbBackend:
 
         hook = self._get_webview_hook()
         try:
+            hook_session: HookSession | None = None
             if hook.capabilities.mode in {HookMode.ROOT, HookMode.LSPOSED}:
-                self._ensure_webview_hook_session(target_package)
+                hook_session = self._ensure_webview_hook_session(target_package)
+
+            # UIAutomator sees the native WebView as one Android view. Its
+            # bounds provide the origin and size needed to map CSS pixels onto
+            # the device screen. Read them after hook setup in case spawn mode
+            # changed the foreground content. Geometry is optional: a failed or
+            # ambiguous native dump must not prevent the normal CDP DOM dump.
+            try:
+                viewport_bounds = _unique_webview_bounds(self._dump_ui_automator())
+            except (NierError, OSError, TimeoutError):
+                viewport_bounds = None
+
+            tcp_port = getattr(hook_session, "tcp_port", None)
             return WebViewDevTools(
                 self.adb,
                 package=target_package,
                 pid=self._webview_pid,
+                tcp_port=tcp_port,
                 timeout=self.hook_config.timeout_seconds,
-            ).dump_dom()
+            ).dump_dom(viewport_bounds=viewport_bounds)
         except Exception:
             # A dead target must not leave a stale instrumentation session
             # attached for the next read attempt. dump_ui still provides the

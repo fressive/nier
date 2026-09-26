@@ -681,8 +681,10 @@ class Device:
         configured TypeSafe Choice provider select a visible control. The
         ``clickable()`` filter is optional; ``choice()`` itself excludes
         candidates that cannot safely be clicked. UIAutomator is preferred by
-        default because it supplies clickable flags and screen-space bounds;
-        WebView DOM nodes without those bounds cannot be tapped by this chain.
+        default. When one unambiguous native WebView viewport is available,
+        WebView DOM nodes receive screen-space bounds and heuristic
+        clickability flags. If mapping is unavailable or ambiguous, those DOM
+        nodes remain searchable but cannot be tapped by this chain.
         """
         if isinstance(dump, UiDocument):
             document = dump

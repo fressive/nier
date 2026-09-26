@@ -129,12 +129,35 @@ device action is never retried automatically.
 The configured TypeSafe provider sees bounded candidate IDs and labels, not
 coordinates. Selection failures raise `ModelError`; if there are no safely
 clickable candidates, `UiElementNotFound` is raised without tapping. A WebView
-DOM dump can still be searched, but DOM elements without screen-space `bounds`
-are not eligible for this click chain; use UIAutomator when screen bounds are
-needed. `Device.widgets()` prefers UIAutomator by default for this reason. Run
-this only against an authorized device. `DeviceSession` can retry
-read-style UI dumps, but the final tap is a device action and is never retried
-automatically.
+DOM dump can also participate when UIAutomator reports an unambiguous native
+WebView viewport with usable screen bounds. Nearly identical overlapping
+WebView reports are treated as one viewport only when every edge differs by at
+most one pixel. Nier reads the WebView viewport and element
+rectangles in one CDP evaluation, clips them to the visible viewport, and adds
+`data-nier-screen-bounds`, `data-nier-clickable`, and `data-nier-visible`
+attributes to the returned HTML copy. The live page is not modified. CSS
+rectangles are mapped proportionally into the native WebView's Android screen
+rectangle; semantic HTML controls, ARIA roles, focusability, event attributes,
+direct event listeners (when DevTools exposes them), and pointer styling are
+used as a clickability heuristic. Delegated JavaScript handlers may not
+identify which descendant is actionable. If the native WebView is
+missing/ambiguous, geometry is invalid, or DOM order cannot be matched safely,
+the DOM remains searchable but has no mapped click targets. `Device.widgets()`
+still prefers UIAutomator by default; pass `prefer_webview=True` to select from
+the mapped DOM instead:
+
+```python
+from nier import connect
+
+
+with connect("config/nier.yaml") as phone:
+    phone.widgets(prefer_webview=True).choice("关闭弹窗").click()
+```
+
+Mapped coordinates are a snapshot: the screen can change before a tap, and
+taps are never retried automatically. Run this only against an authorized
+device. `DeviceSession` can retry read-style UI dumps, but the final tap is a
+device action and is never retried automatically.
 
 Use `to_dict()` when a UI tree must be passed to a model or serialized as
 JSON. `UiDocument.to_dict()` returns source/completeness metadata and a
@@ -165,7 +188,8 @@ from an empty subtree.
 
 `UiDump` has these fields:
 
-- `xml`: raw UIAutomator XML or WebView DOM HTML;
+- `xml`: UIAutomator XML or WebView DOM HTML, optionally with host-generated
+  Nier mapping attributes;
 - `source`: `UIAUTOMATOR`, `WEBVIEW_DEVTOOLS`, or
   `UIAUTOMATOR_FALLBACK`;
 - `complete`: whether a usable dump was obtained;

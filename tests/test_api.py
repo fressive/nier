@@ -839,6 +839,20 @@ def test_device_can_bind_ui_node_as_widget_and_click_it() -> None:
     assert backend.actions == [Click(Point(20, 30), 80)]
 
 
+def test_mapped_webview_node_uses_the_regular_widget_tap_path() -> None:
+    backend = FakeBackend()
+    phone, _ = make_device(backend)
+    html = (
+        '<html><body><button data-nier-screen-bounds="[40,80][160,120]" '
+        'data-nier-clickable="true" data-nier-visible="true">Continue</button>'
+        "</body></html>"
+    )
+
+    phone.widgets(html).clickable()[0].click()
+
+    assert backend.actions == [Click(Point(100, 100), 80)]
+
+
 def test_device_widget_rejects_non_ui_node() -> None:
     phone, _ = make_device()
 

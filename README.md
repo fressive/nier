@@ -70,7 +70,9 @@ Typed decisions from the TypeSafe SysOne provider are available through
 a UI control from a dump, use
 `phone.widgets().clickable().choice("进入设置").click()`; the `clickable()`
 filter is optional because `choice()` filters unsafe candidates itself.
-`widgets()` prefers UIAutomator to retain screen bounds. The
+`widgets()` prefers UIAutomator to retain screen bounds. WebView DOM nodes are
+also mapped to screen bounds when one native WebView can be identified safely,
+so the same widget queries and tap API work there. The
 provider is configured under `models.sysone` with `provider: typesafe`, created
 on first use, and reused for the connection. The default credential variable is
 `SYS_ONE_API_KEY`; `TYPESAFE_API_KEY` is also recognized. See the

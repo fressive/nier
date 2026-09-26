@@ -6,7 +6,7 @@ from base64 import b64decode
 import pytest
 
 from nier.adb import AdbClient
-from nier.backends.adb import AdbBackend
+from nier.backends.adb import AdbBackend, _unique_webview_bounds
 from nier.config import DeviceConfig, HookConfig, HookMode
 from nier.errors import BackendError, BackendUnavailable
 from nier.hooks import HookCapabilities
@@ -24,6 +24,25 @@ from nier.protocol import (
 PNG_1X1 = b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
 )
+
+
+def test_unique_webview_bounds_requires_one_native_webview() -> None:
+    single = (
+        '<hierarchy><node class="android.webkit.WebView" '
+        'bounds="[12,34][512,934]" /></hierarchy>'
+    )
+    multiple = (
+        '<hierarchy><node class="android.webkit.WebView" bounds="[0,0][10,10]" />'
+        '<node class="com.example.WebView" bounds="[10,10][20,20]" /></hierarchy>'
+    )
+    duplicate_wrappers = (
+        '<hierarchy><node class="android.webkit.WebView" bounds="[0,112][1239,2604]" />'
+        '<node class="android.webkit.WebView" bounds="[0,112][1240,2604]" /></hierarchy>'
+    )
+
+    assert _unique_webview_bounds(single) == (12, 34, 512, 934)
+    assert _unique_webview_bounds(multiple) is None
+    assert _unique_webview_bounds(duplicate_wrappers) == (0, 112, 1239, 2604)
 
 
 def test_adb_root_probe_accepts_root_adbd_and_uses_it_for_commands(monkeypatch) -> None:
@@ -367,7 +386,7 @@ def test_adb_backend_uses_lsposed_ready_process_for_webview_dump(monkeypatch) ->
             assert pid == 321
             assert timeout == 10.0
 
-        def dump_dom(self) -> str:
+        def dump_dom(self, **_kwargs) -> str:
             return "<html><body>lsposed</body></html>"
 
     hook = FakeHook()
