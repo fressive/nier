@@ -214,6 +214,7 @@ def test_root_hook_passes_back_policy_to_frida_script(monkeypatch) -> None:
             mode=HookMode.ROOT,
             target_package="com.example.authorized.app",
             force_system_back=True,
+            auto_start_frida_server=True,
         ),
     )
 
